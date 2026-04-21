@@ -16,8 +16,20 @@ function sample_bayes_cox(
     pseudocount::Real = 1e-6,
     closure::Bool = true,
     standardize::Bool = false,
+    car_weights = nothing,
+    car_distance = nothing,
+    car_weight_quantile::Real = 0.75,
     kwargs...,
 )
+    car_weights !== nothing && car_distance !== nothing &&
+        throw(ArgumentError("pass either car_weights or car_distance, not both."))
+    resolved_car_weights = car_weights === nothing && car_distance !== nothing ?
+                           car_weight_matrix(
+                               X;
+                               distance = car_distance,
+                               threshold_quantile = car_weight_quantile,
+                           ) :
+                           car_weights
     data = prepare_cox_data(
         X,
         time,
@@ -27,7 +39,13 @@ function sample_bayes_cox(
         closure = closure,
         standardize = standardize,
     )
-    return sample_bayes_cox(data; prior = prior, sampler = sampler, kwargs...)
+    return sample_bayes_cox(
+        data;
+        prior = prior,
+        sampler = sampler,
+        car_weights = resolved_car_weights,
+        kwargs...,
+    )
 end
 
 function sample_bayes_cox(
@@ -35,13 +53,35 @@ function sample_bayes_cox(
     prior::AbstractCoxPrior = RegularizedHorseshoePrior(),
     sampler::Symbol = :nuts,
     seed = nothing,
+    car_weights = nothing,
+    car_distance = nothing,
+    car_weight_quantile::Real = 0.75,
     kwargs...,
 )
+    car_weights !== nothing && car_distance !== nothing &&
+        throw(ArgumentError("pass either car_weights or car_distance, not both."))
+    resolved_car_weights =
+        if car_weights !== nothing
+            car_weights
+        elseif car_distance !== nothing
+            data.transform == :log && !data.standardize ||
+                throw(ArgumentError(
+                    "car_distance for CoxPreparedData requires log-transformed, unstandardized data. " *
+                    "Pass car_weights explicitly or call sample_bayes_cox with the original X matrix.",
+                ))
+            car_weight_matrix(
+                exp.(data.z);
+                distance = car_distance,
+                threshold_quantile = car_weight_quantile,
+            )
+        else
+            nothing
+        end
     rng = seed === nothing ? Random.default_rng() : MersenneTwister(seed)
     if sampler == :nuts
-        samples = _sample_nuts(data, prior; rng = rng, kwargs...)
+        samples = _sample_nuts(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
     elseif sampler == :mh
-        samples = _sample_mh(data, prior; rng = rng, kwargs...)
+        samples = _sample_mh(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
     else
         throw(ArgumentError("sampler must be :nuts or :mh."))
     end

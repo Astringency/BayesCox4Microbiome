@@ -20,6 +20,131 @@ function cox_tau0(p::Integer, p0::Real, n_events::Integer)
     return (p0f / (p - p0f)) / sqrt(float(n_events))
 end
 
+function _car_distance_method(distance)
+    method = distance isa Symbol ? distance : Symbol(lowercase(String(distance)))
+    method in (:bray, :jaccard, :jsd) ||
+        throw(ArgumentError("car distance must be :bray, :jaccard, or :jsd."))
+    return method
+end
+
+function _validate_car_input(X::AbstractMatrix{<:Real})
+    x = Matrix{Float64}(X)
+    n, p = size(x)
+    n > 0 || throw(ArgumentError("X must contain at least one row."))
+    p > 1 || throw(ArgumentError("CAR weights require at least two taxa columns."))
+    all(isfinite, x) || throw(ArgumentError("X must be finite."))
+    all(>=(0), x) || throw(ArgumentError("CAR distance input must be nonnegative."))
+    return x
+end
+
+function _bray_distance(a::AbstractVector, b::AbstractVector)
+    denom = sum(a) + sum(b)
+    denom == 0 && return 0.0
+    return sum(abs.(a .- b)) / denom
+end
+
+function _jaccard_distance(a::AbstractVector, b::AbstractVector)
+    denom = sum(max.(a, b))
+    denom == 0 && return 0.0
+    return 1 - sum(min.(a, b)) / denom
+end
+
+function _kldiv_nonzero(p::AbstractVector, q::AbstractVector)
+    out = 0.0
+    @inbounds for i in eachindex(p, q)
+        p[i] > 0 && (out += p[i] * log(p[i] / q[i]))
+    end
+    return out
+end
+
+function _jsd_distance(a::AbstractVector, b::AbstractVector)
+    suma = sum(a)
+    sumb = sum(b)
+    suma > 0 && sumb > 0 ||
+        throw(ArgumentError("JSD distance requires every taxa column to have positive total abundance."))
+    pa = a ./ suma
+    pb = b ./ sumb
+    m = 0.5 .* (pa .+ pb)
+    jsd = 0.5 * _kldiv_nonzero(pa, m) + 0.5 * _kldiv_nonzero(pb, m)
+    return sqrt(max(jsd, 0.0))
+end
+
+"""
+    car_distance_matrix(X; distance=:bray)
+
+Compute pairwise taxa distances from an `n` by `p` abundance matrix `X`.
+Columns are treated as taxa and rows as samples. Supported distances are
+`:bray`, `:jaccard`, and `:jsd`.
+"""
+function car_distance_matrix(X::AbstractMatrix{<:Real}; distance = :bray)
+    x = _validate_car_input(X)
+    method = _car_distance_method(distance)
+    p = size(x, 2)
+    D = zeros(Float64, p, p)
+    @inbounds for j in 2:p
+        b = view(x, :, j)
+        for i in 1:(j - 1)
+            a = view(x, :, i)
+            d =
+                method == :bray ? _bray_distance(a, b) :
+                method == :jaccard ? _jaccard_distance(a, b) :
+                _jsd_distance(a, b)
+            D[i, j] = d
+            D[j, i] = d
+        end
+    end
+    return D
+end
+
+"""
+    car_similarity_matrix(D)
+
+Convert a square distance matrix to the centered similarity matrix used by
+the IAR/CAR construction: `-0.5 * J * D.^2 * J`.
+"""
+function car_similarity_matrix(D::AbstractMatrix{<:Real})
+    size(D, 1) == size(D, 2) || throw(DimensionMismatch("D must be a square matrix."))
+    p = size(D, 1)
+    p > 1 || throw(ArgumentError("D must describe at least two taxa."))
+    d = Matrix{Float64}(D)
+    all(isfinite, d) || throw(ArgumentError("D must be finite."))
+    all(>=(0), d) || throw(ArgumentError("D must be nonnegative."))
+    J = I - fill(1 / p, p, p)
+    return -0.5 .* (J * (d .^ 2) * J)
+end
+
+"""
+    car_weight_matrix(X; distance=:bray, threshold_quantile=0.75)
+
+Build the symmetric CAR weight matrix from an abundance matrix by following
+the BayesCox IAR construction: compute taxa distances, double-center squared
+distances into a similarity matrix, then keep edges whose `abs(similarity)` is
+above `threshold_quantile`.
+"""
+function car_weight_matrix(
+    X::AbstractMatrix{<:Real};
+    distance = :bray,
+    threshold_quantile::Real = 0.75,
+)
+    0 <= threshold_quantile <= 1 ||
+        throw(ArgumentError("threshold_quantile must be in [0, 1]."))
+    D = car_distance_matrix(X; distance = distance)
+    K = car_similarity_matrix(D)
+    cutoff = quantile(abs.(vec(K)), Float64(threshold_quantile))
+    p = size(K, 1)
+    W = zeros(Float64, p, p)
+    @inbounds for j in 2:p
+        for i in 1:(j - 1)
+            w = abs(K[i, j])
+            if w > cutoff
+                W[i, j] = w
+                W[j, i] = w
+            end
+        end
+    end
+    return W
+end
+
 function _halfcauchy_logpdf(x, scale)
     x > 0 || return -Inf
     return log(2) - log(pi) - log(scale) - log1p((x / scale)^2)
