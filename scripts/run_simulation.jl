@@ -98,7 +98,7 @@ function main()
     write_table(joinpath(tables_dir, "simulation_false_discovery.csv"), all_fd)
 
     grouped = combine(
-        groupby(all_metrics, [:prior, :n, :p, :nonzero_count, :baseline, :estimate]),
+        groupby(all_metrics, [:prior, :n, :p, :nonzero_count, :p0, :baseline, :estimate]),
         :MSE => mean => :MSE_mean,
         :MSE => std => :MSE_sd,
         :LPML => mean => :LPML_mean,
