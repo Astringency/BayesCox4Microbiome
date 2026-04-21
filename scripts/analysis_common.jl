@@ -49,6 +49,14 @@ function split_strings(s::AbstractString)
     return strip.(split(s, ","))
 end
 
+function parse_optional_p0(args; default = nothing)
+    haskey(args, "p0") || return default
+    value = lowercase(strip(args["p0"]))
+    value in ("auto", "none", "missing") && return nothing
+    value == "truth" && return :truth
+    return parse(Float64, value)
+end
+
 ensure_dir(path::AbstractString) = (mkpath(path); path)
 
 function true_beta(p::Integer, nonzero::Integer)
@@ -124,22 +132,41 @@ function generate_simulation_data(
     return (X = X, time = Float64.(time), event = event, beta = beta, nonzero_index = idx)
 end
 
-function prior_from_name(name::AbstractString; p0::Real = 1.0, realdata::Bool = false)
-    key = lowercase(replace(name, "_" => "-", " " => "-"))
-    if key in ("hs", "horseshoe")
-        return HorseshoePrior(tau_scale = 1.0, use_cox_tau0 = false, p0 = Float64(p0))
-    elseif key in ("cox-hs", "coxhs")
-        return HorseshoePrior(use_cox_tau0 = true, p0 = Float64(p0))
-    elseif key in ("rhs", "regularized-horseshoe", "cox-rhs", "coxrhs")
-        return RegularizedHorseshoePrior(use_cox_tau0 = true, p0 = Float64(p0), slab_df = 4.0, slab_s2 = 2.0)
-    elseif key in ("lasso", "bayesian-lasso")
-        return BayesianLassoPrior(lambda = nothing, lambda2_shape = 1.0, lambda2_rate = 0.1)
-    elseif key in ("sslasso", "spike-slab", "spike-and-slab")
-        return realdata ? SpikeSlabLassoPrior(spike_scale = 1.0, slab_scale = 10.0) :
-                          SpikeSlabLassoPrior(spike_scale = 0.04, slab_scale = 0.5)
-    else
-        throw(ArgumentError("unsupported prior name: $name"))
-    end
+function prior_from_name(
+    name::AbstractString,
+    X::AbstractMatrix,
+    time::AbstractVector,
+    event::AbstractVector;
+    p0 = nothing,
+    p0_alpha::Real = 0.05,
+    realdata::Bool = false,
+)
+    return cox_paper_prior(
+        name;
+        p0 = p0,
+        X = X,
+        time = time,
+        event = event,
+        p0_alpha = p0_alpha,
+        realdata = realdata,
+    )
+end
+
+prior_p0(prior) = hasproperty(prior, :p0) ? getproperty(prior, :p0) : missing
+
+function univariate_screen_table(X, time, event; names = nothing, alpha::Real = 0.05)
+    screen = estimate_p0_univariate_cox(X, time, event; alpha = alpha)
+    p = length(screen.pvalue)
+    vars = names === nothing ? ["x$j" for j in 1:p] : string.(names)
+    return DataFrame(
+        variable = vars,
+        estimate = screen.estimate,
+        stderr = screen.stderr,
+        zscore = screen.zscore,
+        pvalue = screen.pvalue,
+        significant = screen.significant,
+        converged = screen.converged,
+    ), screen
 end
 
 function posterior_summary(draws::AbstractMatrix; names = ["beta[$j]" for j in 1:size(draws, 2)], alpha::Real = 0.05)
@@ -219,10 +246,11 @@ function fit_and_evaluate(
     seed::Integer = 1,
     use_car::Bool = false,
     car_distance = :bray,
-    p0::Real = 1.0,
+    p0 = nothing,
+    p0_alpha::Real = 0.05,
     realdata::Bool = false,
 )
-    prior = prior_from_name(prior_name; p0 = p0, realdata = realdata)
+    prior = prior_from_name(prior_name, X, time, event; p0 = p0, p0_alpha = p0_alpha, realdata = realdata)
     result =
         if sampler == :nuts
             sample_bayes_cox(
@@ -273,7 +301,7 @@ function fit_and_evaluate(
         DIC = [metrics_mean.DIC, metrics_median.DIC],
         Cindex = [metrics_mean.Cindex, metrics_median.Cindex],
     )
-    return (result = result, draws = draws, summary = summary, metrics = metrics)
+    return (result = result, draws = draws, summary = summary, metrics = metrics, p0 = prior_p0(prior))
 end
 
 function coefficient_plot(summary::DataFrame, path::AbstractString; truth = nothing, title = "Coefficient estimates")

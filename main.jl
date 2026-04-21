@@ -5,6 +5,7 @@ using Random
 using Statistics
 using Distributions
 using Distances
+using Survival
 
 export AbstractCoxPrior,
     HorseshoePrior,
@@ -17,6 +18,9 @@ export AbstractCoxPrior,
     CoxSamplerResult,
     prepare_cox_data,
     cox_tau0,
+    linear_tau0,
+    estimate_p0_univariate_cox,
+    cox_paper_prior,
     car_distance_matrix,
     car_similarity_matrix,
     car_weight_matrix,

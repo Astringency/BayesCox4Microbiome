@@ -43,8 +43,17 @@ function _ensure_turing_model!()
                     Turing.@addlogprob! _car_logprior(log.(lambda), car_weights, car_precision)
                 end
             elseif prior isa RegularizedHorseshoePrior
-                tau_scale = _resolved_tau_scale(prior, p, n_events)
-                tau ~ truncated(Cauchy(0, tau_scale), 0.0, Inf)
+                if prior.sample_pseudo_sigma
+                    pseudo_sigma ~ _positive_t_distribution(
+                        prior.pseudo_sigma_df,
+                        prior.pseudo_sigma_scale,
+                    )
+                else
+                    pseudo_sigma = prior.pseudo_sigma
+                end
+                tau_scale = _resolved_tau_scale(prior, data; pseudo_sigma = pseudo_sigma)
+                tau_raw ~ truncated(Cauchy(0, 1.0), 0.0, Inf)
+                tau = tau_scale * tau_raw
                 c2 ~ InverseGamma(prior.slab_df / 2, prior.slab_df * prior.slab_s2 / 2)
                 lambda = Vector{Real}(undef, p)
                 for j in 1:p

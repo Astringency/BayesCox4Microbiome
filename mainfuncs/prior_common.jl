@@ -20,6 +20,26 @@ function cox_tau0(p::Integer, p0::Real, n_events::Integer)
     return (p0f / (p - p0f)) / sqrt(float(n_events))
 end
 
+function linear_tau0(p::Integer, p0::Real, n::Integer, pseudo_sigma::Real)
+    p > 1 || throw(ArgumentError("p must be larger than one."))
+    p0f = Float64(p0)
+    0 < p0f < p || throw(ArgumentError("p0 must be in (0, p)."))
+    n > 0 || throw(ArgumentError("n must be positive."))
+    pseudo_sigma > 0 || throw(ArgumentError("pseudo_sigma must be positive."))
+    return (p0f / (p - p0f)) * pseudo_sigma / sqrt(float(n))
+end
+
+function _positive_t_distribution(df::Real, scale::Real)
+    _check_positive(df, "pseudo_sigma_df")
+    sc = _check_positive(scale, "pseudo_sigma_scale")
+    return truncated(LocationScale(0.0, sc, TDist(df)), 0.0, Inf)
+end
+
+function _log_positive_t_pdf(x::Real, df::Real, scale::Real)
+    x > 0 || return -Inf
+    return logpdf(_positive_t_distribution(df, scale), x)
+end
+
 function _car_distance_metric(distance)
     method = distance isa Symbol ? distance : Symbol(lowercase(String(distance)))
     method in (:bray, :jaccard, :jsd) ||

@@ -23,7 +23,7 @@ function main()
     time_col = Symbol(arg(args, "time-col", "time"))
     status_col = Symbol(arg(args, "status-col", "status"))
     exclude_cols = split_strings(arg(args, "exclude-cols", "Sex,Antibiotics"))
-    priors = split_strings(arg(args, "priors", "hs,cox-rhs,lasso,sslasso"))
+    priors = split_strings(arg(args, "priors", "hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso"))
     sampler = Symbol(arg(args, "sampler", "nuts"))
     n_samples = arg(args, "samples", 500)
     warmup = arg(args, "warmup", 200)
@@ -32,6 +32,9 @@ function main()
     seed = arg(args, "seed", 1)
     use_car = arg(args, "use-car", true)
     car_distance = Symbol(arg(args, "car-distance", "bray"))
+    p0_arg = parse_optional_p0(args; default = nothing)
+    p0_arg === :truth && throw(ArgumentError("--p0 truth is only valid for simulation."))
+    p0_alpha = arg(args, "p0-alpha", 0.05)
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
     figs_dir = ensure_dir(joinpath(outdir, "figures"))
@@ -42,7 +45,12 @@ function main()
     X = matrix_without_missing(df, taxa_cols)
     time = Float64.(df[!, time_col])
     event = Int.(df[!, status_col])
-    p0 = max(1, round(Int, min(0.1 * length(taxa_cols), count(!=(0), event) / 2)))
+    if p0_arg === nothing
+        screen_table, screen = univariate_screen_table(X, time, event; names = taxa_cols, alpha = p0_alpha)
+        screen_table.p0 .= screen.p0
+        screen_table.alpha .= screen.alpha
+        write_table(joinpath(tables_dir, "univariate_cox_screen.csv"), screen_table)
+    end
 
     all_metrics = DataFrame()
     for prior in priors
@@ -59,7 +67,8 @@ function main()
             seed = seed,
             use_car = use_car && occursin("hs", lowercase(prior)),
             car_distance = car_distance,
-            p0 = p0,
+            p0 = p0_arg,
+            p0_alpha = p0_alpha,
             realdata = true,
         )
         summary = copy(fit.summary)
@@ -74,6 +83,7 @@ function main()
 
         metrics = copy(fit.metrics)
         metrics.prior .= prior
+        metrics.p0 .= fit.p0
         append!(all_metrics, metrics; cols = :union)
     end
 

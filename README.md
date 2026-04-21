@@ -14,6 +14,63 @@ Pkg.instantiate()
 Pkg.status()
 ```
 
+## Paper Priors
+
+The package provides `cox_paper_prior(name; ...)` for the eight prior specifications
+used in `docs/cox4microbiome_detail.pdf`:
+
+- `hs`: horseshoe with `tau ~ Cauchy+(0, 1)`.
+- `rhs`: regularized horseshoe using the Eq. (6) `tau0` scale with `pseudo_sigma ~ half-t_3(0, 10)`, where `10` is the Student-t scale parameter.
+- `new-rhs`: regularized horseshoe using Eq. (6) with `pseudo_sigma = 1`.
+- `est-rhs`: regularized horseshoe using Eq. (6) with `pseudo_sigma^2 = 1 / muhat`.
+- `cox-hs`: horseshoe using the Cox-specific Eq. (7) `tau0`.
+- `cox-rhs`: regularized horseshoe using the Cox-specific Eq. (7) `tau0`.
+- `lasso`: Bayesian LASSO with `lambda2 ~ Gamma(1, 0.1)`.
+- `sslasso`: spike-and-slab LASSO with simulation defaults `s0 = 0.04`, `s1 = 0.5`;
+  the real-data helper uses `s0 = 1`, `s1 = 10`.
+
+Example:
+
+```julia
+prior = cox_paper_prior("cox-rhs"; p0 = 6, X = X, time = time, event = event)
+fit = sample_bayes_cox(X, time, event; prior = prior, sampler = :nuts, use_car = true)
+```
+
+If `p0` is omitted or set to `nothing`, HS/RHS-style priors estimate it by
+fitting one univariate Cox PH model per covariate with `Survival.jl`; `p0` is
+the number of covariates with Wald p-value below `p0_alpha`, clamped to
+`1:(p - 1)`.
+
+## Simulation And Real-Data Scripts
+
+Simulation smoke test:
+
+```powershell
+julia --project=. scripts\run_simulation.jl --sampler mh --samples 50 --warmup 20 --reps 1 --n 200 --p 50 --nonzero 6 --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso --baseline weibull
+```
+
+Use `--p0 6` or `--p0 12` to force a prior nonzero count. If `--p0` is omitted
+or set to `auto`, the scripts estimate it by univariate Cox screening. In
+simulation runs, `--p0 truth` uses the known `--nonzero` value. Use
+`--p0-alpha` to change the screening threshold.
+
+Paper-scale simulation grid:
+
+```powershell
+julia --project=. scripts\run_simulation.jl --sampler nuts --samples 5000 --warmup 2000 --chains 4 --target-accept 0.99 --reps 50 --n 200,400 --p 50,100,150 --nonzero 6,12 --baseline weibull,exponential,gompertz --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso --use-car true
+```
+
+T1D analysis:
+
+```powershell
+julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler nuts --samples 5000 --warmup 4000 --chains 4 --target-accept 0.99 --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso --use-car true
+```
+
+Outputs are written under `results/` as CSV summaries and PNG plots. For quick
+debugging use `--sampler mh`; for the paper-style workflow use `--sampler nuts`.
+The Eq. (6) RHS scale can be numerically demanding under NUTS, so use a conservative
+`--target-accept` and adequate warmup for full runs.
+
 ## Program Structure
 
 ### `priors`
@@ -71,3 +128,61 @@ Pkg.status()
         * `sslasso_inclusion_probabilities`：计算特征的纳入概率（专用于 Spike-and-Slab 先验）。
         * `concordance_index`：计算模型的一致性指数（C-index），用于评价预测性能。
 
+## Analysis Scripts `scripts`
+
+### Simulation
+
+项目中的模拟实验主脚本是 `scripts/run_simulation.jl`。该脚本先读取命令行参数，再循环遍历不同的模拟设置，如：
+
+- 重复次数 `reps`
+- 样本量 `n`
+- 维数 `p`
+- 非零系数个数 `nonzero`
+- 基准风险函数 `baseline`
+- 所用先验 `prior`
+- 采样器 `sampler`
+
+随后，对每一组设置调用 `generate_simulation_data(...)` 生成模拟数据，再调用 `fit_and_evaluate(...)` 进行模型拟合和指标评估。
+
+Quick smoke run:
+
+```powershell
+julia --project=. scripts\run_simulation.jl --sampler mh --samples 50 --warmup 20 --reps 1 --n 200 --p 50 --nonzero 6 --priors hs,cox-rhs --baseline weibull
+```
+
+Paper-scale grid:
+
+```powershell
+julia --project=. scripts\run_simulation.jl --sampler nuts --samples 5000 --warmup 2000 --chains 4 --reps 50 --n 200,400 --p 50,100,150 --nonzero 6,12 --baseline weibull,exponential,gompertz --priors hs,cox-rhs,lasso,sslasso --use-car true
+```
+
+Outputs are written under `results/simulation/`:
+
+- `tables/coef_*.csv`: posterior mean, median, 95% credible intervals, true beta
+- `tables/simulation_metrics_long.csv`: MSE, LPML, WAIC, DIC, C-index
+- `tables/simulation_false_discovery.csv`: FP, FN, TP, TN, FDR
+- `tables/simulation_metrics_summary.csv`: replicate means and standard deviations
+- `figures/coef_*.png`: coefficient interval plots
+- `figures/simulation_metrics.png`: WAIC, LPML, C-index comparison
+
+### Real Data
+
+Default T1D run:
+
+```powershell
+julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler nuts --samples 5000 --warmup 4000 --chains 4 --priors hs,cox-rhs,lasso,sslasso --use-car true
+```
+
+For a different dataset, pass `--time-col`, `--status-col`, and optional non-taxa columns:
+
+```powershell
+julia --project=. scripts\analyze_real_data.jl --input path\to\data.csv --time-col time --status-col status --exclude-cols Sex,Antibiotics
+```
+
+Outputs are written under `results/realdata/T1D/` by default:
+
+- `tables/coef_*.csv`: posterior summaries and selected taxa indicators
+- `tables/model_metrics.csv`: LPML, WAIC, DIC, C-index
+- `tables/taxa_columns.csv`: taxa columns included in the model
+- `figures/coef_*.png`: coefficient interval plots
+- `figures/model_metrics.png`: WAIC, LPML, C-index comparison

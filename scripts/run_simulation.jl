@@ -13,7 +13,7 @@ function main()
     ps = split_ints(arg(args, "p", "50"))
     nonzeros = split_ints(arg(args, "nonzero", "6"))
     baselines = split_symbols(arg(args, "baseline", "weibull"))
-    priors = split_strings(arg(args, "priors", "hs,cox-rhs,lasso,sslasso"))
+    priors = split_strings(arg(args, "priors", "hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso"))
     sampler = Symbol(arg(args, "sampler", "nuts"))
     n_samples = arg(args, "samples", 500)
     warmup = arg(args, "warmup", 200)
@@ -22,6 +22,8 @@ function main()
     seed0 = arg(args, "seed", 1)
     use_car = arg(args, "use-car", true)
     car_distance = Symbol(arg(args, "car-distance", "bray"))
+    p0_arg = parse_optional_p0(args; default = nothing)
+    p0_alpha = arg(args, "p0-alpha", 0.05)
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
     figs_dir = ensure_dir(joinpath(outdir, "figures"))
@@ -31,6 +33,7 @@ function main()
     for rep in 1:reps, n in ns, p in ps, nonzero in nonzeros, baseline in baselines
         sim_seed = seed0 + rep - 1
         sim = generate_simulation_data(n, p, nonzero; baseline = baseline, seed = sim_seed)
+        p0_value = p0_arg === :truth ? nonzero : p0_arg
         for prior in priors
             label = "rep$(rep)_$(prior)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)"
             fit = fit_and_evaluate(
@@ -46,7 +49,8 @@ function main()
                 seed = sim_seed,
                 use_car = use_car && occursin("hs", lowercase(prior)),
                 car_distance = car_distance,
-                p0 = nonzero,
+                p0 = p0_value,
+                p0_alpha = p0_alpha,
             )
             summary = copy(fit.summary)
             summary.variable .= ["beta[$j]" for j in 1:p]
@@ -69,6 +73,7 @@ function main()
             metrics.n .= n
             metrics.p .= p
             metrics.nonzero_count .= nonzero
+            metrics.p0 .= fit.p0
             metrics.baseline .= string(baseline)
             metrics.MSE = [mse_mean, mse_median]
             append!(all_metrics, metrics; cols = :union)
@@ -77,6 +82,7 @@ function main()
                 n = n,
                 p = p,
                 nonzero_count = nonzero,
+                p0 = fit.p0,
                 baseline = string(baseline),
                 prior = prior,
                 FP = fd.FP,
