@@ -7,7 +7,7 @@ include(joinpath(@__DIR__, "analysis_common.jl"))
 
 function detect_taxa_columns(df::DataFrame, time_col::Symbol, status_col::Symbol, exclude_cols)
     excluded = Set(vcat([time_col, status_col], Symbol.(exclude_cols)))
-    return [c for c in names(df) if Symbol(c) ∉ excluded && eltype(df[!, c]) <: Union{Missing,Real}]
+    return [c for c in names(df) if !(Symbol(c) in excluded) && eltype(df[!, c]) <: Union{Missing,Real}]
 end
 
 function matrix_without_missing(df::DataFrame, cols)
@@ -24,8 +24,11 @@ function main()
     status_col = Symbol(arg(args, "status-col", "status"))
     exclude_cols = split_strings(arg(args, "exclude-cols", "Sex,Antibiotics"))
     priors = split_strings(arg(args, "priors", "hs,cox-rhs,lasso,sslasso"))
+    sampler = Symbol(arg(args, "sampler", "nuts"))
     n_samples = arg(args, "samples", 500)
     warmup = arg(args, "warmup", 200)
+    chains = arg(args, "chains", 4)
+    target_accept = arg(args, "target-accept", 0.8)
     seed = arg(args, "seed", 1)
     use_car = arg(args, "use-car", true)
     car_distance = Symbol(arg(args, "car-distance", "bray"))
@@ -48,8 +51,11 @@ function main()
             time,
             event;
             prior_name = prior,
+            sampler = sampler,
             n_samples = n_samples,
             warmup = warmup,
+            chains = chains,
+            target_accept = target_accept,
             seed = seed,
             use_car = use_car && occursin("hs", lowercase(prior)),
             car_distance = car_distance,

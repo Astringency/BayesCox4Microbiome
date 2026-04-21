@@ -14,8 +14,11 @@ function main()
     nonzeros = split_ints(arg(args, "nonzero", "6"))
     baselines = split_symbols(arg(args, "baseline", "weibull"))
     priors = split_strings(arg(args, "priors", "hs,cox-rhs,lasso,sslasso"))
+    sampler = Symbol(arg(args, "sampler", "nuts"))
     n_samples = arg(args, "samples", 500)
     warmup = arg(args, "warmup", 200)
+    chains = arg(args, "chains", 4)
+    target_accept = arg(args, "target-accept", 0.8)
     seed0 = arg(args, "seed", 1)
     use_car = arg(args, "use-car", true)
     car_distance = Symbol(arg(args, "car-distance", "bray"))
@@ -35,8 +38,11 @@ function main()
                 sim.time,
                 sim.event;
                 prior_name = prior,
+                sampler = sampler,
                 n_samples = n_samples,
                 warmup = warmup,
+                chains = chains,
+                target_accept = target_accept,
                 seed = sim_seed,
                 use_car = use_car && occursin("hs", lowercase(prior)),
                 car_distance = car_distance,

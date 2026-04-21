@@ -49,6 +49,7 @@ function sample_bayes_cox(
         data;
         prior = prior,
         sampler = sampler,
+        use_car = use_car,
         car_weights = resolved_car_weights,
         kwargs...,
     )
@@ -100,10 +101,25 @@ function posterior_beta_draws(result::CoxSamplerResult)
         p = size(result.data.z, 2)
         return result.samples.draws[:, 1:p]
     end
-    throw(ArgumentError(
-        "posterior_beta_draws currently supports built-in MHSamples. " *
-        "For sampler=:nuts, extract beta variables directly from the returned Turing chain.",
-    ))
+    p = size(result.data.z, 2)
+    beta_vars = [Symbol("beta[$j]") for j in 1:p]
+    try
+        subchain = Base.invokelatest(getindex, result.samples, :, beta_vars, :)
+        arr = Base.invokelatest(Array, subchain)
+        if ndims(arr) == 2
+            return Matrix{Float64}(arr)
+        elseif ndims(arr) == 3
+            n_iter, n_beta, n_chain = size(arr)
+            n_beta == p || throw(DimensionMismatch("extracted beta dimension does not match data."))
+            return reshape(permutedims(arr, (1, 3, 2)), n_iter * n_chain, n_beta)
+        end
+    catch err
+        throw(ArgumentError(
+            "could not extract beta variables from sampler result. " *
+            "Expected variables named beta[1], ..., beta[$p]. Original error type: $(typeof(err))",
+        ))
+    end
+    throw(ArgumentError("unsupported sampler result array shape for beta extraction."))
 end
 
 function posterior_beta_summary(result::CoxSamplerResult; cred_mass::Real = 0.95)

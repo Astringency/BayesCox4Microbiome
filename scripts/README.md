@@ -3,21 +3,21 @@
 These Julia scripts reproduce the simulation and real-data analysis workflow described in
 `docs/cox4microbiome.pdf` and `docs/cox4microbiome_detail.pdf`.
 
-The scripts currently use the package's built-in MH sampler because the public
-`posterior_beta_draws` helper extracts beta draws for `MHSamples`.
+The scripts default to `sampler=:nuts`, matching the paper's NUTS workflow. Pass
+`--sampler mh` for quicker local smoke tests.
 
 ## Simulation
 
 Quick smoke run:
 
 ```powershell
-julia --project=. scripts\run_simulation.jl --samples 50 --warmup 20 --reps 1 --n 200 --p 50 --nonzero 6 --priors hs,cox-rhs --baseline weibull
+julia --project=. scripts\run_simulation.jl --sampler mh --samples 50 --warmup 20 --reps 1 --n 200 --p 50 --nonzero 6 --priors hs,cox-rhs --baseline weibull
 ```
 
 Paper-scale grid:
 
 ```powershell
-julia --project=. scripts\run_simulation.jl --samples 5000 --warmup 2000 --reps 50 --n 200,400 --p 50,100,150 --nonzero 6,12 --baseline weibull,exponential,gompertz --priors hs,cox-rhs,lasso,sslasso --use-car true
+julia --project=. scripts\run_simulation.jl --sampler nuts --samples 5000 --warmup 2000 --chains 4 --reps 50 --n 200,400 --p 50,100,150 --nonzero 6,12 --baseline weibull,exponential,gompertz --priors hs,cox-rhs,lasso,sslasso --use-car true
 ```
 
 Outputs are written under `results/simulation/`:
@@ -34,7 +34,7 @@ Outputs are written under `results/simulation/`:
 Default T1D run:
 
 ```powershell
-julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --samples 5000 --warmup 4000 --priors hs,cox-rhs,lasso,sslasso --use-car true
+julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler nuts --samples 5000 --warmup 4000 --chains 4 --priors hs,cox-rhs,lasso,sslasso --use-car true
 ```
 
 For a different dataset, pass `--time-col`, `--status-col`, and optional non-taxa columns:

@@ -211,29 +211,50 @@ function fit_and_evaluate(
     time::AbstractVector,
     event::AbstractVector;
     prior_name::AbstractString = "cox-rhs",
-    sampler::Symbol = :mh,
+    sampler::Symbol = :nuts,
     n_samples::Integer = 1000,
     warmup::Integer = 500,
+    chains::Integer = 4,
+    target_accept::Real = 0.8,
     seed::Integer = 1,
     use_car::Bool = false,
     car_distance = :bray,
     p0::Real = 1.0,
     realdata::Bool = false,
 )
-    sampler == :mh || throw(ArgumentError("analysis scripts currently require sampler=:mh for beta draw extraction."))
     prior = prior_from_name(prior_name; p0 = p0, realdata = realdata)
-    result = sample_bayes_cox(
-        X,
-        time,
-        event;
-        prior = prior,
-        sampler = sampler,
-        n_samples = n_samples,
-        warmup = warmup,
-        seed = seed,
-        use_car = use_car,
-        car_distance = car_distance,
-    )
+    result =
+        if sampler == :nuts
+            sample_bayes_cox(
+                X,
+                time,
+                event;
+                prior = prior,
+                sampler = sampler,
+                n_samples = n_samples,
+                warmup = warmup,
+                chains = chains,
+                target_accept = target_accept,
+                seed = seed,
+                use_car = use_car,
+                car_distance = car_distance,
+            )
+        elseif sampler == :mh
+            sample_bayes_cox(
+                X,
+                time,
+                event;
+                prior = prior,
+                sampler = sampler,
+                n_samples = n_samples,
+                warmup = warmup,
+                seed = seed,
+                use_car = use_car,
+                car_distance = car_distance,
+            )
+        else
+            throw(ArgumentError("sampler must be :nuts or :mh."))
+        end
     draws = posterior_beta_draws(result)
     names = ["beta[$j]" for j in 1:size(draws, 2)]
     summary = posterior_summary(draws; names = names)
