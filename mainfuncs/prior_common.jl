@@ -20,11 +20,11 @@ function cox_tau0(p::Integer, p0::Real, n_events::Integer)
     return (p0f / (p - p0f)) / sqrt(float(n_events))
 end
 
-function _car_distance_method(distance)
+function _car_distance_metric(distance)
     method = distance isa Symbol ? distance : Symbol(lowercase(String(distance)))
     method in (:bray, :jaccard, :jsd) ||
         throw(ArgumentError("car distance must be :bray, :jaccard, or :jsd."))
-    return method
+    return method == :bray ? BrayCurtis() : method == :jaccard ? Jaccard() : JSDivergence()
 end
 
 function _validate_car_input(X::AbstractMatrix{<:Real})
@@ -37,38 +37,6 @@ function _validate_car_input(X::AbstractMatrix{<:Real})
     return x
 end
 
-function _bray_distance(a::AbstractVector, b::AbstractVector)
-    denom = sum(a) + sum(b)
-    denom == 0 && return 0.0
-    return sum(abs.(a .- b)) / denom
-end
-
-function _jaccard_distance(a::AbstractVector, b::AbstractVector)
-    denom = sum(max.(a, b))
-    denom == 0 && return 0.0
-    return 1 - sum(min.(a, b)) / denom
-end
-
-function _kldiv_nonzero(p::AbstractVector, q::AbstractVector)
-    out = 0.0
-    @inbounds for i in eachindex(p, q)
-        p[i] > 0 && (out += p[i] * log(p[i] / q[i]))
-    end
-    return out
-end
-
-function _jsd_distance(a::AbstractVector, b::AbstractVector)
-    suma = sum(a)
-    sumb = sum(b)
-    suma > 0 && sumb > 0 ||
-        throw(ArgumentError("JSD distance requires every taxa column to have positive total abundance."))
-    pa = a ./ suma
-    pb = b ./ sumb
-    m = 0.5 .* (pa .+ pb)
-    jsd = 0.5 * _kldiv_nonzero(pa, m) + 0.5 * _kldiv_nonzero(pb, m)
-    return sqrt(max(jsd, 0.0))
-end
-
 """
     car_distance_matrix(X; distance=:bray)
 
@@ -78,22 +46,8 @@ Columns are treated as taxa and rows as samples. Supported distances are
 """
 function car_distance_matrix(X::AbstractMatrix{<:Real}; distance = :bray)
     x = _validate_car_input(X)
-    method = _car_distance_method(distance)
-    p = size(x, 2)
-    D = zeros(Float64, p, p)
-    @inbounds for j in 2:p
-        b = view(x, :, j)
-        for i in 1:(j - 1)
-            a = view(x, :, i)
-            d =
-                method == :bray ? _bray_distance(a, b) :
-                method == :jaccard ? _jaccard_distance(a, b) :
-                _jsd_distance(a, b)
-            D[i, j] = d
-            D[j, i] = d
-        end
-    end
-    return D
+    metric = _car_distance_metric(distance)
+    return Matrix{Float64}(pairwise(metric, x; dims = 2))
 end
 
 """

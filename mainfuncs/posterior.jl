@@ -5,6 +5,7 @@ function logposterior(
     soft_center::Bool = true,
     soft_center_scale::Union{Nothing,Real} = nothing,
     car_weights = nothing,
+    use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
 )
     _validate_prior(prior)
@@ -19,7 +20,7 @@ function logposterior(
         u,
         data,
         prior;
-        car_weights = car_weights,
+        car_weights = use_car ? car_weights : nothing,
         car_precision = car_precision,
     )
     return lp

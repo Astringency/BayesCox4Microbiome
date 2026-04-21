@@ -16,20 +16,26 @@ function sample_bayes_cox(
     pseudocount::Real = 1e-6,
     closure::Bool = true,
     standardize::Bool = false,
+    use_car::Bool = false,
     car_weights = nothing,
     car_distance = nothing,
     car_weight_quantile::Real = 0.75,
     kwargs...,
 )
-    car_weights !== nothing && car_distance !== nothing &&
+    car_weights !== nothing && car_distance !== nothing && use_car &&
         throw(ArgumentError("pass either car_weights or car_distance, not both."))
-    resolved_car_weights = car_weights === nothing && car_distance !== nothing ?
-                           car_weight_matrix(
-                               X;
-                               distance = car_distance,
-                               threshold_quantile = car_weight_quantile,
-                           ) :
-                           car_weights
+    resolved_car_weights =
+        if !use_car
+            nothing
+        elseif car_weights !== nothing
+            car_weights
+        else
+            car_weight_matrix(
+                X;
+                distance = car_distance === nothing ? :bray : car_distance,
+                threshold_quantile = car_weight_quantile,
+            )
+        end
     data = prepare_cox_data(
         X,
         time,
@@ -53,17 +59,20 @@ function sample_bayes_cox(
     prior::AbstractCoxPrior = RegularizedHorseshoePrior(),
     sampler::Symbol = :nuts,
     seed = nothing,
+    use_car::Bool = false,
     car_weights = nothing,
     car_distance = nothing,
     car_weight_quantile::Real = 0.75,
     kwargs...,
 )
-    car_weights !== nothing && car_distance !== nothing &&
+    car_weights !== nothing && car_distance !== nothing && use_car &&
         throw(ArgumentError("pass either car_weights or car_distance, not both."))
     resolved_car_weights =
-        if car_weights !== nothing
+        if !use_car
+            nothing
+        elseif car_weights !== nothing
             car_weights
-        elseif car_distance !== nothing
+        else
             data.transform == :log && !data.standardize ||
                 throw(ArgumentError(
                     "car_distance for CoxPreparedData requires log-transformed, unstandardized data. " *
@@ -71,11 +80,9 @@ function sample_bayes_cox(
                 ))
             car_weight_matrix(
                 exp.(data.z);
-                distance = car_distance,
+                distance = car_distance === nothing ? :bray : car_distance,
                 threshold_quantile = car_weight_quantile,
             )
-        else
-            nothing
         end
     rng = seed === nothing ? Random.default_rng() : MersenneTwister(seed)
     if sampler == :nuts

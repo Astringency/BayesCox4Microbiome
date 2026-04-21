@@ -24,6 +24,7 @@ function _ensure_turing_model!()
             soft_center::Bool,
             soft_center_scale::Float64,
             car_weights,
+            use_car::Bool,
             car_precision::Float64,
         )
             p = size(data.z, 2)
@@ -38,7 +39,7 @@ function _ensure_turing_model!()
                     lambda[j] ~ truncated(Cauchy(0, prior.local_scale), 0.0, Inf)
                     beta[j] ~ Normal(0, tau * lambda[j])
                 end
-                if car_weights !== nothing
+                if use_car && car_weights !== nothing
                     Turing.@addlogprob! _car_logprior(log.(lambda), car_weights, car_precision)
                 end
             elseif prior isa RegularizedHorseshoePrior
@@ -51,7 +52,7 @@ function _ensure_turing_model!()
                     lambda_tilde2 = c2 * lambda[j]^2 / (c2 + tau^2 * lambda[j]^2)
                     beta[j] ~ Normal(0, tau * sqrt(lambda_tilde2))
                 end
-                if car_weights !== nothing
+                if use_car && car_weights !== nothing
                     Turing.@addlogprob! _car_logprior(log.(lambda), car_weights, car_precision)
                 end
             elseif prior isa BayesianLassoPrior
@@ -101,6 +102,7 @@ function _sample_nuts(
     soft_center::Bool = true,
     soft_center_scale::Union{Nothing,Real} = nothing,
     car_weights = nothing,
+    use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
@@ -118,6 +120,7 @@ function _sample_nuts(
         soft_center,
         scale,
         car_weights,
+        use_car,
         Float64(car_precision),
     )
     sampler = Base.invokelatest(Turing.NUTS, warmup, Float64(target_accept))

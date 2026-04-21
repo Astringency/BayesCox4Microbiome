@@ -4,6 +4,7 @@ using LinearAlgebra
 using Random
 using Statistics
 using Distributions
+using Distances
 
 export AbstractCoxPrior,
     HorseshoePrior,

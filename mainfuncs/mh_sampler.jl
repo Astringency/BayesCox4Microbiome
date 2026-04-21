@@ -111,6 +111,7 @@ function _sample_mh(
     soft_center_scale::Union{Nothing,Real} = nothing,
     center_beta_proposal::Bool = true,
     car_weights = nothing,
+    use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
 )
     p = size(data.z, 2)
@@ -125,6 +126,7 @@ function _sample_mh(
         soft_center = soft_center,
         soft_center_scale = soft_center_scale,
         car_weights = car_weights,
+        use_car = use_car,
         car_precision = car_precision,
     )
     return _adaptive_mh(
