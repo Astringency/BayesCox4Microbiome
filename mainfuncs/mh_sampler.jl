@@ -116,7 +116,14 @@ function _sample_mh(
 )
     p = size(data.z, 2)
     n_events = count(!=(0), data.event)
-    init = initial === nothing ? initial_state(prior, p, n_events) : collect(Float64, initial)
+    init =
+        if initial !== nothing
+            collect(Float64, initial)
+        elseif prior isa RegularizedHorseshoePrior
+            initial_state(prior, p, n_events; n_obs = size(data.z, 1))
+        else
+            initial_state(prior, p, n_events)
+        end
     names = _state_names(prior, p)
     sc_scale = soft_center_scale === nothing ? _default_soft_center_scale(p) : Float64(soft_center_scale)
     logpost = u -> logposterior(

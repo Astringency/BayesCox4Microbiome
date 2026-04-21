@@ -20,9 +20,10 @@ The package provides `cox_paper_prior(name; ...)` for the eight prior specificat
 used in `docs/cox4microbiome_detail.pdf`:
 
 - `hs`: horseshoe with `tau ~ Cauchy+(0, 1)`.
-- `rhs`: regularized horseshoe using the Eq. (6) `tau0` scale with `pseudo_sigma ~ half-t_3(0, 10)`, where `10` is the Student-t scale parameter.
+- `rhs`: regularized horseshoe using the Eq. (6) `tau0` scale with `pseudo_sigma^2 ~ half-t_3(0, 10)`, where `10` is the Student-t scale parameter on the variance-scale auxiliary quantity.
 - `new-rhs`: regularized horseshoe using Eq. (6) with `pseudo_sigma = 1`.
-- `est-rhs`: regularized horseshoe using Eq. (6) with `pseudo_sigma^2 = 1 / muhat`.
+- `est-rhs`: regularized horseshoe using Eq. (6) with `pseudo_sigma^2 = 1 / muhat`;
+  `muhat` is computed from a preliminary `Survival.coxph` fit as `mean(exp(X * beta_hat))`.
 - `cox-hs`: horseshoe using the Cox-specific Eq. (7) `tau0`.
 - `cox-rhs`: regularized horseshoe using the Cox-specific Eq. (7) `tau0`.
 - `lasso`: Bayesian LASSO with `lambda2 ~ Gamma(1, 0.1)`.

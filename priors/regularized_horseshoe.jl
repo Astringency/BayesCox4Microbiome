@@ -8,6 +8,7 @@ Base.@kwdef struct RegularizedHorseshoePrior <: AbstractCoxPrior
     tau_formula::Symbol = :auto
     pseudo_sigma::Union{Nothing,Float64} = nothing
     sample_pseudo_sigma::Bool = false
+    # Used when sample_pseudo_sigma=true: pseudo_sigma^2 ~ half-t(df, 0, scale).
     pseudo_sigma_df::Float64 = 3.0
     pseudo_sigma_scale::Float64 = 10.0
 end

@@ -44,10 +44,11 @@ function _ensure_turing_model!()
                 end
             elseif prior isa RegularizedHorseshoePrior
                 if prior.sample_pseudo_sigma
-                    pseudo_sigma ~ _positive_t_distribution(
+                    pseudo_sigma2 ~ _positive_t_distribution(
                         prior.pseudo_sigma_df,
                         prior.pseudo_sigma_scale,
                     )
+                    pseudo_sigma = sqrt(pseudo_sigma2)
                 else
                     pseudo_sigma = prior.pseudo_sigma
                 end

@@ -6,52 +6,14 @@ Fit the Bayesian Cox model for compositional microbiome covariates.
 The default `sampler=:nuts` follows the PDF and uses Turing.jl's NUTS implementation.
 Use `sampler=:mh` for the dependency-light adaptive random-walk Metropolis fallback.
 """
-function _cox_ridge_gradient(data::CoxPreparedData, beta::AbstractVector)
-    z = data.z
-    eta = z * beta
-    g = zeros(Float64, size(z, 2))
-    @inbounds for i in eachindex(data.event)
-        data.event[i] == 0 && continue
-        denom = 0.0
-        weighted = zeros(Float64, size(z, 2))
-        ti = data.time[i]
-        for r in eachindex(data.time)
-            if data.time[r] >= ti
-                w = exp(clamp(eta[r], -30.0, 30.0))
-                denom += w
-                @views weighted .+= w .* z[r, :]
-            end
-        end
-        @views g .+= z[i, :] .- weighted ./ denom
-    end
-    return g
-end
-
-function _estimate_cox_pseudo_mu(data::CoxPreparedData; maxiter::Integer = 50, ridge::Real = 1.0)
-    p = size(data.z, 2)
-    beta = zeros(Float64, p)
-    objective(b) = cox_logpartiallikelihood(data, b) - 0.5 * ridge * sum(abs2, b)
-    current = objective(beta)
-    for _ in 1:maxiter
-        grad = _cox_ridge_gradient(data, beta) .- ridge .* beta
-        grad .-= mean(grad)
-        norm(grad) < 1e-6 && break
-        step = 0.05 / max(1.0, norm(grad) / sqrt(p))
-        accepted = false
-        for _ in 1:12
-            proposal = beta .+ step .* grad
-            proposal .-= mean(proposal)
-            prop_obj = objective(proposal)
-            if isfinite(prop_obj) && prop_obj >= current
-                beta = proposal
-                current = prop_obj
-                accepted = true
-                break
-            end
-            step /= 2
-        end
-        accepted || break
-    end
+function _estimate_cox_pseudo_mu(
+    data::CoxPreparedData;
+    tol::Real = 1e-4,
+    l2_cost::Real = 1.0,
+)
+    event_time = Survival.EventTime.(data.time, data.event .!= 0)
+    fit = Survival.coxph(data.z, event_time; tol = tol, l2_cost = l2_cost)
+    beta = Survival.coef(fit)
     eta = clamp.(data.z * beta, -30.0, 30.0)
     return mean(exp.(eta))
 end
@@ -218,7 +180,8 @@ function cox_paper_prior(
     transform::Symbol = :log,
     pseudocount::Real = 1e-6,
     closure::Bool = true,
-    cox_estimate_maxiter::Integer = 50,
+    cox_estimate_tol::Real = 1e-4,
+    cox_estimate_l2_cost::Real = 1.0,
     p0_alpha::Real = 0.05,
     p0_min::Integer = 1,
     p0_max = nothing,
@@ -244,7 +207,7 @@ function cox_paper_prior(
             use_cox_tau0 = false,
             p0 = p0_value,
             tau_formula = :linear,
-            pseudo_sigma = 10.0,
+            pseudo_sigma = nothing,
             sample_pseudo_sigma = true,
             pseudo_sigma_df = 3.0,
             pseudo_sigma_scale = 10.0,
@@ -272,7 +235,11 @@ function cox_paper_prior(
             closure = closure,
             standardize = false,
         )
-        muhat = _estimate_cox_pseudo_mu(data; maxiter = cox_estimate_maxiter)
+        muhat = _estimate_cox_pseudo_mu(
+            data;
+            tol = cox_estimate_tol,
+            l2_cost = cox_estimate_l2_cost,
+        )
         return RegularizedHorseshoePrior(
             use_cox_tau0 = false,
             p0 = p0_value,
