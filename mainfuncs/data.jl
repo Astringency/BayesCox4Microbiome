@@ -47,7 +47,7 @@ function prepare_cox_data(
     time::AbstractVector{<:Real},
     event::AbstractVector;
     transform::Symbol = :log,
-    pseudocount::Real = 1e-6,
+    pseudocount::Real = 0.0,
     closure::Bool = true,
     standardize::Bool = false,
 )
@@ -68,19 +68,39 @@ function prepare_cox_data(
     pc = _check_nonnegative(pseudocount, "pseudocount")
     x = Matrix{Float64}(X)
     all(isfinite, x) || throw(ArgumentError("X must be finite."))
+    all(>=(0), x) || throw(ArgumentError("X must be nonnegative."))
+
+    applied_pc = Float64(pc)
 
     z =
         if transform == :log
-            if pc == 0 && any(<=(0), x)
-                throw(ArgumentError("X contains nonpositive values; set pseudocount > 0."))
+            x2 = copy(x)
+
+            if pc == 0
+                # replaced zero abundances with half of the minimum observed abundance
+                positive_vals = x2[x2 .> 0]
+
+                isempty(positive_vals) &&
+                    throw(ArgumentError("X contains no positive values; cannot perform log transform."))
+
+                min_positive = minimum(positive_vals)
+                half_min = min_positive / 2
+
+                x2[x2 .== 0.0] .= half_min
+                applied_pc = half_min
+            else
+                # plus pseudocount
+                x2 .+= pc
+                applied_pc = Float64(pc)
             end
-            x2 = x .+ pc
+
             if closure
                 rowsums = vec(sum(x2; dims=2))
                 all(>(0), rowsums) ||
-                    throw(ArgumentError("each row sum of X + pseudocount must be positive."))
+                    throw(ArgumentError("each row sum after zero handling must be positive."))
                 x2 ./= rowsums
             end
+
             log.(x2)
         elseif transform == :none
             x
@@ -101,7 +121,7 @@ function prepare_cox_data(
         e,
         _build_riskset(t),
         transform,
-        Float64(pc),
+        applied_pc,
         closure,
         standardize,
         mu,
