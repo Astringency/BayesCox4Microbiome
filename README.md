@@ -72,6 +72,51 @@ debugging use `--sampler mh`; for the paper-style workflow use `--sampler nuts`.
 The Eq. (6) RHS scale can be numerically demanding under NUTS, so use a conservative
 `--target-accept` and adequate warmup for full runs.
 
+scripts/run_simulation.jl 当前支持这些参数：
+
+| 参数 | 默认值 | 说明 |
+|---|---:|---|
+| --outdir | results/simulation | 输出目录 |
+| --reps | 1 | 重复模拟次数 |
+| --n | 200 | 样本量；支持逗号列表，如 200,400 |
+| --p | 50 | 协变量/菌群数；支持逗号列表，如 50,100,150 |
+| --nonzero | 6 | 真实非零系数数；支持 6 或 12，也支持逗号列表 |
+| --baseline | weibull | 基线风险；支持 weibull,exponential,gompertz |
+| --priors | 全 8 种 | 逗号列表：hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso |
+| --sampler | nuts | nuts 或 mh |
+| --samples | 500 | 后验采样数 |
+| --warmup | 200 | warmup 数 |
+| --chains | 4 | NUTS 链数；MH 不使用多链 |
+| --target-accept | 0.8 | NUTS 目标接受率 |
+| --seed | 1 | 随机种子起点 |
+| --use-car | true | 是否对 HS/RHS 系列启用 CAR |
+| --car-distance | bray | CAR 距离：bray, jaccard, jsd |
+| --p0 | auto | auto/不写表示单变量 Cox 筛选；也可给数值；simulation 额外支持 truth |
+| --p0-alpha | 0.05 | 单变量 Cox 筛选显著性阈值 |
+
+scripts/analyze_real_data.jl 当前支持这些参数：
+
+| 参数 | 默认值 | 说明 |
+|---|---:|---|
+| --input | data/T1D.csv | 输入 CSV |
+| --outdir | results/realdata/T1D | 输出目录 |
+| --time-col | time | 生存时间列名 |
+| --status-col | status | 事件状态列名，需为 0/1 |
+| --exclude-cols | Sex,Antibiotics | 从 taxa 矩阵中排除的非菌群列 |
+| --priors | 全 8 种 | hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso |
+| --sampler | nuts | nuts 或 mh |
+| --samples | 500 | 后验采样数 |
+| --warmup | 200 | warmup 数 |
+| --chains | 4 | NUTS 链数；MH 不使用多链 |
+| --target-accept | 0.8 | NUTS 目标接受率 |
+| --seed | 1 | 随机种子 |
+| --use-car | true | 是否对 HS/RHS 系列启用 CAR |
+| --car-distance | bray | CAR 距离：bray, jaccard, jsd |
+| --p0 | auto | auto/不写表示单变量 Cox 筛选；也可给数值；不支持 truth |
+| --p0-alpha | 0.05 | 单变量 Cox 筛选显著性阈值 |
+
+布尔参数如 --use-car 支持 true, 1, yes, y，其他值会被解析为 false。
+
 ## Program Structure
 
 ### `priors`
@@ -129,61 +174,3 @@ The Eq. (6) RHS scale can be numerically demanding under NUTS, so use a conserva
         * `sslasso_inclusion_probabilities`：计算特征的纳入概率（专用于 Spike-and-Slab 先验）。
         * `concordance_index`：计算模型的一致性指数（C-index），用于评价预测性能。
 
-## Analysis Scripts `scripts`
-
-### Simulation
-
-项目中的模拟实验主脚本是 `scripts/run_simulation.jl`。该脚本先读取命令行参数，再循环遍历不同的模拟设置，如：
-
-- 重复次数 `reps`
-- 样本量 `n`
-- 维数 `p`
-- 非零系数个数 `nonzero`
-- 基准风险函数 `baseline`
-- 所用先验 `prior`
-- 采样器 `sampler`
-
-随后，对每一组设置调用 `generate_simulation_data(...)` 生成模拟数据，再调用 `fit_and_evaluate(...)` 进行模型拟合和指标评估。
-
-Quick smoke run:
-
-```powershell
-julia --project=. scripts\run_simulation.jl --sampler mh --samples 50 --warmup 20 --reps 1 --n 200 --p 50 --nonzero 6 --priors hs,cox-rhs --baseline weibull
-```
-
-Paper-scale grid:
-
-```powershell
-julia --project=. scripts\run_simulation.jl --sampler nuts --samples 5000 --warmup 2000 --chains 4 --reps 50 --n 200,400 --p 50,100,150 --nonzero 6,12 --baseline weibull,exponential,gompertz --priors hs,cox-rhs,lasso,sslasso --use-car true
-```
-
-Outputs are written under `results/simulation/`:
-
-- `tables/coef_*.csv`: posterior mean, median, 95% credible intervals, true beta
-- `tables/simulation_metrics_long.csv`: MSE, LPML, WAIC, DIC, C-index
-- `tables/simulation_false_discovery.csv`: FP, FN, TP, TN, FDR
-- `tables/simulation_metrics_summary.csv`: replicate means and standard deviations
-- `figures/coef_*.png`: coefficient interval plots
-- `figures/simulation_metrics.png`: WAIC, LPML, C-index comparison
-
-### Real Data
-
-Default T1D run:
-
-```powershell
-julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler nuts --samples 5000 --warmup 4000 --chains 4 --priors hs,cox-rhs,lasso,sslasso --use-car true
-```
-
-For a different dataset, pass `--time-col`, `--status-col`, and optional non-taxa columns:
-
-```powershell
-julia --project=. scripts\analyze_real_data.jl --input path\to\data.csv --time-col time --status-col status --exclude-cols Sex,Antibiotics
-```
-
-Outputs are written under `results/realdata/T1D/` by default:
-
-- `tables/coef_*.csv`: posterior summaries and selected taxa indicators
-- `tables/model_metrics.csv`: LPML, WAIC, DIC, C-index
-- `tables/taxa_columns.csv`: taxa columns included in the model
-- `figures/coef_*.png`: coefficient interval plots
-- `figures/model_metrics.png`: WAIC, LPML, C-index comparison
