@@ -1,6 +1,5 @@
 using BayesCox4Micro
 using CSV
-using CairoMakie
 using DataFrames
 using Distributions
 using LinearAlgebra
@@ -455,18 +454,121 @@ function _plot_path_with_ext(path::AbstractString, ext::AbstractString)
     return root * ext
 end
 
-function save_effect_plot(plt, path::AbstractString; save_eps::Bool = true)
+function _fmt(x::Real)
+    return string(round(Float64(x); digits = 4))
+end
+
+function _pdf_text_escape(s)
+    return replace(string(s), "\\" => "\\\\", "(" => "\\(", ")" => "\\)")
+end
+
+function _pdf_page(path::AbstractString, content::AbstractString; width::Real = 900, height::Real = 420)
+    objects = String[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 $(_fmt(width)) $(_fmt(height))] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        "<< /Length $(ncodeunits(content)) >>\nstream\n$content\nendstream",
+    ]
+    open(path, "w") do io
+        write(io, "%PDF-1.4\n")
+        offsets = Int[]
+        for (i, obj) in enumerate(objects)
+            push!(offsets, position(io))
+            write(io, "$i 0 obj\n$obj\nendobj\n")
+        end
+        xref = position(io)
+        write(io, "xref\n0 $(length(objects) + 1)\n0000000000 65535 f \n")
+        for off in offsets
+            write(io, lpad(string(off), 10, '0') * " 00000 n \n")
+        end
+        write(io, "trailer\n<< /Size $(length(objects) + 1) /Root 1 0 R >>\nstartxref\n$xref\n%%EOF\n")
+    end
+    return path
+end
+
+function _eps_page(path::AbstractString, content::AbstractString; width::Real = 900, height::Real = 420)
+    open(path, "w") do io
+        write(io, "%!PS-Adobe-3.0 EPSF-3.0\n")
+        write(io, "%%BoundingBox: 0 0 $(Int(round(width))) $(Int(round(height)))\n")
+        write(io, "/Helvetica findfont 9 scalefont setfont\n")
+        write(io, content)
+        write(io, "\nshowpage\n%%EOF\n")
+    end
+    return path
+end
+
+function _pdf_rgb(r, g, b; stroke::Bool = true)
+    return "$(_fmt(r)) $(_fmt(g)) $(_fmt(b)) $(stroke ? "RG" : "rg")\n"
+end
+
+function _eps_rgb(r, g, b)
+    return "$(_fmt(r)) $(_fmt(g)) $(_fmt(b)) setrgbcolor\n"
+end
+
+function _pdf_line(x1, y1, x2, y2; width = 1.0, color = (0.0, 0.0, 0.0))
+    r, g, b = color
+    return _pdf_rgb(r, g, b; stroke = true) * "$(_fmt(width)) w $(_fmt(x1)) $(_fmt(y1)) m $(_fmt(x2)) $(_fmt(y2)) l S\n"
+end
+
+function _eps_line(x1, y1, x2, y2; width = 1.0, color = (0.0, 0.0, 0.0))
+    r, g, b = color
+    return _eps_rgb(r, g, b) * "$(_fmt(width)) setlinewidth newpath $(_fmt(x1)) $(_fmt(y1)) moveto $(_fmt(x2)) $(_fmt(y2)) lineto stroke\n"
+end
+
+function _pdf_rect(x, y, w, h; color = (0.0, 0.0, 0.0))
+    r, g, b = color
+    return _pdf_rgb(r, g, b; stroke = false) * "$(_fmt(x)) $(_fmt(y)) $(_fmt(w)) $(_fmt(h)) re f\n"
+end
+
+function _eps_rect(x, y, w, h; color = (0.0, 0.0, 0.0))
+    r, g, b = color
+    return _eps_rgb(r, g, b) * "newpath $(_fmt(x)) $(_fmt(y)) moveto $(_fmt(w)) 0 rlineto 0 $(_fmt(h)) rlineto $(_fmt(-w)) 0 rlineto closepath fill\n"
+end
+
+function _pdf_circle(x, y, r; color = (0.0, 0.0, 0.0))
+    c = 0.5522847498 * r
+    cr, cg, cb = color
+    return _pdf_rgb(cr, cg, cb; stroke = false) *
+        "$(_fmt(x + r)) $(_fmt(y)) m $(_fmt(x + r)) $(_fmt(y + c)) $(_fmt(x + c)) $(_fmt(y + r)) $(_fmt(x)) $(_fmt(y + r)) c " *
+        "$(_fmt(x - c)) $(_fmt(y + r)) $(_fmt(x - r)) $(_fmt(y + c)) $(_fmt(x - r)) $(_fmt(y)) c " *
+        "$(_fmt(x - r)) $(_fmt(y - c)) $(_fmt(x - c)) $(_fmt(y - r)) $(_fmt(x)) $(_fmt(y - r)) c " *
+        "$(_fmt(x + c)) $(_fmt(y - r)) $(_fmt(x + r)) $(_fmt(y - c)) $(_fmt(x + r)) $(_fmt(y)) c f\n"
+end
+
+function _eps_circle(x, y, r; color = (0.0, 0.0, 0.0))
+    cr, cg, cb = color
+    return _eps_rgb(cr, cg, cb) * "newpath $(_fmt(x)) $(_fmt(y)) $(_fmt(r)) 0 360 arc fill\n"
+end
+
+function _pdf_text(x, y, text; size = 9, color = (0.0, 0.0, 0.0))
+    r, g, b = color
+    return _pdf_rgb(r, g, b; stroke = false) * "BT /F1 $(_fmt(size)) Tf $(_fmt(x)) $(_fmt(y)) Td ($(_pdf_text_escape(text))) Tj ET\n"
+end
+
+function _eps_text(x, y, text; size = 9, color = (0.0, 0.0, 0.0))
+    r, g, b = color
+    escaped = _pdf_text_escape(text)
+    return _eps_rgb(r, g, b) * "/Helvetica findfont $(_fmt(size)) scalefont setfont $(_fmt(x)) $(_fmt(y)) moveto ($escaped) show\n"
+end
+
+function _nice_ticks(lo::Real, hi::Real; n::Integer = 5)
+    lo == hi && return [Float64(lo)]
+    raw = (hi - lo) / max(n - 1, 1)
+    mag = 10.0^floor(log10(raw))
+    step = first(s for s in (1.0, 2.0, 5.0, 10.0) if s * mag >= raw) * mag
+    start = floor(lo / step) * step
+    stop = ceil(hi / step) * step
+    return collect(start:step:stop)
+end
+
+function _write_vector_plot(path::AbstractString, pdf_content::AbstractString, eps_content::AbstractString; width::Real, height::Real, save_eps::Bool = true)
     pdf_path = _plot_path_with_ext(path, ".pdf")
     ensure_dir(dirname(pdf_path))
-    CairoMakie.save(pdf_path, plt)
+    _pdf_page(pdf_path, pdf_content; width = width, height = height)
     if save_eps
         eps_path = _plot_path_with_ext(path, ".eps")
-        try
-            CairoMakie.save(eps_path, plt)
-        catch err
-            isfile(eps_path) && rm(eps_path; force = true)
-            @warn "Could not save EPS figure; PDF was saved successfully." path=eps_path error=typeof(err)
-        end
+        _eps_page(eps_path, eps_content; width = width, height = height)
     end
     return pdf_path
 end
@@ -485,24 +587,78 @@ function coefficient_plot(
     lower = Float64.(summary.lower)
     upper = Float64.(summary.upper)
     estimate_label = estimate == :map ? "MAP" : "posterior $(String(estimate))"
-    fig = Figure(size = (900, 420))
-    ax = Axis(fig[1, 1]; xlabel = "Taxon index", ylabel = "Coefficient", title = title)
-    rangebars!(
-        ax,
-        collect(x),
-        lower,
-        upper;
-        color = (:steelblue, 0.75),
-        linewidth = 1.2,
-        whiskerwidth = 8,
-    )
-    scatter!(ax, collect(x), collect(y); label = estimate_label, color = :steelblue, markersize = 6)
-    hlines!(ax, [0.0]; color = :gray50, linestyle = :dash)
-    if truth !== nothing
-        scatter!(ax, collect(x), collect(truth); label = "true", color = :firebrick, markersize = 6)
+    width, height = 900.0, 420.0
+    left, right, bottom, top = 70.0, 25.0, 55.0, 52.0
+    plot_w, plot_h = width - left - right, height - bottom - top
+    y_values = vcat(lower, upper, y, [0.0], truth === nothing ? Float64[] : Float64.(truth))
+    ymin, ymax = extrema(y_values)
+    pad = max(0.08 * (ymax - ymin), 0.1)
+    ymin -= pad
+    ymax += pad
+    sx(v) = left + (Float64(v) - 1) / max(nrow(summary) - 1, 1) * plot_w
+    sy(v) = bottom + (Float64(v) - ymin) / (ymax - ymin) * plot_h
+    blue = (0.12, 0.36, 0.65)
+    red = (0.78, 0.18, 0.14)
+    gray = (0.45, 0.45, 0.45)
+    pdf = IOBuffer()
+    eps = IOBuffer()
+    for io in (pdf, eps)
+        write(io, "")
     end
-    axislegend(ax; position = :rt)
-    return save_effect_plot(fig, path)
+    pushline!(buf, f, args...; kwargs...) = write(buf, f(args...; kwargs...))
+    for tick in _nice_ticks(ymin, ymax; n = 5)
+        yy = sy(tick)
+        pushline!(pdf, _pdf_line, left, yy, left + plot_w, yy; width = 0.25, color = (0.86, 0.86, 0.86))
+        pushline!(eps, _eps_line, left, yy, left + plot_w, yy; width = 0.25, color = (0.86, 0.86, 0.86))
+        write(pdf, _pdf_text(12, yy - 3, string(round(tick; digits = 2)); size = 8, color = gray))
+        write(eps, _eps_text(12, yy - 3, string(round(tick; digits = 2)); size = 8, color = gray))
+    end
+    write(pdf, _pdf_line(left, bottom, left + plot_w, bottom; width = 1.0))
+    write(pdf, _pdf_line(left, bottom, left, bottom + plot_h; width = 1.0))
+    write(eps, _eps_line(left, bottom, left + plot_w, bottom; width = 1.0))
+    write(eps, _eps_line(left, bottom, left, bottom + plot_h; width = 1.0))
+    write(pdf, _pdf_line(left, sy(0.0), left + plot_w, sy(0.0); width = 0.8, color = gray))
+    write(eps, _eps_line(left, sy(0.0), left + plot_w, sy(0.0); width = 0.8, color = gray))
+    for i in x
+        xx = sx(i)
+        lo, hi = sy(lower[i]), sy(upper[i])
+        write(pdf, _pdf_line(xx, lo, xx, hi; width = 1.3, color = blue))
+        write(pdf, _pdf_line(xx - 4, lo, xx + 4, lo; width = 1.3, color = blue))
+        write(pdf, _pdf_line(xx - 4, hi, xx + 4, hi; width = 1.3, color = blue))
+        write(pdf, _pdf_circle(xx, sy(y[i]), 2.5; color = blue))
+        write(eps, _eps_line(xx, lo, xx, hi; width = 1.3, color = blue))
+        write(eps, _eps_line(xx - 4, lo, xx + 4, lo; width = 1.3, color = blue))
+        write(eps, _eps_line(xx - 4, hi, xx + 4, hi; width = 1.3, color = blue))
+        write(eps, _eps_circle(xx, sy(y[i]), 2.5; color = blue))
+    end
+    if truth !== nothing
+        truthv = Float64.(truth)
+        for i in x
+            write(pdf, _pdf_circle(sx(i), sy(truthv[i]), 2.5; color = red))
+            write(eps, _eps_circle(sx(i), sy(truthv[i]), 2.5; color = red))
+        end
+    end
+    for i in round.(Int, range(1, nrow(summary); length = min(nrow(summary), 8)))
+        write(pdf, _pdf_text(sx(i) - 5, 34, string(i); size = 8, color = gray))
+        write(eps, _eps_text(sx(i) - 5, 34, string(i); size = 8, color = gray))
+    end
+    write(pdf, _pdf_text(width / 2 - 120, height - 25, title; size = 12))
+    write(pdf, _pdf_text(width / 2 - 35, 14, "Taxon index"; size = 9))
+    write(pdf, _pdf_text(8, height / 2, "Coefficient"; size = 9))
+    write(pdf, _pdf_text(width - 150, height - 42, estimate_label; size = 9, color = blue))
+    write(pdf, _pdf_circle(width - 160, height - 39, 2.8; color = blue))
+    write(eps, _eps_text(width / 2 - 120, height - 25, title; size = 12))
+    write(eps, _eps_text(width / 2 - 35, 14, "Taxon index"; size = 9))
+    write(eps, _eps_text(8, height / 2, "Coefficient"; size = 9))
+    write(eps, _eps_text(width - 150, height - 42, estimate_label; size = 9, color = blue))
+    write(eps, _eps_circle(width - 160, height - 39, 2.8; color = blue))
+    if truth !== nothing
+        write(pdf, _pdf_text(width - 150, height - 58, "true"; size = 9, color = red))
+        write(pdf, _pdf_circle(width - 160, height - 55, 2.8; color = red))
+        write(eps, _eps_text(width - 150, height - 58, "true"; size = 9, color = red))
+        write(eps, _eps_circle(width - 160, height - 55, 2.8; color = red))
+    end
+    return _write_vector_plot(path, String(take!(pdf)), String(take!(eps)); width = width, height = height)
 end
 
 function _finite_mean(v)
@@ -514,52 +670,83 @@ function _finite_mean(v)
     return isempty(vals) ? NaN : mean(vals)
 end
 
-function _metric_panel!(figpos, rows::DataFrame, metric::Symbol; title::AbstractString, ylabel::AbstractString = "")
+function _metric_values(rows::DataFrame, metric::Symbol)
     agg = combine(groupby(rows, [:prior, :estimate]), metric => _finite_mean => :value)
     priors = unique(agg.prior)
     estimates = unique(agg.estimate)
-    ax = Axis(
-        figpos;
-        title = title,
-        ylabel = ylabel,
-        xticks = (1:length(priors), priors),
-        xticklabelrotation = pi / 4,
-    )
-    isempty(priors) && return ax
+    return agg, priors, estimates
+end
+
+function _draw_metric_panel!(pdf, eps, rows::DataFrame, metric::Symbol, x0, y0, w, h; title::AbstractString, ylabel::AbstractString = "")
+    agg, priors, estimates = _metric_values(rows, metric)
+    write(pdf, _pdf_text(x0 + 5, y0 + h + 14, title; size = 10))
+    write(eps, _eps_text(x0 + 5, y0 + h + 14, title; size = 10))
+    isempty(priors) && return nothing
+    vals = [Float64(v) for v in agg.value if isfinite(Float64(v))]
+    isempty(vals) && return nothing
+    ymin = metric == :Cindex ? 0.0 : min(0.0, minimum(vals))
+    ymax = metric == :Cindex ? 1.0 : maximum(vals)
+    ymax == ymin && (ymax += 1.0)
+    sy(v) = y0 + (Float64(v) - ymin) / (ymax - ymin) * h
+    sx(i) = x0 + (i - 0.5) / length(priors) * w
+    write(pdf, _pdf_line(x0, y0, x0 + w, y0; width = 0.8))
+    write(pdf, _pdf_line(x0, y0, x0, y0 + h; width = 0.8))
+    write(eps, _eps_line(x0, y0, x0 + w, y0; width = 0.8))
+    write(eps, _eps_line(x0, y0, x0, y0 + h; width = 0.8))
     n_est = max(length(estimates), 1)
-    width = min(0.72 / n_est, 0.24)
-    offsets = range(-width * (n_est - 1) / 2, width * (n_est - 1) / 2; length = n_est)
-    palette = Makie.wong_colors()
+    bar_w = min(w / length(priors) * 0.7 / n_est, 12.0)
+    offsets = range(-bar_w * (n_est - 1) / 2, bar_w * (n_est - 1) / 2; length = n_est)
+    palette = [(0.12, 0.36, 0.65), (0.90, 0.48, 0.16), (0.15, 0.55, 0.32)]
     for (k, est) in enumerate(estimates)
-        values = Float64[]
-        xs = Float64[]
         for (i, prior) in enumerate(priors)
             idx = findfirst((agg.prior .== prior) .& (agg.estimate .== est))
             idx === nothing && continue
             value = agg.value[idx]
             isfinite(value) || continue
-            push!(xs, i + offsets[k])
-            push!(values, value)
+            xbar = sx(i) + offsets[k] - bar_w / 2
+            ybase = sy(0.0)
+            ytop = sy(value)
+            color = palette[mod1(k, length(palette))]
+            write(pdf, _pdf_rect(xbar, min(ybase, ytop), bar_w, abs(ytop - ybase); color = color))
+            write(eps, _eps_rect(xbar, min(ybase, ytop), bar_w, abs(ytop - ybase); color = color))
         end
-        isempty(xs) && continue
-        barplot!(ax, xs, values; width = width, label = est, color = palette[mod1(k, length(palette))])
     end
-    return ax
+    for (i, prior) in enumerate(priors)
+        label = length(prior) > 9 ? prior[1:9] : prior
+        write(pdf, _pdf_text(sx(i) - 16, y0 - 14, label; size = 7, color = (0.35, 0.35, 0.35)))
+        write(eps, _eps_text(sx(i) - 16, y0 - 14, label; size = 7, color = (0.35, 0.35, 0.35)))
+    end
+    return nothing
 end
 
 function metrics_plot(metrics::DataFrame, path::AbstractString; title = "Model metrics")
     plot_rows = copy(metrics)
     plot_rows.prior = string.(plot_rows.prior)
     plot_rows.estimate = string.(plot_rows.estimate)
-    fig = Figure(size = (1320, 360))
-    Label(fig[0, 1:4], title; tellwidth = false, fontsize = 16)
-    ax1 = _metric_panel!(fig[1, 1], plot_rows, :WAIC_pw1; title = "WAIC", ylabel = "smaller is better")
-    _metric_panel!(fig[1, 2], plot_rows, :LOOIC; title = "LOOIC", ylabel = "smaller is better")
-    _metric_panel!(fig[1, 3], plot_rows, :LPML; title = "LPML")
-    ax4 = _metric_panel!(fig[1, 4], plot_rows, :Cindex; title = "C-index")
-    ylims!(ax4, 0, 1)
-    Legend(fig[2, 1:4], ax1; orientation = :horizontal, tellwidth = false)
-    return save_effect_plot(fig, path)
+    width, height = 1320.0, 360.0
+    pdf = IOBuffer()
+    eps = IOBuffer()
+    write(pdf, _pdf_text(width / 2 - 60, height - 24, title; size = 13))
+    write(eps, _eps_text(width / 2 - 60, height - 24, title; size = 13))
+    panel_w, panel_h = 280.0, 235.0
+    xs = [55.0, 370.0, 685.0, 1000.0]
+    y0 = 65.0
+    _draw_metric_panel!(pdf, eps, plot_rows, :WAIC_pw1, xs[1], y0, panel_w, panel_h; title = "WAIC")
+    _draw_metric_panel!(pdf, eps, plot_rows, :LOOIC, xs[2], y0, panel_w, panel_h; title = "LOOIC")
+    _draw_metric_panel!(pdf, eps, plot_rows, :LPML, xs[3], y0, panel_w, panel_h; title = "LPML")
+    _draw_metric_panel!(pdf, eps, plot_rows, :Cindex, xs[4], y0, panel_w, panel_h; title = "C-index")
+    estimates = unique(plot_rows.estimate)
+    palette = [(0.12, 0.36, 0.65), (0.90, 0.48, 0.16), (0.15, 0.55, 0.32)]
+    legend_x = 500.0
+    for (k, est) in enumerate(estimates)
+        color = palette[mod1(k, length(palette))]
+        x = legend_x + (k - 1) * 90
+        write(pdf, _pdf_rect(x, 25, 12, 8; color = color))
+        write(pdf, _pdf_text(x + 18, 25, est; size = 8))
+        write(eps, _eps_rect(x, 25, 12, 8; color = color))
+        write(eps, _eps_text(x + 18, 25, est; size = 8))
+    end
+    return _write_vector_plot(path, String(take!(pdf)), String(take!(eps)); width = width, height = height)
 end
 
 function write_table(path::AbstractString, table)
