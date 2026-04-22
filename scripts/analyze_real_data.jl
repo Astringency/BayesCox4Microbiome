@@ -89,7 +89,7 @@ function main()
         write_table(joinpath(tables_dir, "coef_$prior.csv"), summary)
         coefficient_plot(
             summary,
-            joinpath(figs_dir, "coef_$prior.png");
+            joinpath(figs_dir, "coef_$prior.pdf");
             title = "T1D coefficient estimates: $prior",
         )
 
@@ -101,7 +101,7 @@ function main()
 
     write_table(joinpath(tables_dir, "model_metrics.csv"), all_metrics)
     write_table(joinpath(tables_dir, "taxa_columns.csv"), DataFrame(taxon = string.(taxa_cols)))
-    metrics_plot(all_metrics, joinpath(figs_dir, "model_metrics.png"); title = "T1D model metrics")
+    metrics_plot(all_metrics, joinpath(figs_dir, "model_metrics.pdf"); title = "T1D model metrics")
     println("Real-data outputs written to $(abspath(outdir))")
 end
 

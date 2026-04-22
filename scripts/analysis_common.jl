@@ -311,6 +311,32 @@ function fit_and_evaluate(
     return (result = result, draws = draws, summary = summary, metrics = metrics, p0 = prior_p0(prior))
 end
 
+function _plot_path_with_ext(path::AbstractString, ext::AbstractString)
+    root, _ = splitext(path)
+    return root * ext
+end
+
+function save_effect_plot(plt, path::AbstractString; save_eps::Bool = true)
+    pdf_path = _plot_path_with_ext(path, ".pdf")
+    ensure_dir(dirname(pdf_path))
+    savefig(plt, pdf_path)
+    if save_eps
+        eps_path = _plot_path_with_ext(path, ".eps")
+        try
+            savefig(plt, eps_path)
+        catch err
+            isfile(eps_path) && rm(eps_path; force = true)
+            try
+                open(io -> show(io, MIME("application/postscript"), plt), eps_path, "w")
+            catch
+                isfile(eps_path) && rm(eps_path; force = true)
+                @warn "Could not save EPS figure; PDF was saved successfully." path=eps_path error=typeof(err)
+            end
+        end
+    end
+    return pdf_path
+end
+
 function coefficient_plot(summary::DataFrame, path::AbstractString; truth = nothing, title = "Coefficient estimates")
     x = 1:nrow(summary)
     y = summary.mean
@@ -321,8 +347,7 @@ function coefficient_plot(summary::DataFrame, path::AbstractString; truth = noth
     if truth !== nothing
         scatter!(plt, x, truth; label = "true", color = :red, markersize = 3)
     end
-    savefig(plt, path)
-    return path
+    return save_effect_plot(plt, path)
 end
 
 function metrics_plot(metrics::DataFrame, path::AbstractString; title = "Model metrics")
@@ -331,8 +356,7 @@ function metrics_plot(metrics::DataFrame, path::AbstractString; title = "Model m
     bar!(plt[1], mean_rows.prior, mean_rows.WAIC_pw1; title = "WAIC", ylabel = "smaller is better", legend = false, xrotation = 35)
     bar!(plt[2], mean_rows.prior, mean_rows.LPML; title = "LPML", legend = false, xrotation = 35)
     bar!(plt[3], mean_rows.prior, mean_rows.Cindex; title = "C-index", legend = false, xrotation = 35, ylim = (0, 1))
-    savefig(plt, path)
-    return path
+    return save_effect_plot(plt, path)
 end
 
 function write_table(path::AbstractString, table)

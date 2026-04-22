@@ -67,7 +67,8 @@ T1D analysis:
 julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler nuts --samples 5000 --warmup 4000 --chains 4 --target-accept 0.99 --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso --use-car true
 ```
 
-Outputs are written under `results/` as CSV summaries and PNG plots. For quick
+Outputs are written under `results/` as CSV summaries and PDF plots. The scripts
+also try to save EPS copies when the active Plots backend supports EPS. For quick
 debugging use `--sampler mh`; for the paper-style workflow use `--sampler nuts`.
 The Eq. (6) RHS scale can be numerically demanding under NUTS, so use a conservative
 `--target-accept` and adequate warmup for full runs.

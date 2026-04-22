@@ -71,7 +71,7 @@ function main()
             write_table(joinpath(tables_dir, "coef_$label.csv"), summary)
             coefficient_plot(
                 summary,
-                joinpath(figs_dir, "coef_$label.png");
+                joinpath(figs_dir, "coef_$label.pdf");
                 truth = sim.beta,
                 title = "Simulation $prior $baseline n=$n p=$p nonzero=$nonzero",
             )
@@ -123,7 +123,7 @@ function main()
     write_table(joinpath(tables_dir, "simulation_metrics_summary.csv"), grouped)
 
     if nrow(all_metrics) > 0
-        metrics_plot(all_metrics, joinpath(figs_dir, "simulation_metrics.png"); title = "Simulation metrics")
+        metrics_plot(all_metrics, joinpath(figs_dir, "simulation_metrics.pdf"); title = "Simulation metrics")
     end
     println("Simulation outputs written to $(abspath(outdir))")
 end
