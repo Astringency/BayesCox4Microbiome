@@ -290,6 +290,7 @@ function fit_and_evaluate(
     beta_median = summary.median
     metrics_mean = fit_metrics(result.data, draws, beta_mean)
     metrics_median = fit_metrics(result.data, draws, beta_median)
+    diagnostics = sampler_diagnostics(result)
     metrics = DataFrame(
         estimate = ["mean", "median"],
         loglik = [metrics_mean.loglik, metrics_median.loglik],
@@ -300,6 +301,12 @@ function fit_and_evaluate(
         WAIC_pw2 = [metrics_mean.WAIC_pw2, metrics_median.WAIC_pw2],
         DIC = [metrics_mean.DIC, metrics_median.DIC],
         Cindex = [metrics_mean.Cindex, metrics_median.Cindex],
+        warmup_seconds = [diagnostics.warmup_seconds, diagnostics.warmup_seconds],
+        sample_seconds = [diagnostics.sample_seconds, diagnostics.sample_seconds],
+        total_seconds = [diagnostics.total_seconds, diagnostics.total_seconds],
+        allocated_mb = [diagnostics.allocated_bytes / 2.0^20, diagnostics.allocated_bytes / 2.0^20],
+        gc_seconds = [diagnostics.gc_seconds, diagnostics.gc_seconds],
+        gc_percent = [diagnostics.gc_percent, diagnostics.gc_percent],
     )
     return (result = result, draws = draws, summary = summary, metrics = metrics, p0 = prior_p0(prior))
 end

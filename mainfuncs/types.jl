@@ -34,9 +34,24 @@ struct MHSamples
     final_step::Vector{Float64}
 end
 
+struct SamplingDiagnostics
+    warmup_seconds::Union{Missing,Float64}
+    sample_seconds::Union{Missing,Float64}
+    total_seconds::Float64
+    allocated_bytes::Int64
+    gc_seconds::Float64
+    gc_percent::Float64
+end
+
+SamplingDiagnostics() = SamplingDiagnostics(missing, missing, NaN, 0, 0.0, NaN)
+
 struct CoxSamplerResult{S,P}
     samples::S
     data::CoxPreparedData
     prior::P
     sampler::Symbol
+    diagnostics::SamplingDiagnostics
 end
+
+CoxSamplerResult(samples, data, prior, sampler) =
+    CoxSamplerResult(samples, data, prior, sampler, SamplingDiagnostics())

@@ -67,6 +67,15 @@ Turing.@model function _bayes_cox_turing_model(
     return beta
 end
 
+function _combine_callbacks(timing_callback, user_callback)
+    user_callback === nothing && return timing_callback
+    return (args...; kwargs...) -> begin
+        timing_callback(args...; kwargs...)
+        user_callback(args...; kwargs...)
+        return nothing
+    end
+end
+
 function _sample_nuts(
     data::CoxPreparedData,
     prior::AbstractCoxPrior;
@@ -81,6 +90,7 @@ function _sample_nuts(
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
     progress::Bool = true,
+    callback = nothing,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -100,11 +110,26 @@ function _sample_nuts(
         Float64(car_precision),
     )
     sampler = Turing.NUTS(warmup, Float64(target_accept))
+    start_ns = time_ns()
+    first_saved_times = Float64[]
+    timing_lock = ReentrantLock()
+    timing_callback = (rng_cb, model_cb, sampler_cb, sample_cb, state_cb, iteration; kwargs...) -> begin
+        if iteration == 1
+            lock(timing_lock)
+            try
+                push!(first_saved_times, (time_ns() - start_ns) / 1e9)
+            finally
+                unlock(timing_lock)
+            end
+        end
+        return nothing
+    end
+    combined_callback = _combine_callbacks(timing_callback, callback)
 
-    if chains == 1
-        return Turing.sample(rng, model, sampler, n_samples; progress = progress)
+    timed = @timed if chains == 1
+        Turing.sample(rng, model, sampler, n_samples; progress = progress, callback = combined_callback)
     else
-        return Turing.sample(
+        Turing.sample(
             rng,
             model,
             sampler,
@@ -112,6 +137,22 @@ function _sample_nuts(
             n_samples,
             chains;
             progress = progress,
+            callback = combined_callback,
         )
     end
+    warmup_seconds =
+        warmup == 0 ? 0.0 :
+        isempty(first_saved_times) ? missing : min(maximum(first_saved_times), timed.time)
+    sample_seconds =
+        warmup_seconds === missing ? missing : max(timed.time - warmup_seconds, 0.0)
+    gc_percent = timed.time > 0 ? 100 * timed.gctime / timed.time : NaN
+    diagnostics = SamplingDiagnostics(
+        warmup_seconds,
+        sample_seconds,
+        timed.time,
+        Int64(timed.bytes),
+        timed.gctime,
+        gc_percent,
+    )
+    return (samples = timed.value, diagnostics = diagnostics)
 end

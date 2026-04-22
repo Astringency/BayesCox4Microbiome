@@ -348,14 +348,30 @@ function sample_bayes_cox(
         end
     rng = seed === nothing ? Random.default_rng() : MersenneTwister(seed)
     if sampler == :nuts
-        samples = _sample_nuts(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
+        sampled = _sample_nuts(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
+        samples = sampled.samples
+        diagnostics = sampled.diagnostics
     elseif sampler == :mh
-        samples = _sample_mh(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
+        timed = @timed _sample_mh(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
+        samples = timed.value
+        warmup_seconds = missing
+        sample_seconds = missing
+        gc_percent = timed.time > 0 ? 100 * timed.gctime / timed.time : NaN
+        diagnostics = SamplingDiagnostics(
+            warmup_seconds,
+            sample_seconds,
+            timed.time,
+            Int64(timed.bytes),
+            timed.gctime,
+            gc_percent,
+        )
     else
         throw(ArgumentError("sampler must be :nuts or :mh."))
     end
-    return CoxSamplerResult(samples, data, prior, sampler)
+    return CoxSamplerResult(samples, data, prior, sampler, diagnostics)
 end
+
+sampler_diagnostics(result::CoxSamplerResult) = result.diagnostics
 
 function posterior_beta_draws(result::CoxSamplerResult)
     if result.samples isa MHSamples

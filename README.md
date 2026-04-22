@@ -82,6 +82,10 @@ julia --project=. scripts\run_simulation.jl --sampler nuts --samples 50 --warmup
 
 For Revise-based script development, set `USE_REVISE=true`; the scripts will
 use `Revise.includet` for `scripts/analysis_common.jl` when Revise is available.
+The script metrics CSV files include sampling diagnostics:
+`warmup_seconds`, `sample_seconds`, `total_seconds`, `allocated_mb`,
+`gc_seconds`, and `gc_percent`. For NUTS, warmup/sample are split using the
+first kept sample callback; for MH only total timing and allocation are recorded.
 
 scripts/run_simulation.jl 当前支持这些参数：
 
