@@ -1,9 +1,9 @@
 using BayesCox4Micro
 using CSV
+using CairoMakie
 using DataFrames
 using Distributions
 using LinearAlgebra
-using Plots
 using PosteriorStats
 using Random
 using Statistics
@@ -458,19 +458,14 @@ end
 function save_effect_plot(plt, path::AbstractString; save_eps::Bool = true)
     pdf_path = _plot_path_with_ext(path, ".pdf")
     ensure_dir(dirname(pdf_path))
-    savefig(plt, pdf_path)
+    CairoMakie.save(pdf_path, plt)
     if save_eps
         eps_path = _plot_path_with_ext(path, ".eps")
         try
-            savefig(plt, eps_path)
+            CairoMakie.save(eps_path, plt)
         catch err
             isfile(eps_path) && rm(eps_path; force = true)
-            try
-                open(io -> show(io, MIME("application/postscript"), plt), eps_path, "w")
-            catch
-                isfile(eps_path) && rm(eps_path; force = true)
-                @warn "Could not save EPS figure; PDF was saved successfully." path=eps_path error=typeof(err)
-            end
+            @warn "Could not save EPS figure; PDF was saved successfully." path=eps_path error=typeof(err)
         end
     end
     return pdf_path
@@ -486,28 +481,85 @@ function coefficient_plot(
     x = 1:nrow(summary)
     estimate in propertynames(summary) ||
         throw(ArgumentError("summary does not contain estimate column $estimate."))
-    y = summary[!, estimate]
-    yerr = (y .- summary.lower, summary.upper .- y)
+    y = Float64.(summary[!, estimate])
+    lower = Float64.(summary.lower)
+    upper = Float64.(summary.upper)
     estimate_label = estimate == :map ? "MAP" : "posterior $(String(estimate))"
-    plt = scatter(x, y; yerror = yerr, label = estimate_label, xlabel = "Taxon index",
-        ylabel = "Coefficient", title = title, legend = :topright, markersize = 3)
-    hline!(plt, [0.0]; label = "", color = :gray, linestyle = :dash)
+    fig = Figure(size = (900, 420))
+    ax = Axis(fig[1, 1]; xlabel = "Taxon index", ylabel = "Coefficient", title = title)
+    rangebars!(
+        ax,
+        collect(x),
+        lower,
+        upper;
+        color = (:steelblue, 0.75),
+        linewidth = 1.2,
+        whiskerwidth = 8,
+    )
+    scatter!(ax, collect(x), collect(y); label = estimate_label, color = :steelblue, markersize = 6)
+    hlines!(ax, [0.0]; color = :gray50, linestyle = :dash)
     if truth !== nothing
-        scatter!(plt, x, truth; label = "true", color = :red, markersize = 3)
+        scatter!(ax, collect(x), collect(truth); label = "true", color = :firebrick, markersize = 6)
     end
-    return save_effect_plot(plt, path)
+    axislegend(ax; position = :rt)
+    return save_effect_plot(fig, path)
+end
+
+function _finite_mean(v)
+    vals = Float64[]
+    for x in skipmissing(v)
+        xf = Float64(x)
+        isfinite(xf) && push!(vals, xf)
+    end
+    return isempty(vals) ? NaN : mean(vals)
+end
+
+function _metric_panel!(figpos, rows::DataFrame, metric::Symbol; title::AbstractString, ylabel::AbstractString = "")
+    agg = combine(groupby(rows, [:prior, :estimate]), metric => _finite_mean => :value)
+    priors = unique(agg.prior)
+    estimates = unique(agg.estimate)
+    ax = Axis(
+        figpos;
+        title = title,
+        ylabel = ylabel,
+        xticks = (1:length(priors), priors),
+        xticklabelrotation = pi / 4,
+    )
+    isempty(priors) && return ax
+    n_est = max(length(estimates), 1)
+    width = min(0.72 / n_est, 0.24)
+    offsets = range(-width * (n_est - 1) / 2, width * (n_est - 1) / 2; length = n_est)
+    palette = Makie.wong_colors()
+    for (k, est) in enumerate(estimates)
+        values = Float64[]
+        xs = Float64[]
+        for (i, prior) in enumerate(priors)
+            idx = findfirst((agg.prior .== prior) .& (agg.estimate .== est))
+            idx === nothing && continue
+            value = agg.value[idx]
+            isfinite(value) || continue
+            push!(xs, i + offsets[k])
+            push!(values, value)
+        end
+        isempty(xs) && continue
+        barplot!(ax, xs, values; width = width, label = est, color = palette[mod1(k, length(palette))])
+    end
+    return ax
 end
 
 function metrics_plot(metrics::DataFrame, path::AbstractString; title = "Model metrics")
     plot_rows = copy(metrics)
     plot_rows.prior = string.(plot_rows.prior)
     plot_rows.estimate = string.(plot_rows.estimate)
-    plt = plot(layout = (1, 4), size = (1320, 330), title = title)
-    bar!(plt[1], plot_rows.prior, plot_rows.WAIC_pw1; group = plot_rows.estimate, title = "WAIC", ylabel = "smaller is better", legend = :topright, xrotation = 35)
-    bar!(plt[2], plot_rows.prior, plot_rows.LOOIC; group = plot_rows.estimate, title = "LOOIC", ylabel = "smaller is better", legend = false, xrotation = 35)
-    bar!(plt[3], plot_rows.prior, plot_rows.LPML; group = plot_rows.estimate, title = "LPML", legend = false, xrotation = 35)
-    bar!(plt[4], plot_rows.prior, plot_rows.Cindex; group = plot_rows.estimate, title = "C-index", legend = false, xrotation = 35, ylim = (0, 1))
-    return save_effect_plot(plt, path)
+    fig = Figure(size = (1320, 360))
+    Label(fig[0, 1:4], title; tellwidth = false, fontsize = 16)
+    ax1 = _metric_panel!(fig[1, 1], plot_rows, :WAIC_pw1; title = "WAIC", ylabel = "smaller is better")
+    _metric_panel!(fig[1, 2], plot_rows, :LOOIC; title = "LOOIC", ylabel = "smaller is better")
+    _metric_panel!(fig[1, 3], plot_rows, :LPML; title = "LPML")
+    ax4 = _metric_panel!(fig[1, 4], plot_rows, :Cindex; title = "C-index")
+    ylims!(ax4, 0, 1)
+    Legend(fig[2, 1:4], ax1; orientation = :horizontal, tellwidth = false)
+    return save_effect_plot(fig, path)
 end
 
 function write_table(path::AbstractString, table)
