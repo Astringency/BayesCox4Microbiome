@@ -4,6 +4,7 @@ using DataFrames
 using Distributions
 using LinearAlgebra
 using Plots
+using PosteriorStats
 using Random
 using Statistics
 
@@ -216,18 +217,107 @@ function posterior_event_loglik(data::CoxPreparedData, draws::AbstractMatrix)
     return out
 end
 
-function fit_metrics(data::CoxPreparedData, draws::AbstractMatrix, beta_hat::AbstractVector)
+function posterior_draw_layout(result, n_total::Integer)
+    if result.samples isa MHSamples
+        return (chains = 1, draws = n_total)
+    end
+    try
+        value = getfield(result.samples, :value)
+        n_iter, _, n_chain = size(value)
+        if n_iter * n_chain == n_total
+            return (chains = n_chain, draws = n_iter)
+        end
+    catch
+    end
+    return (chains = 1, draws = n_total)
+end
+
+function _loo_loglik_array(ll_event::AbstractMatrix, n_chains::Integer, n_draws::Integer)
+    n_events, n_total = size(ll_event)
+    n_chains * n_draws == n_total ||
+        throw(DimensionMismatch("LOO chain/draw layout does not match log-likelihood samples."))
+    out = Array{Float64}(undef, n_draws, n_chains, n_events)
+    @inbounds for c in 1:n_chains
+        offset = (c - 1) * n_draws
+        for d in 1:n_draws
+            out[d, c, :] .= view(ll_event, :, offset + d)
+        end
+    end
+    return out
+end
+
+function psis_loo_metrics(ll_event::AbstractMatrix, n_chains::Integer, n_draws::Integer)
+    if n_chains * n_draws < 26 || isempty(ll_event)
+        return (
+            ELPD_LOO = NaN,
+            ELPD_LOO_SE = NaN,
+            PLOO = NaN,
+            PLOO_SE = NaN,
+            LOOIC = NaN,
+            LOOIC_SE = NaN,
+            ParetoK_max = NaN,
+            ParetoK_bad = missing,
+            PSIS_LOO = NaN,
+        )
+    end
+    try
+        loo_result = PosteriorStats.loo(_loo_loglik_array(ll_event, n_chains, n_draws))
+        estimates = loo_result.estimates
+        pareto_k = vec(collect(loo_result.pointwise.pareto_shape))
+        looic = -2 * estimates.elpd
+        return (
+            ELPD_LOO = estimates.elpd,
+            ELPD_LOO_SE = estimates.se_elpd,
+            PLOO = estimates.p,
+            PLOO_SE = estimates.se_p,
+            LOOIC = looic,
+            LOOIC_SE = 2 * estimates.se_elpd,
+            ParetoK_max = maximum(pareto_k),
+            ParetoK_bad = count(>(0.7), pareto_k),
+            PSIS_LOO = looic,
+        )
+    catch err
+        @warn "PSIS-LOO calculation failed; LOO metrics will be NaN." exception=(err, catch_backtrace())
+        return (
+            ELPD_LOO = NaN,
+            ELPD_LOO_SE = NaN,
+            PLOO = NaN,
+            PLOO_SE = NaN,
+            LOOIC = NaN,
+            LOOIC_SE = NaN,
+            ParetoK_max = NaN,
+            ParetoK_bad = missing,
+            PSIS_LOO = NaN,
+        )
+    end
+end
+
+function fit_metrics(
+    data::CoxPreparedData,
+    draws::AbstractMatrix,
+    beta_hat::AbstractVector;
+    chains::Integer = 1,
+    draws_per_chain::Integer = size(draws, 1),
+    ll_event = nothing,
+    loo = nothing,
+)
     point_loglik = cox_logpartiallikelihood(data, beta_hat)
     point_risk = data.z * beta_hat
-    ll = posterior_event_loglik(data, draws)
-    event_rows = findall(!=(0), data.event)
-    ll_event = ll[event_rows, :]
-    alog_plik = sum(logmeanexp(view(ll_event, i, :)) for i in axes(ll_event, 1))
-    mean_ll = vec(mean(ll_event; dims = 2))
-    pw1 = 2 * sum([logmeanexp(view(ll_event, i, :)) for i in axes(ll_event, 1)] .- mean_ll)
-    pw2 = size(ll_event, 2) > 1 ? sum(var(view(ll_event, i, :)) for i in axes(ll_event, 1)) : NaN
-    lpml = sum(log(mean(exp.(-view(ll_event, i, :)))) for i in axes(ll_event, 1))
-    sample_total = vec(sum(ll_event; dims = 1))
+    event_loglik =
+        if ll_event === nothing
+            ll = posterior_event_loglik(data, draws)
+            event_rows = findall(!=(0), data.event)
+            ll[event_rows, :]
+        else
+            ll_event
+        end
+    loo_metrics = loo === nothing ? psis_loo_metrics(event_loglik, chains, draws_per_chain) : loo
+    alog_plik = sum(logmeanexp(view(event_loglik, i, :)) for i in axes(event_loglik, 1))
+    mean_ll = vec(mean(event_loglik; dims = 2))
+    pw1 = 2 * sum([logmeanexp(view(event_loglik, i, :)) for i in axes(event_loglik, 1)] .- mean_ll)
+    pw2 = size(event_loglik, 2) > 1 ? sum(var(view(event_loglik, i, :)) for i in axes(event_loglik, 1)) : NaN
+    lpml = sum(log(mean(exp.(-view(event_loglik, i, :)))) for i in axes(event_loglik, 1))
+    sample_total = vec(sum(event_loglik; dims = 1))
     pD = mean(-2 .* sample_total .+ 2) - (-2 * point_loglik + 2)
     return (
         loglik = point_loglik,
@@ -237,8 +327,33 @@ function fit_metrics(data::CoxPreparedData, draws::AbstractMatrix, beta_hat::Abs
         WAIC_pw1 = -2 * alog_plik + 2 * pw1,
         WAIC_pw2 = -2 * alog_plik + 2 * pw2,
         DIC = point_loglik - pD,
+        ELPD_LOO = loo_metrics.ELPD_LOO,
+        ELPD_LOO_SE = loo_metrics.ELPD_LOO_SE,
+        PLOO = loo_metrics.PLOO,
+        PLOO_SE = loo_metrics.PLOO_SE,
+        LOOIC = loo_metrics.LOOIC,
+        LOOIC_SE = loo_metrics.LOOIC_SE,
+        ParetoK_max = loo_metrics.ParetoK_max,
+        ParetoK_bad = loo_metrics.ParetoK_bad,
+        PSIS_LOO = loo_metrics.PSIS_LOO,
         Cindex = concordance_index(data.time, data.event, point_risk),
     )
+end
+
+function add_elpd_diffs!(metrics::DataFrame; group_cols = Symbol[])
+    :ELPD_LOO in propertynames(metrics) || return metrics
+    :ELPD_Diff in propertynames(metrics) || (metrics.ELPD_Diff = fill(NaN, nrow(metrics)))
+    valid_group_cols = [c for c in group_cols if c in propertynames(metrics)]
+    groups = isempty(valid_group_cols) ? [metrics] : groupby(metrics, valid_group_cols)
+    for group in groups
+        vals = collect(skipmissing(group.ELPD_LOO))
+        vals = vals[isfinite.(vals)]
+        isempty(vals) && continue
+        best = maximum(vals)
+        rows = group isa SubDataFrame ? parentindices(group)[1] : axes(group, 1)
+        metrics[rows, :ELPD_Diff] .= group.ELPD_LOO .- best
+    end
+    return metrics
 end
 
 function fit_and_evaluate(
@@ -292,14 +407,19 @@ function fit_and_evaluate(
             throw(ArgumentError("sampler must be :nuts or :mh."))
     end
     draws = posterior_beta_draws(result)
+    layout = posterior_draw_layout(result, size(draws, 1))
+    loglik = posterior_event_loglik(result.data, draws)
+    event_rows = findall(!=(0), result.data.event)
+    ll_event = loglik[event_rows, :]
+    loo = psis_loo_metrics(ll_event, layout.chains, layout.draws)
     names = ["beta[$j]" for j in 1:size(draws, 2)]
     beta_map = posterior_beta_map(result)
     summary = posterior_summary(draws; names = names, map = beta_map)
     beta_mean = summary.mean
     beta_median = summary.median
-    metrics_mean = fit_metrics(result.data, draws, beta_mean)
-    metrics_median = fit_metrics(result.data, draws, beta_median)
-    metrics_map = fit_metrics(result.data, draws, beta_map)
+    metrics_mean = fit_metrics(result.data, draws, beta_mean; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
+    metrics_median = fit_metrics(result.data, draws, beta_median; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
+    metrics_map = fit_metrics(result.data, draws, beta_map; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
     diagnostics = sampler_diagnostics(result)
     metrics = DataFrame(
         estimate = ["mean", "median", "MAP"],
@@ -310,6 +430,15 @@ function fit_and_evaluate(
         WAIC_pw1 = [metrics_mean.WAIC_pw1, metrics_median.WAIC_pw1, metrics_map.WAIC_pw1],
         WAIC_pw2 = [metrics_mean.WAIC_pw2, metrics_median.WAIC_pw2, metrics_map.WAIC_pw2],
         DIC = [metrics_mean.DIC, metrics_median.DIC, metrics_map.DIC],
+        ELPD_LOO = [metrics_mean.ELPD_LOO, metrics_median.ELPD_LOO, metrics_map.ELPD_LOO],
+        ELPD_LOO_SE = [metrics_mean.ELPD_LOO_SE, metrics_median.ELPD_LOO_SE, metrics_map.ELPD_LOO_SE],
+        PLOO = [metrics_mean.PLOO, metrics_median.PLOO, metrics_map.PLOO],
+        PLOO_SE = [metrics_mean.PLOO_SE, metrics_median.PLOO_SE, metrics_map.PLOO_SE],
+        LOOIC = [metrics_mean.LOOIC, metrics_median.LOOIC, metrics_map.LOOIC],
+        LOOIC_SE = [metrics_mean.LOOIC_SE, metrics_median.LOOIC_SE, metrics_map.LOOIC_SE],
+        ParetoK_max = [metrics_mean.ParetoK_max, metrics_median.ParetoK_max, metrics_map.ParetoK_max],
+        ParetoK_bad = [metrics_mean.ParetoK_bad, metrics_median.ParetoK_bad, metrics_map.ParetoK_bad],
+        PSIS_LOO = [metrics_mean.PSIS_LOO, metrics_median.PSIS_LOO, metrics_map.PSIS_LOO],
         Cindex = [metrics_mean.Cindex, metrics_median.Cindex, metrics_map.Cindex],
         warmup_seconds = fill(diagnostics.warmup_seconds, 3),
         sample_seconds = fill(diagnostics.sample_seconds, 3),
@@ -373,10 +502,11 @@ function metrics_plot(metrics::DataFrame, path::AbstractString; title = "Model m
     plot_rows = copy(metrics)
     plot_rows.prior = string.(plot_rows.prior)
     plot_rows.estimate = string.(plot_rows.estimate)
-    plt = plot(layout = (1, 3), size = (1050, 330), title = title)
+    plt = plot(layout = (1, 4), size = (1320, 330), title = title)
     bar!(plt[1], plot_rows.prior, plot_rows.WAIC_pw1; group = plot_rows.estimate, title = "WAIC", ylabel = "smaller is better", legend = :topright, xrotation = 35)
-    bar!(plt[2], plot_rows.prior, plot_rows.LPML; group = plot_rows.estimate, title = "LPML", legend = false, xrotation = 35)
-    bar!(plt[3], plot_rows.prior, plot_rows.Cindex; group = plot_rows.estimate, title = "C-index", legend = false, xrotation = 35, ylim = (0, 1))
+    bar!(plt[2], plot_rows.prior, plot_rows.LOOIC; group = plot_rows.estimate, title = "LOOIC", ylabel = "smaller is better", legend = false, xrotation = 35)
+    bar!(plt[3], plot_rows.prior, plot_rows.LPML; group = plot_rows.estimate, title = "LPML", legend = false, xrotation = 35)
+    bar!(plt[4], plot_rows.prior, plot_rows.Cindex; group = plot_rows.estimate, title = "C-index", legend = false, xrotation = 35, ylim = (0, 1))
     return save_effect_plot(plt, path)
 end
 

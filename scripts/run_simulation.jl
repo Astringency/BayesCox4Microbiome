@@ -122,6 +122,10 @@ function main()
         end
     end
 
+    add_elpd_diffs!(
+        all_metrics;
+        group_cols = [:rep, :n, :p, :nonzero_count, :baseline, :estimate],
+    )
     write_table(joinpath(tables_dir, "simulation_metrics_long.csv"), all_metrics)
     write_table(joinpath(tables_dir, "simulation_false_discovery.csv"), all_fd)
 
@@ -133,6 +137,15 @@ function main()
         :LPML => std => :LPML_sd,
         :WAIC_pw1 => mean => :WAIC_pw1_mean,
         :WAIC_pw1 => std => :WAIC_pw1_sd,
+        :ELPD_LOO => mean => :ELPD_LOO_mean,
+        :ELPD_LOO => std => :ELPD_LOO_sd,
+        :ELPD_Diff => mean => :ELPD_Diff_mean,
+        :ELPD_Diff => std => :ELPD_Diff_sd,
+        :PLOO => mean => :PLOO_mean,
+        :PLOO => std => :PLOO_sd,
+        :LOOIC => mean => :LOOIC_mean,
+        :LOOIC => std => :LOOIC_sd,
+        :ParetoK_max => maximum => :ParetoK_max,
         :Cindex => mean => :Cindex_mean,
         :Cindex => std => :Cindex_sd,
     )

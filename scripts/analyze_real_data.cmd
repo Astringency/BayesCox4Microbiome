@@ -4,7 +4,7 @@ cd /d "%~dp0\.."
 
 REM --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso ^
 
-set priors_val=rhs,new-rhs,est-rhs
+set priors_val=hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso
 julia -t 4 --project=. scripts\analyze_real_data.jl ^
   --input data\T1D.csv ^
   --time-col time ^

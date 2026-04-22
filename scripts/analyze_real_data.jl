@@ -112,6 +112,7 @@ function main()
         append!(all_metrics, metrics; cols = :union)
     end
 
+    add_elpd_diffs!(all_metrics; group_cols = [:estimate])
     write_table(joinpath(tables_dir, "model_metrics.csv"), all_metrics)
     write_table(joinpath(tables_dir, "taxa_columns.csv"), DataFrame(taxon = string.(taxa_cols)))
     metrics_plot(all_metrics, joinpath(figs_dir, "model_metrics.pdf"); title = "T1D model metrics")
