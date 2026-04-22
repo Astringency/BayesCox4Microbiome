@@ -74,11 +74,27 @@ function main()
                 joinpath(figs_dir, "coef_$label.pdf");
                 truth = sim.beta,
                 title = "Simulation $prior $baseline n=$n p=$p nonzero=$nonzero",
+                estimate = :mean,
+            )
+            coefficient_plot(
+                summary,
+                joinpath(figs_dir, "coef_median_$label.pdf");
+                truth = sim.beta,
+                title = "Simulation $prior median $baseline n=$n p=$p nonzero=$nonzero",
+                estimate = :median,
+            )
+            coefficient_plot(
+                summary,
+                joinpath(figs_dir, "coef_map_$label.pdf");
+                truth = sim.beta,
+                title = "Simulation $prior MAP $baseline n=$n p=$p nonzero=$nonzero",
+                estimate = :map,
             )
 
             fd = false_discovery(sim.beta, summary)
             mse_mean = mean((summary.mean .- sim.beta) .^ 2)
             mse_median = mean((summary.median .- sim.beta) .^ 2)
+            mse_map = mean((summary.map .- sim.beta) .^ 2)
             metrics = copy(fit.metrics)
             metrics.prior .= prior
             metrics.rep .= rep
@@ -87,7 +103,7 @@ function main()
             metrics.nonzero_count .= nonzero
             metrics.p0 .= fit.p0
             metrics.baseline .= string(baseline)
-            metrics.MSE = [mse_mean, mse_median]
+            metrics.MSE = [mse_mean, mse_median, mse_map]
             append!(all_metrics, metrics; cols = :union)
             push!(all_fd, (
                 rep = rep,

@@ -169,14 +169,22 @@ function univariate_screen_table(X, time, event; names = nothing, alpha::Real = 
     ), screen
 end
 
-function posterior_summary(draws::AbstractMatrix; names = ["beta[$j]" for j in 1:size(draws, 2)], alpha::Real = 0.05)
+function posterior_summary(
+    draws::AbstractMatrix;
+    names = ["beta[$j]" for j in 1:size(draws, 2)],
+    alpha::Real = 0.05,
+    map = nothing,
+)
     p = size(draws, 2)
     lower_p = alpha / 2
     upper_p = 1 - alpha / 2
+    beta_map = map === nothing ? fill(NaN, p) : collect(Float64, map)
+    length(beta_map) == p || throw(DimensionMismatch("MAP estimate length must match beta dimension."))
     return DataFrame(
         variable = names,
         mean = vec(mean(draws; dims = 1)),
         median = [median(view(draws, :, j)) for j in 1:p],
+        map = beta_map,
         lower = [quantile(view(draws, :, j), lower_p) for j in 1:p],
         upper = [quantile(view(draws, :, j), upper_p) for j in 1:p],
     )
@@ -282,31 +290,33 @@ function fit_and_evaluate(
             )
         else
             throw(ArgumentError("sampler must be :nuts or :mh."))
-        end
+    end
     draws = posterior_beta_draws(result)
     names = ["beta[$j]" for j in 1:size(draws, 2)]
-    summary = posterior_summary(draws; names = names)
+    beta_map = posterior_beta_map(result)
+    summary = posterior_summary(draws; names = names, map = beta_map)
     beta_mean = summary.mean
     beta_median = summary.median
     metrics_mean = fit_metrics(result.data, draws, beta_mean)
     metrics_median = fit_metrics(result.data, draws, beta_median)
+    metrics_map = fit_metrics(result.data, draws, beta_map)
     diagnostics = sampler_diagnostics(result)
     metrics = DataFrame(
-        estimate = ["mean", "median"],
-        loglik = [metrics_mean.loglik, metrics_median.loglik],
-        LPML = [metrics_mean.LPML, metrics_median.LPML],
-        AIC = [metrics_mean.AIC, metrics_median.AIC],
-        BIC = [metrics_mean.BIC, metrics_median.BIC],
-        WAIC_pw1 = [metrics_mean.WAIC_pw1, metrics_median.WAIC_pw1],
-        WAIC_pw2 = [metrics_mean.WAIC_pw2, metrics_median.WAIC_pw2],
-        DIC = [metrics_mean.DIC, metrics_median.DIC],
-        Cindex = [metrics_mean.Cindex, metrics_median.Cindex],
-        warmup_seconds = [diagnostics.warmup_seconds, diagnostics.warmup_seconds],
-        sample_seconds = [diagnostics.sample_seconds, diagnostics.sample_seconds],
-        total_seconds = [diagnostics.total_seconds, diagnostics.total_seconds],
-        allocated_mb = [diagnostics.allocated_bytes / 2.0^20, diagnostics.allocated_bytes / 2.0^20],
-        gc_seconds = [diagnostics.gc_seconds, diagnostics.gc_seconds],
-        gc_percent = [diagnostics.gc_percent, diagnostics.gc_percent],
+        estimate = ["mean", "median", "MAP"],
+        loglik = [metrics_mean.loglik, metrics_median.loglik, metrics_map.loglik],
+        LPML = [metrics_mean.LPML, metrics_median.LPML, metrics_map.LPML],
+        AIC = [metrics_mean.AIC, metrics_median.AIC, metrics_map.AIC],
+        BIC = [metrics_mean.BIC, metrics_median.BIC, metrics_map.BIC],
+        WAIC_pw1 = [metrics_mean.WAIC_pw1, metrics_median.WAIC_pw1, metrics_map.WAIC_pw1],
+        WAIC_pw2 = [metrics_mean.WAIC_pw2, metrics_median.WAIC_pw2, metrics_map.WAIC_pw2],
+        DIC = [metrics_mean.DIC, metrics_median.DIC, metrics_map.DIC],
+        Cindex = [metrics_mean.Cindex, metrics_median.Cindex, metrics_map.Cindex],
+        warmup_seconds = fill(diagnostics.warmup_seconds, 3),
+        sample_seconds = fill(diagnostics.sample_seconds, 3),
+        total_seconds = fill(diagnostics.total_seconds, 3),
+        allocated_mb = fill(diagnostics.allocated_bytes / 2.0^20, 3),
+        gc_seconds = fill(diagnostics.gc_seconds, 3),
+        gc_percent = fill(diagnostics.gc_percent, 3),
     )
     return (result = result, draws = draws, summary = summary, metrics = metrics, p0 = prior_p0(prior))
 end
@@ -337,11 +347,20 @@ function save_effect_plot(plt, path::AbstractString; save_eps::Bool = true)
     return pdf_path
 end
 
-function coefficient_plot(summary::DataFrame, path::AbstractString; truth = nothing, title = "Coefficient estimates")
+function coefficient_plot(
+    summary::DataFrame,
+    path::AbstractString;
+    truth = nothing,
+    title = "Coefficient estimates",
+    estimate::Symbol = :mean,
+)
     x = 1:nrow(summary)
-    y = summary.mean
+    estimate in propertynames(summary) ||
+        throw(ArgumentError("summary does not contain estimate column $estimate."))
+    y = summary[!, estimate]
     yerr = (y .- summary.lower, summary.upper .- y)
-    plt = scatter(x, y; yerror = yerr, label = "posterior mean", xlabel = "Taxon index",
+    estimate_label = estimate == :map ? "MAP" : "posterior $(String(estimate))"
+    plt = scatter(x, y; yerror = yerr, label = estimate_label, xlabel = "Taxon index",
         ylabel = "Coefficient", title = title, legend = :topright, markersize = 3)
     hline!(plt, [0.0]; label = "", color = :gray, linestyle = :dash)
     if truth !== nothing
@@ -351,11 +370,13 @@ function coefficient_plot(summary::DataFrame, path::AbstractString; truth = noth
 end
 
 function metrics_plot(metrics::DataFrame, path::AbstractString; title = "Model metrics")
-    mean_rows = metrics[metrics.estimate .== "mean", :]
+    plot_rows = copy(metrics)
+    plot_rows.prior = string.(plot_rows.prior)
+    plot_rows.estimate = string.(plot_rows.estimate)
     plt = plot(layout = (1, 3), size = (1050, 330), title = title)
-    bar!(plt[1], mean_rows.prior, mean_rows.WAIC_pw1; title = "WAIC", ylabel = "smaller is better", legend = false, xrotation = 35)
-    bar!(plt[2], mean_rows.prior, mean_rows.LPML; title = "LPML", legend = false, xrotation = 35)
-    bar!(plt[3], mean_rows.prior, mean_rows.Cindex; title = "C-index", legend = false, xrotation = 35, ylim = (0, 1))
+    bar!(plt[1], plot_rows.prior, plot_rows.WAIC_pw1; group = plot_rows.estimate, title = "WAIC", ylabel = "smaller is better", legend = :topright, xrotation = 35)
+    bar!(plt[2], plot_rows.prior, plot_rows.LPML; group = plot_rows.estimate, title = "LPML", legend = false, xrotation = 35)
+    bar!(plt[3], plot_rows.prior, plot_rows.Cindex; group = plot_rows.estimate, title = "C-index", legend = false, xrotation = 35, ylim = (0, 1))
     return save_effect_plot(plt, path)
 end
 

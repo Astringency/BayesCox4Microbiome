@@ -91,6 +91,19 @@ function main()
             summary,
             joinpath(figs_dir, "coef_$prior.pdf");
             title = "T1D coefficient estimates: $prior",
+            estimate = :mean,
+        )
+        coefficient_plot(
+            summary,
+            joinpath(figs_dir, "coef_median_$prior.pdf");
+            title = "T1D median coefficient estimates: $prior",
+            estimate = :median,
+        )
+        coefficient_plot(
+            summary,
+            joinpath(figs_dir, "coef_map_$prior.pdf");
+            title = "T1D MAP coefficient estimates: $prior",
+            estimate = :map,
         )
 
         metrics = copy(fit.metrics)

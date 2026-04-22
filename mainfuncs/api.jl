@@ -399,6 +399,51 @@ function posterior_beta_draws(result::CoxSamplerResult)
     throw(ArgumentError("unsupported sampler result array shape for beta extraction."))
 end
 
+function _chain_variable_draws(chain, vars)
+    all_vars = Base.invokelatest(names, chain)
+    idx = map(vars) do var
+        found = findfirst(==(var), all_vars)
+        found === nothing && throw(ArgumentError("variable $var was not found in chain."))
+        return found
+    end
+    chain_value = getfield(chain, :value)
+    arr = Base.invokelatest(Array, chain_value)
+    if ndims(arr) == 2
+        return Matrix{Float64}(arr[:, idx])
+    elseif ndims(arr) == 3
+        n_iter, _, n_chain = size(arr)
+        selected = arr[:, idx, :]
+        return reshape(permutedims(selected, (1, 3, 2)), n_iter * n_chain, length(idx))
+    end
+    throw(ArgumentError("unsupported sampler result array shape."))
+end
+
+function posterior_logposterior_draws(result::CoxSamplerResult)
+    if result.samples isa MHSamples
+        return result.samples.logposterior
+    end
+    for stat in (:logjoint, :log_density, :lp)
+        try
+            values = _chain_variable_draws(result.samples, [stat])
+            return vec(values[:, 1])
+        catch
+        end
+    end
+    throw(ArgumentError(
+        "could not extract posterior log density from sampler result; " *
+        "expected a logjoint, log_density, or lp variable.",
+    ))
+end
+
+function posterior_beta_map(result::CoxSamplerResult)
+    draws = posterior_beta_draws(result)
+    logpost = posterior_logposterior_draws(result)
+    length(logpost) == size(draws, 1) ||
+        throw(DimensionMismatch("posterior log density count does not match beta draw count."))
+    idx = argmax(logpost)
+    return vec(draws[idx, :])
+end
+
 function posterior_beta_summary(result::CoxSamplerResult; cred_mass::Real = 0.95)
     0 < cred_mass < 1 || throw(ArgumentError("cred_mass must be in (0, 1)."))
     draws = posterior_beta_draws(result)
@@ -406,9 +451,10 @@ function posterior_beta_summary(result::CoxSamplerResult; cred_mass::Real = 0.95
     alpha = (1 - cred_mass) / 2
     beta_mean = vec(mean(draws; dims=1))
     beta_median = [median(view(draws, :, j)) for j in 1:p]
+    beta_map = posterior_beta_map(result)
     lower = [quantile(view(draws, :, j), alpha) for j in 1:p]
     upper = [quantile(view(draws, :, j), 1 - alpha) for j in 1:p]
-    return (mean = beta_mean, median = beta_median, lower = lower, upper = upper)
+    return (mean = beta_mean, median = beta_median, map = beta_map, lower = lower, upper = upper)
 end
 
 function sslasso_inclusion_probabilities(result::CoxSamplerResult)

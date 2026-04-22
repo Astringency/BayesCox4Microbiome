@@ -104,8 +104,8 @@ function _prior_logposterior(
     end
     for j in 1:p
         lp += _halfcauchy_logpdf(lambda[j], prior.local_scale) + log_lambda[j]
-        lambda_tilde2 = c2 * lambda[j]^2 / (c2 + tau^2 * lambda[j]^2)
-        lp += logpdf(Normal(0, tau * sqrt(lambda_tilde2)), beta[j])
+        log_beta_scale = _regularized_horseshoe_beta_logscale(tau, lambda[j], c2)
+        lp += _normal_zero_logpdf_from_logscale(beta[j], log_beta_scale)
     end
     lp += logpdf(InverseGamma(prior.slab_df / 2, prior.slab_df * prior.slab_s2 / 2), c2) + log_c2
     lp += _car_logprior(log_lambda, car_weights, car_precision)

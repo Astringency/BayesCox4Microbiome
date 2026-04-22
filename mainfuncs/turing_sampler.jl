@@ -33,9 +33,14 @@ Turing.@model function _bayes_cox_turing_model(
         tau = tau_scale * tau_raw
         c2 ~ InverseGamma(prior.slab_df / 2, prior.slab_df * prior.slab_s2 / 2)
         lambda ~ Turing.filldist(truncated(Cauchy(0, prior.local_scale), 0.0, Inf), p)
-        lambda2 = lambda .^ 2
-        lambda_tilde2 = @. c2 * lambda2 / (c2 + tau^2 * lambda2)
-        beta ~ Turing.product_distribution(Normal.(0, tau .* sqrt.(lambda_tilde2)))
+        beta ~ Turing.filldist(Normal(0, 1), p)
+        for j in 1:p
+            log_beta_scale = _regularized_horseshoe_beta_logscale(tau, lambda[j], c2)
+            Turing.@addlogprob!(
+                _normal_zero_logpdf_from_logscale(beta[j], log_beta_scale) -
+                _std_normal_logpdf(beta[j])
+            )
+        end
         if use_car && car_weights !== nothing
             Turing.@addlogprob! _car_logprior(log.(lambda), car_weights, car_precision)
         end

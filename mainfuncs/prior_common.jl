@@ -168,6 +168,25 @@ function _logsumexp2(a, b)
     return m + log(exp(a - m) + exp(b - m))
 end
 
+const _LOG2PI = log(2pi)
+
+function _std_normal_logpdf(x)
+    return -0.5 * _LOG2PI - 0.5 * x^2
+end
+
+function _normal_zero_logpdf_from_logscale(x, log_scale)
+    z = x * exp(-log_scale)
+    return -0.5 * _LOG2PI - log_scale - 0.5 * z^2
+end
+
+function _regularized_horseshoe_beta_logscale(tau, lambda, c2)
+    log_raw = log(tau) + log(lambda)
+    log_slab = 0.5 * log(c2)
+    lo = min(log_raw, log_slab)
+    hi = max(log_raw, log_slab)
+    return lo - 0.5 * log1p(exp(2 * (lo - hi)))
+end
+
 function _logistic(x)
     return x >= 0 ? inv(1 + exp(-x)) : begin
         y = exp(x)
