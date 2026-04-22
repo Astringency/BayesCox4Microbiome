@@ -1,10 +1,11 @@
 $ErrorActionPreference = "Stop"
 Set-Location (Join-Path $PSScriptRoot "..")
 
-julia --project=. scripts\run_simulation.jl `
+julia -t 4 --project=. scripts\run_simulation.jl `
   --sampler nuts `
   --samples 5000 `
   --warmup 2000 `
+  --chains 4 `
   --reps 100 `
   --n 200,400 `
   --p 50,150,300 `

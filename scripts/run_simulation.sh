@@ -13,10 +13,11 @@ for n in "${n_vals[@]}"; do
 
             echo "[SIMULATION] n=${n}, p=${p} with ${baseline} baseline."
 
-            julia --project=. scripts/run_simulation.jl \
+            julia -t 4 --project=. scripts/run_simulation.jl \
                 --sampler nuts \
                 --samples 5000 \
                 --warmup 2000 \
+                --chains 4 \
                 --reps 100 \
                 --n $n \
                 --p $p \
