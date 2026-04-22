@@ -289,13 +289,13 @@ function sample_bayes_cox(
         if !use_car
             nothing
         elseif car_weights !== nothing
-            car_weights
+            _prepare_car_weights(car_weights, size(X, 2))
         else
-            car_weight_matrix(
+            _car_weight_edges(car_weight_matrix(
                 X;
                 distance = car_distance === nothing ? :bray : car_distance,
                 threshold_quantile = car_weight_quantile,
-            )
+            ))
         end
     data = prepare_cox_data(
         X,
@@ -333,18 +333,18 @@ function sample_bayes_cox(
         if !use_car
             nothing
         elseif car_weights !== nothing
-            car_weights
+            _prepare_car_weights(car_weights, size(data.z, 2))
         else
             data.transform == :log && !data.standardize ||
                 throw(ArgumentError(
                     "car_distance for CoxPreparedData requires log-transformed, unstandardized data. " *
                     "Pass car_weights explicitly or call sample_bayes_cox with the original X matrix.",
                 ))
-            car_weight_matrix(
+            _car_weight_edges(car_weight_matrix(
                 exp.(data.z);
                 distance = car_distance === nothing ? :bray : car_distance,
                 threshold_quantile = car_weight_quantile,
-            )
+            ))
         end
     rng = seed === nothing ? Random.default_rng() : MersenneTwister(seed)
     if sampler == :nuts

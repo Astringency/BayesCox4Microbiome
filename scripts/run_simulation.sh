@@ -17,7 +17,7 @@ for n in "${n_vals[@]}"; do
                 --sampler nuts \
                 --samples 5000 \
                 --warmup 2000 \
-                --reps 1 \
+                --reps 100 \
                 --n $n \
                 --p $p \
                 --nonzero 6,12 \

@@ -18,6 +18,13 @@ struct CoxPreparedData
     col_scale::Vector{Float64}
 end
 
+struct CARWeightEdges
+    i::Vector{Int}
+    j::Vector{Int}
+    w::Vector{Float64}
+    p::Int
+end
+
 struct MHSamples
     draws::Matrix{Float64}
     logposterior::Vector{Float64}

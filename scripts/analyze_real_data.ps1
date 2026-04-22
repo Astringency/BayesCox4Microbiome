@@ -3,11 +3,16 @@ Set-Location (Join-Path $PSScriptRoot "..")
 
 julia --project=. scripts\analyze_real_data.jl `
   --input data\T1D.csv `
-  --sampler mh `
-  --samples 50 `
-  --warmup 20 `
-  --chains 1 `
+  --time-col time `
+  --status-col status `
+  --exclude-cols Sex,Antibiotics `
   --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso `
+  --sampler nuts `
+  --samples 5000 `
+  --warmup 2000 `
+  --chains 4 `
+  --target-accept 0.8 `
+  --seed 1 `
   --use-car true `
   --car-distance bray `
   --p0 auto `

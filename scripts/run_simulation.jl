@@ -3,7 +3,19 @@
 using Pkg
 Pkg.activate(joinpath(@__DIR__, ".."))
 
-include(joinpath(@__DIR__, "analysis_common.jl"))
+function _include_script(path::AbstractString)
+    if get(ENV, "USE_REVISE", "false") in ("1", "true", "yes", "y")
+        try
+            @eval import Revise
+            return Base.invokelatest(Revise.includet, path)
+        catch err
+            @warn "USE_REVISE was requested but Revise.includet failed; falling back to include." exception=(err, catch_backtrace())
+        end
+    end
+    return include(path)
+end
+
+_include_script(joinpath(@__DIR__, "analysis_common.jl"))
 
 function main()
     args = parse_cli_args()

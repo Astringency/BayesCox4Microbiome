@@ -119,6 +119,40 @@ function car_weight_matrix(
     return W
 end
 
+function _car_weight_edges(weights::AbstractMatrix{<:Real})
+    size(weights, 1) == size(weights, 2) ||
+        throw(DimensionMismatch("car_weights must be a square matrix."))
+    p = size(weights, 1)
+    ii = Int[]
+    jj = Int[]
+    ww = Float64[]
+    @inbounds for j in 2:p
+        for i in 1:(j - 1)
+            w = Float64(weights[i, j])
+            if w != 0
+                push!(ii, i)
+                push!(jj, j)
+                push!(ww, w)
+            end
+        end
+    end
+    return CARWeightEdges(ii, jj, ww, p)
+end
+
+function _prepare_car_weights(weights, p::Integer)
+    weights === nothing && return nothing
+    if weights isa CARWeightEdges
+        weights.p == p || throw(DimensionMismatch("car_weights must have length p."))
+        return weights
+    elseif weights isa AbstractMatrix
+        size(weights, 1) == p && size(weights, 2) == p ||
+            throw(DimensionMismatch("car_weights must be a p by p matrix."))
+        return _car_weight_edges(weights)
+    else
+        throw(ArgumentError("car_weights must be a matrix or CARWeightEdges."))
+    end
+end
+
 function _halfcauchy_logpdf(x, scale)
     x > 0 || return -Inf
     return log(2) - log(pi) - log(scale) - log1p((x / scale)^2)
@@ -143,19 +177,18 @@ end
 
 function _car_logprior(loglambda::AbstractVector, weights, precision::Real)
     weights === nothing && return 0.0
+    return _car_logprior(loglambda, _prepare_car_weights(weights, length(loglambda)), precision)
+end
+
+function _car_logprior(loglambda::AbstractVector, weights::CARWeightEdges, precision::Real)
     p = length(loglambda)
-    size(weights, 1) == p && size(weights, 2) == p ||
-        throw(DimensionMismatch("car_weights must be a p by p matrix."))
+    weights.p == p || throw(DimensionMismatch("car_weights must have length p."))
     _check_positive(precision, "car_precision")
     lp = zero(first(loglambda))
-    @inbounds for j in 2:p
-        for i in 1:(j - 1)
-            w = weights[i, j]
-            if w != 0
-                d = loglambda[i] - loglambda[j]
-                lp -= 0.5 * precision * w * d^2
-            end
-        end
+    scale = 0.5 * precision
+    @inbounds for k in eachindex(weights.w)
+        d = loglambda[weights.i[k]] - loglambda[weights.j[k]]
+        lp -= scale * weights.w[k] * d^2
     end
     return lp
 end

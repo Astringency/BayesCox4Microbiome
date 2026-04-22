@@ -72,6 +72,17 @@ debugging use `--sampler mh`; for the paper-style workflow use `--sampler nuts`.
 The Eq. (6) RHS scale can be numerically demanding under NUTS, so use a conservative
 `--target-accept` and adequate warmup for full runs.
 
+NUTS uses threaded parallel chains when `--chains` is greater than one. Start
+Julia with threads enabled, for example:
+
+```powershell
+$env:JULIA_NUM_THREADS = "4"
+julia --project=. scripts\run_simulation.jl --sampler nuts --samples 50 --warmup 50 --chains 4 --target-accept 0.99 --reps 1 --n 80 --p 20 --nonzero 6 --priors hs --baseline weibull --use-car true --p0 truth
+```
+
+For Revise-based script development, set `USE_REVISE=true`; the scripts will
+use `Revise.includet` for `scripts/analysis_common.jl` when Revise is available.
+
 scripts/run_simulation.jl 当前支持这些参数：
 
 | 参数 | 默认值 | 说明 |
