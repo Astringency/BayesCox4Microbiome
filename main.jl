@@ -54,6 +54,7 @@ include("mainfuncs/bayesian_lasso_methods.jl")
 include("mainfuncs/spike_slab_lasso_methods.jl")
 include("mainfuncs/posterior.jl")
 include("mainfuncs/mh_sampler.jl")
+include("mainfuncs/gibbs_sampler.jl")
 include("mainfuncs/turing_sampler.jl")
 include("mainfuncs/api.jl")
 

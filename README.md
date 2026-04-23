@@ -29,6 +29,10 @@ used in `docs/cox4microbiome_detail.pdf`:
 - `lasso`: Bayesian LASSO with `lambda2 ~ Gamma(1, 0.1)`.
 - `sslasso`: spike-and-slab LASSO with simulation defaults `s0 = 0.04`, `s1 = 0.5`;
   the real-data helper uses `s0 = 1`, `s1 = 10`.
+  The Turing/NUTS branch uses a normal-exponential scale-mixture form for the
+  Laplace spike/slab components. A dedicated `sampler=gibbs` is available for
+  SSLASSO and updates `theta`, latent `gamma`, and local variances in Gibbs
+  steps with a block MH update for `beta`.
 
 Example:
 
@@ -69,7 +73,8 @@ julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler nu
 
 Outputs are written under `results/` as CSV summaries plus dependency-light
 PDF plots, with EPS copies saved by the built-in vector writer. For quick
-debugging use `--sampler mh`; for the paper-style workflow use `--sampler nuts`.
+debugging use `--sampler mh`; for SSLASSO Gibbs use `--sampler gibbs --priors sslasso`;
+for the paper-style workflow use `--sampler nuts`.
 The Eq. (6) RHS scale can be numerically demanding under NUTS, so use a conservative
 `--target-accept` and adequate warmup for full runs.
 
@@ -99,7 +104,7 @@ scripts/run_simulation.jl 当前支持这些参数：
 | --nonzero | 6 | 真实非零系数数；支持 6 或 12，也支持逗号列表 |
 | --baseline | weibull | 基线风险；支持 weibull,exponential,gompertz |
 | --priors | 全 8 种 | 逗号列表：hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso |
-| --sampler | nuts | nuts 或 mh |
+| --sampler | nuts | nuts、mh，或 SSLASSO 专用 gibbs |
 | --samples | 500 | 后验采样数 |
 | --warmup | 200 | warmup 数 |
 | --chains | 4 | NUTS 链数；MH 不使用多链 |
@@ -120,7 +125,7 @@ scripts/analyze_real_data.jl 当前支持这些参数：
 | --status-col | status | 事件状态列名，需为 0/1 |
 | --exclude-cols | Sex,Antibiotics | 从 taxa 矩阵中排除的非菌群列 |
 | --priors | 全 8 种 | hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso |
-| --sampler | nuts | nuts 或 mh |
+| --sampler | nuts | nuts、mh，或 SSLASSO 专用 gibbs |
 | --samples | 500 | 后验采样数 |
 | --warmup | 200 | warmup 数 |
 | --chains | 4 | NUTS 链数；MH 不使用多链 |
@@ -181,6 +186,7 @@ scripts/analyze_real_data.jl 当前支持这些参数：
 4. 采样器后端 (Samplers)
     * **`turing_sampler.jl`**：对接强大且高效的外部包 `Turing.jl`。当用户在调用主函数时选择 `sampler = :nuts`（默认值）时，就会由这个文件中的逻辑构建概率模型并执行 NUTS（No-U-Turn Sampler）采样。
     * **`mh_sampler.jl`**：一个轻量级的后备采样方案。当用户选择 `sampler = :mh` 时，将使用项目自己实现的自适应随机游走 Metropolis-Hastings 算法进行采样。
+    * **`gibbs_sampler.jl`**：SSLASSO 专用的分块 Gibbs / Metropolis-within-Gibbs 采样器。
 
 5. 后验推断与模型评估 (Posterior & API)
     * **`posterior.jl`**：处理从采样器获得的原始结果，提取后验分布信息。

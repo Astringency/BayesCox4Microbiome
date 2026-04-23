@@ -365,8 +365,26 @@ function sample_bayes_cox(
             timed.gctime,
             gc_percent,
         )
+    elseif sampler == :gibbs
+        prior isa SpikeSlabLassoPrior ||
+            throw(ArgumentError("sampler=:gibbs is currently implemented only for SpikeSlabLassoPrior."))
+        use_car && resolved_car_weights !== nothing &&
+            throw(ArgumentError("sampler=:gibbs for SSLASSO does not support CAR weights."))
+        timed = @timed _sample_ssl_gibbs(data, prior; rng = rng, kwargs...)
+        samples = timed.value
+        warmup_seconds = missing
+        sample_seconds = missing
+        gc_percent = timed.time > 0 ? 100 * timed.gctime / timed.time : NaN
+        diagnostics = SamplingDiagnostics(
+            warmup_seconds,
+            sample_seconds,
+            timed.time,
+            Int64(timed.bytes),
+            timed.gctime,
+            gc_percent,
+        )
     else
-        throw(ArgumentError("sampler must be :nuts or :mh."))
+        throw(ArgumentError("sampler must be :nuts, :mh, or :gibbs."))
     end
     return CoxSamplerResult(samples, data, prior, sampler, diagnostics)
 end
@@ -466,6 +484,11 @@ function sslasso_inclusion_probabilities(result::CoxSamplerResult)
     prior = result.prior
     draws = result.samples.draws
     p = size(result.data.z, 2)
+    gamma_names = ["gamma[$j]" for j in 1:p]
+    gamma_idx = [findfirst(==(name), result.samples.names) for name in gamma_names]
+    if all(!isnothing, gamma_idx)
+        return vec(mean(draws[:, Int.(gamma_idx)]; dims = 1))
+    end
     out = zeros(size(draws, 1), p)
     for r in axes(draws, 1)
         theta = _logistic(draws[r, p + 1])

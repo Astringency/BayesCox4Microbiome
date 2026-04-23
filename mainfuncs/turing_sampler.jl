@@ -54,11 +54,15 @@ Turing.@model function _bayes_cox_turing_model(
         beta ~ Turing.product_distribution(Normal.(0, sqrt.(tau2)))
     elseif prior isa SpikeSlabLassoPrior
         theta ~ Beta(prior.theta_a, prior.theta_b)
-        beta ~ Turing.filldist(Laplace(0, prior.slab_scale), p)
+        tau2_spike ~ Turing.filldist(Exponential(2 * prior.spike_scale^2), p)
+        tau2_slab ~ Turing.filldist(Exponential(2 * prior.slab_scale^2), p)
+        beta ~ Turing.filldist(Normal(0, 1), p)
         for j in 1:p
             Turing.@addlogprob!(
-                _ssl_marginal_logpdf(beta[j], theta, prior.spike_scale, prior.slab_scale) -
-                _laplace_logpdf(beta[j], prior.slab_scale)
+                _logsumexp2(
+                    log1p(-theta) + _normal_zero_logpdf_from_logscale(beta[j], 0.5 * log(tau2_spike[j])),
+                    log(theta) + _normal_zero_logpdf_from_logscale(beta[j], 0.5 * log(tau2_slab[j])),
+                ) - _std_normal_logpdf(beta[j])
             )
         end
     else
