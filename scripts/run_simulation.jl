@@ -33,6 +33,7 @@ function main()
     target_accept = arg(args, "target-accept", 0.8)
     seed0 = arg(args, "seed", 1)
     use_car = arg(args, "use-car", true)
+    progress = arg(args, "progress", true)
     car_distance = Symbol(arg(args, "car-distance", "bray"))
     p0_arg = parse_optional_p0(args; default = nothing)
     p0_alpha = arg(args, "p0-alpha", 0.05)
@@ -63,6 +64,7 @@ function main()
                 car_distance = car_distance,
                 p0 = p0_value,
                 p0_alpha = p0_alpha,
+                progress = progress,
             )
             summary = copy(fit.summary)
             summary.variable .= ["beta[$j]" for j in 1:p]

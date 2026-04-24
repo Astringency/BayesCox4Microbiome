@@ -6,6 +6,7 @@ using Statistics
 using Distributions
 using Distances
 using Survival
+using ProgressMeter
 import Turing
 
 export AbstractCoxPrior,

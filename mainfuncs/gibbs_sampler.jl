@@ -83,7 +83,7 @@ function _sample_ssl_gibbs(
     soft_center_scale::Union{Nothing,Real} = nothing,
     center_beta_proposal::Bool = true,
     chains::Integer = 1,
-    progress::Bool = false,
+    progress::Bool = true,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -133,6 +133,7 @@ function _sample_ssl_gibbs(
     accept_sample = 0
     accept_window = 0
     saved = 0
+    prog = progress ? Progress(total_iter; desc = "Gibbs sampling", showspeed = true, dt = 0.0) : nothing
 
     for iter in 1:total_iter
         noise = step .* randn(rng, p)
@@ -210,7 +211,10 @@ function _sample_ssl_gibbs(
                 soft_center_scale = sc_scale,
             )
         end
+        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
+        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
     end
+    prog !== nothing && finish!(prog)
 
     sample_iters = n_samples * thin
     warmup_rate = warmup == 0 ? NaN : accept_warmup / warmup

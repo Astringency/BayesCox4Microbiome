@@ -16,6 +16,7 @@ julia -t 4 --project=. scripts\run_simulation.jl ^
   --target-accept 0.9 ^
   --seed 1 ^
   --use-car true ^
+  --progress true ^
   --car-distance bray ^
   --p0 truth ^
   --p0-alpha 0.05 ^

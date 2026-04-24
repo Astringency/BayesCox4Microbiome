@@ -43,6 +43,7 @@ function main()
     target_accept = arg(args, "target-accept", 0.8)
     seed = arg(args, "seed", 1)
     use_car = arg(args, "use-car", true)
+    progress = arg(args, "progress", true)
     car_distance = Symbol(arg(args, "car-distance", "bray"))
     p0_arg = parse_optional_p0(args; default = nothing)
     p0_arg === :truth && throw(ArgumentError("--p0 truth is only valid for simulation."))
@@ -82,6 +83,7 @@ function main()
             p0 = p0_arg,
             p0_alpha = p0_alpha,
             realdata = true,
+            progress = progress,
         )
         summary = copy(fit.summary)
         summary.variable = string.(taxa_cols)

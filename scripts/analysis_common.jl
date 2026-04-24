@@ -371,6 +371,7 @@ function fit_and_evaluate(
     p0 = nothing,
     p0_alpha::Real = 0.05,
     realdata::Bool = false,
+    progress::Bool = true,
 )
     prior = prior_from_name(prior_name, X, time, event; p0 = p0, p0_alpha = p0_alpha, realdata = realdata)
     result =
@@ -388,8 +389,9 @@ function fit_and_evaluate(
                 seed = seed,
                 use_car = use_car,
                 car_distance = car_distance,
+                progress = progress,
             )
-        elseif sampler == :mh || sampler == :gibbs
+        elseif sampler == :mh
             sample_bayes_cox(
                 X,
                 time,
@@ -398,9 +400,26 @@ function fit_and_evaluate(
                 sampler = sampler,
                 n_samples = n_samples,
                 warmup = warmup,
+                target_accept = target_accept,
                 seed = seed,
                 use_car = use_car,
                 car_distance = car_distance,
+                progress = progress,
+            )
+        elseif sampler == :gibbs
+            sample_bayes_cox(
+                X,
+                time,
+                event;
+                prior = prior,
+                sampler = sampler,
+                n_samples = n_samples,
+                warmup = warmup,
+                target_accept = target_accept,
+                seed = seed,
+                use_car = use_car,
+                car_distance = car_distance,
+                progress = progress,
             )
         else
             throw(ArgumentError("sampler must be :nuts, :mh, or :gibbs."))
