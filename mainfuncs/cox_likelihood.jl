@@ -78,3 +78,63 @@ function cox_loglik_events(data::CoxPreparedData, beta::AbstractVector)
     end
     return out
 end
+
+function cox_score_gradient(
+    z::AbstractMatrix,
+    time::AbstractVector{<:Real},
+    event::AbstractVector,
+    beta::AbstractVector,
+)
+    risk = _build_riskset(time)
+    return cox_score_gradient(z, [Int(v) for v in event], risk, beta)
+end
+
+function cox_score_gradient(data::CoxPreparedData, beta::AbstractVector)
+    return cox_score_gradient(data.z, data.event, data.risk, beta)
+end
+
+function cox_score_gradient(
+    z::AbstractMatrix,
+    event::AbstractVector{<:Integer},
+    risk::CoxRiskSet,
+    beta::AbstractVector,
+)
+    n, p = size(z)
+    length(beta) == p || throw(DimensionMismatch("length(beta) must match size(z, 2)."))
+    length(event) == n || throw(DimensionMismatch("length(event) must match size(z, 1)."))
+
+    eta = _linear_predictor(z, beta)
+    group_mean = Matrix{Float64}(undef, length(risk.group_start), p)
+    @inbounds for k in eachindex(risk.group_start)
+        stop_pos = risk.group_stop[k]
+        max_eta = -Inf
+        for pos in 1:stop_pos
+            max_eta = max(max_eta, Float64(eta[risk.order[pos]]))
+        end
+        denom = 0.0
+        fill!(view(group_mean, k, :), 0.0)
+        for pos in 1:stop_pos
+            i = risk.order[pos]
+            w = exp(Float64(eta[i]) - max_eta)
+            denom += w
+            for j in 1:p
+                group_mean[k, j] += w * Float64(z[i, j])
+            end
+        end
+        denom > 0 || throw(ArgumentError("encountered an empty or degenerate Cox risk set."))
+        for j in 1:p
+            group_mean[k, j] /= denom
+        end
+    end
+
+    grad = zeros(Float64, p)
+    @inbounds for i in 1:n
+        if event[i] != 0
+            k = risk.obs_to_group[i]
+            for j in 1:p
+                grad[j] += Float64(z[i, j]) - group_mean[k, j]
+            end
+        end
+    end
+    return grad
+end

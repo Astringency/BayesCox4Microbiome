@@ -218,3 +218,174 @@ function _soft_center_logpdf(beta::AbstractVector, scale::Real)
 end
 
 _default_soft_center_scale(p::Integer) = 0.001 * p
+
+function _resolve_constraint(constraint::Symbol, soft_center)
+    if soft_center !== nothing
+        return Bool(soft_center) ? :soft_center : :none
+    end
+    constraint in (:soft_center, :prox, :none) ||
+        throw(ArgumentError("constraint must be :soft_center, :prox, or :none."))
+    return constraint
+end
+
+function _constraint_logpenalty(
+    beta::AbstractVector;
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+)
+    if constraint == :soft_center
+        return _soft_center_logpdf(beta, soft_center_scale)
+    elseif constraint == :prox
+        lambda_sum0 = _check_positive(prox_sum0_lambda, "prox_sum0_lambda")
+        s = sum(beta)
+        return -0.5 * s^2 / (lambda_sum0 * length(beta))
+    elseif constraint == :none
+        return 0.0
+    end
+    throw(ArgumentError("constraint must be :soft_center, :prox, or :none."))
+end
+
+function _constraint_gradient_penalty!(
+    grad::AbstractVector,
+    beta::AbstractVector;
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+)
+    if constraint == :soft_center
+        scale = _check_positive(soft_center_scale, "soft_center_scale")
+        grad .-= sum(beta) / scale^2
+    elseif constraint == :prox
+        lambda_sum0 = _check_positive(prox_sum0_lambda, "prox_sum0_lambda")
+        grad .-= sum(beta) / (lambda_sum0 * length(beta))
+    elseif constraint != :none
+        throw(ArgumentError("constraint must be :soft_center, :prox, or :none."))
+    end
+    return grad
+end
+
+project_sum0(beta::AbstractVector) = collect(beta) .- mean(beta)
+
+function sum0_moreau(beta::AbstractVector, lambda_sum0::Real)
+    lambda = _check_positive(lambda_sum0, "lambda_sum0")
+    return 0.5 * sum(beta)^2 / (lambda * length(beta))
+end
+
+function sum0_moreau_gradient(beta::AbstractVector, lambda_sum0::Real)
+    lambda = _check_positive(lambda_sum0, "lambda_sum0")
+    return fill(sum(beta) / (lambda * length(beta)), length(beta))
+end
+
+function _soft_threshold(x::Real, threshold::Real)
+    ax = abs(x)
+    return ax <= threshold ? zero(Float64) : copysign(ax - threshold, x)
+end
+
+function _l1_projection_root(
+    beta::AbstractVector,
+    alpha::Real;
+    weights::Union{Nothing,AbstractVector} = nothing,
+    prox_root_tol::Real = 1e-10,
+    prox_root_maxiter::Integer = 100,
+)
+    alpha >= 0 || throw(ArgumentError("alpha must be nonnegative for l1 epigraph projection."))
+    tol = _check_positive(prox_root_tol, "prox_root_tol")
+    prox_root_maxiter > 0 || throw(ArgumentError("prox_root_maxiter must be positive."))
+    if weights === nothing
+        l1 = sum(abs, beta)
+        l1 <= alpha && return 0.0
+        hi = maximum(abs.(beta))
+        f = nu -> sum(max(abs(b) - nu, 0.0) for b in beta) - nu - alpha
+    else
+        length(weights) == length(beta) || throw(DimensionMismatch("weights length must match beta."))
+        all(>(0), weights) || throw(ArgumentError("weights must be positive."))
+        l1 = sum(weights[j] * abs(beta[j]) for j in eachindex(beta))
+        l1 <= alpha && return 0.0
+        hi = maximum(abs(beta[j]) / weights[j] for j in eachindex(beta))
+        f = nu -> sum(weights[j] * max(abs(beta[j]) - nu * weights[j], 0.0) for j in eachindex(beta)) - nu - alpha
+    end
+    lo = 0.0
+    for _ in 1:prox_root_maxiter
+        mid = 0.5 * (lo + hi)
+        val = f(mid)
+        abs(val) <= tol && return mid
+        if val > 0
+            lo = mid
+        else
+            hi = mid
+        end
+    end
+    return 0.5 * (lo + hi)
+end
+
+function project_l1_epigraph(
+    beta::AbstractVector,
+    alpha::Real;
+    prox_root_tol::Real = 1e-10,
+    prox_root_maxiter::Integer = 100,
+)
+    nu = _l1_projection_root(
+        beta,
+        Float64(alpha);
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    nu == 0.0 && sum(abs, beta) <= alpha && return (beta = collect(Float64, beta), alpha = Float64(alpha), nu = 0.0)
+    prox_beta = [_soft_threshold(Float64(b), nu) for b in beta]
+    return (beta = prox_beta, alpha = Float64(alpha) + nu, nu = nu)
+end
+
+function project_weighted_l1_epigraph(
+    beta::AbstractVector,
+    alpha::Real,
+    weights::AbstractVector;
+    prox_root_tol::Real = 1e-10,
+    prox_root_maxiter::Integer = 100,
+)
+    nu = _l1_projection_root(
+        beta,
+        Float64(alpha);
+        weights = weights,
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    if nu == 0.0 && sum(weights[j] * abs(beta[j]) for j in eachindex(beta)) <= alpha
+        return (beta = collect(Float64, beta), alpha = Float64(alpha), nu = 0.0)
+    end
+    prox_beta = [_soft_threshold(Float64(beta[j]), nu * Float64(weights[j])) for j in eachindex(beta)]
+    return (beta = prox_beta, alpha = Float64(alpha) + nu, nu = nu)
+end
+
+function l1_moreau(
+    beta::AbstractVector,
+    alpha::Real,
+    lambda_l1::Real;
+    prox_root_tol::Real = 1e-10,
+    prox_root_maxiter::Integer = 100,
+)
+    lambda = _check_positive(lambda_l1, "lambda_l1")
+    prox = project_l1_epigraph(beta, alpha; prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
+    dist2 = sum((Float64(beta[j]) - prox.beta[j])^2 for j in eachindex(beta)) + (Float64(alpha) - prox.alpha)^2
+    return 0.5 * dist2 / lambda
+end
+
+function weighted_l1_moreau(
+    beta::AbstractVector,
+    alpha::Real,
+    weights::AbstractVector,
+    lambda_l1::Real;
+    prox_root_tol::Real = 1e-10,
+    prox_root_maxiter::Integer = 100,
+)
+    lambda = _check_positive(lambda_l1, "lambda_l1")
+    prox = project_weighted_l1_epigraph(
+        beta,
+        alpha,
+        weights;
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    dist2 = sum((Float64(beta[j]) - prox.beta[j])^2 for j in eachindex(beta)) + (Float64(alpha) - prox.alpha)^2
+    return 0.5 * dist2 / lambda
+end

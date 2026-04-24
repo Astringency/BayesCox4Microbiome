@@ -1,8 +1,9 @@
 Turing.@model function _bayes_cox_turing_model(
     data::CoxPreparedData,
     prior::AbstractCoxPrior,
-    soft_center::Bool,
+    constraint::Symbol,
     soft_center_scale::Float64,
+    prox_sum0_lambda::Float64,
     car_weights,
     use_car::Bool,
     car_precision::Float64,
@@ -69,9 +70,12 @@ Turing.@model function _bayes_cox_turing_model(
         error("unsupported prior type: $(typeof(prior))")
     end
 
-    if soft_center
-        Turing.@addlogprob! _soft_center_logpdf(beta, soft_center_scale)
-    end
+    Turing.@addlogprob! _constraint_logpenalty(
+        beta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+    )
     Turing.@addlogprob! cox_logpartiallikelihood(data, beta)
     return beta
 end
@@ -93,8 +97,10 @@ function _sample_nuts(
     chains::Integer = 4,
     target_accept::Real = 0.8,
     rng::AbstractRNG = Random.default_rng(),
-    soft_center::Bool = true,
+    constraint::Symbol = :soft_center,
+    soft_center = nothing,
     soft_center_scale::Union{Nothing,Real} = nothing,
+    prox_sum0_lambda::Real = 1e-3,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
@@ -107,13 +113,15 @@ function _sample_nuts(
     _validate_prior(prior)
 
     p = size(data.z, 2)
+    resolved_constraint = _resolve_constraint(constraint, soft_center)
     scale = soft_center_scale === nothing ? _default_soft_center_scale(p) : Float64(soft_center_scale)
     resolved_car_weights = use_car ? _prepare_car_weights(car_weights, p) : nothing
     model = _bayes_cox_turing_model(
         data,
         prior,
-        soft_center,
+        resolved_constraint,
         scale,
+        Float64(prox_sum0_lambda),
         resolved_car_weights,
         use_car && resolved_car_weights !== nothing,
         Float64(car_precision),

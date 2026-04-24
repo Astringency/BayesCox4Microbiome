@@ -365,6 +365,20 @@ function sample_bayes_cox(
             timed.gctime,
             gc_percent,
         )
+    elseif sampler == :mala
+        timed = @timed _sample_mala(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
+        samples = timed.value
+        warmup_seconds = missing
+        sample_seconds = missing
+        gc_percent = timed.time > 0 ? 100 * timed.gctime / timed.time : NaN
+        diagnostics = SamplingDiagnostics(
+            warmup_seconds,
+            sample_seconds,
+            timed.time,
+            Int64(timed.bytes),
+            timed.gctime,
+            gc_percent,
+        )
     elseif sampler == :gibbs
         prior isa SpikeSlabLassoPrior ||
             throw(ArgumentError("sampler=:gibbs is currently implemented only for SpikeSlabLassoPrior."))
@@ -384,7 +398,7 @@ function sample_bayes_cox(
             gc_percent,
         )
     else
-        throw(ArgumentError("sampler must be :nuts, :mh, or :gibbs."))
+        throw(ArgumentError("sampler must be :nuts, :mh, :mala, or :gibbs."))
     end
     return CoxSamplerResult(samples, data, prior, sampler, diagnostics)
 end

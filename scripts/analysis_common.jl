@@ -391,7 +391,7 @@ function fit_and_evaluate(
                 car_distance = car_distance,
                 progress = progress,
             )
-        elseif sampler == :mh
+        elseif sampler == :mh || sampler == :mala
             sample_bayes_cox(
                 X,
                 time,
@@ -422,7 +422,7 @@ function fit_and_evaluate(
                 progress = progress,
             )
         else
-            throw(ArgumentError("sampler must be :nuts, :mh, or :gibbs."))
+            throw(ArgumentError("sampler must be :nuts, :mh, :mala, or :gibbs."))
     end
     draws = posterior_beta_draws(result)
     layout = posterior_draw_layout(result, size(draws, 1))

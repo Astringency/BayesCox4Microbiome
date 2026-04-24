@@ -23,15 +23,19 @@ function _ssl_joint_logposterior(
     gamma::AbstractVector{Bool},
     tau2::AbstractVector,
     theta::Real;
-    soft_center::Bool,
+    constraint::Symbol,
     soft_center_scale::Float64,
+    prox_sum0_lambda::Real,
 )
     0 < theta < 1 || return -Inf
     p = length(beta)
     lp = cox_logpartiallikelihood(data, beta)
-    if soft_center
-        lp += _soft_center_logpdf(beta, soft_center_scale)
-    end
+    lp += _constraint_logpenalty(
+        beta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+    )
     lp += logpdf(Beta(prior.theta_a, prior.theta_b), theta)
     @inbounds for j in 1:p
         scale = gamma[j] ? prior.slab_scale : prior.spike_scale
@@ -46,13 +50,17 @@ function _ssl_beta_logtarget(
     data::CoxPreparedData,
     beta::AbstractVector,
     tau2::AbstractVector;
-    soft_center::Bool,
+    constraint::Symbol,
     soft_center_scale::Float64,
+    prox_sum0_lambda::Real,
 )
     lp = cox_logpartiallikelihood(data, beta) + _ssl_normal_prior_logpdf(beta, tau2)
-    if soft_center
-        lp += _soft_center_logpdf(beta, soft_center_scale)
-    end
+    lp += _constraint_logpenalty(
+        beta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+    )
     return lp
 end
 
@@ -79,8 +87,10 @@ function _sample_ssl_gibbs(
     adapt_every::Integer = 50,
     min_step::Real = 1e-5,
     max_step::Real = 1.0,
-    soft_center::Bool = true,
+    constraint::Symbol = :soft_center,
+    soft_center = nothing,
     soft_center_scale::Union{Nothing,Real} = nothing,
+    prox_sum0_lambda::Real = 1e-3,
     center_beta_proposal::Bool = true,
     chains::Integer = 1,
     progress::Bool = true,
@@ -99,6 +109,7 @@ function _sample_ssl_gibbs(
     theta = 0.5
     gamma = trues(p)
     tau2 = [_sample_ssl_tau2(rng, beta[j], prior.slab_scale) for j in 1:p]
+    resolved_constraint = _resolve_constraint(constraint, soft_center)
     sc_scale = soft_center_scale === nothing ? _default_soft_center_scale(p) : Float64(soft_center_scale)
 
     d = p
@@ -120,8 +131,9 @@ function _sample_ssl_gibbs(
         data,
         beta,
         tau2;
-        soft_center = soft_center,
+        constraint = resolved_constraint,
         soft_center_scale = sc_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
     )
     isfinite(current_beta_lp) || throw(ArgumentError("initial beta has non-finite log posterior."))
 
@@ -139,7 +151,7 @@ function _sample_ssl_gibbs(
         noise = step .* randn(rng, p)
         if center_beta_proposal && p > 1
             noise .-= mean(noise)
-            if soft_center
+            if resolved_constraint == :soft_center
                 noise .+= sc_scale * randn(rng) / p
             end
         end
@@ -148,8 +160,9 @@ function _sample_ssl_gibbs(
             data,
             beta_prop,
             tau2;
-            soft_center = soft_center,
+            constraint = resolved_constraint,
             soft_center_scale = sc_scale,
+            prox_sum0_lambda = prox_sum0_lambda,
         )
         accepted = isfinite(prop_lp) && log(rand(rng)) < prop_lp - current_beta_lp
         if accepted
@@ -178,8 +191,9 @@ function _sample_ssl_gibbs(
             data,
             beta,
             tau2;
-            soft_center = soft_center,
+            constraint = resolved_constraint,
             soft_center_scale = sc_scale,
+            prox_sum0_lambda = prox_sum0_lambda,
         )
 
         if iter <= warmup
@@ -207,8 +221,9 @@ function _sample_ssl_gibbs(
                 gamma,
                 tau2,
                 theta;
-                soft_center = soft_center,
+                constraint = resolved_constraint,
                 soft_center_scale = sc_scale,
+                prox_sum0_lambda = prox_sum0_lambda,
             )
         end
         phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"

@@ -41,6 +41,51 @@ prior = cox_paper_prior("cox-rhs"; p0 = 6, X = X, time = time, event = event)
 fit = sample_bayes_cox(X, time, event; prior = prior, sampler = :nuts, use_car = true)
 ```
 
+## Constraint And MALA Options
+
+`sample_bayes_cox` accepts `constraint = :soft_center` (default), `:prox`, or
+`:none`. The older `soft_center = true/false` keyword is still accepted and is
+mapped to `:soft_center` or `:none`.
+
+Examples:
+
+```julia
+# HS + MALA + soft-center
+fit_hs_mala = sample_bayes_cox(
+    X, time, event;
+    prior = HorseshoePrior(p0 = 6),
+    sampler = :mala,
+    constraint = :soft_center,
+)
+
+# HS + MALA + Moreau-Yosida zero-sum penalty
+fit_hs_prox = sample_bayes_cox(
+    X, time, event;
+    prior = HorseshoePrior(p0 = 6),
+    sampler = :mala,
+    constraint = :prox,
+    prox_sum0_lambda = 1e-3,
+)
+
+# Bayesian LASSO Proximal MCMC using the l1 epigraph formulation
+fit_lasso_prox = sample_bayes_cox(
+    X, time, event;
+    prior = BayesianLassoPrior(),
+    sampler = :mala,
+    constraint = :prox,
+    prox_l1_lambda = 1e-3,
+)
+
+# SSLASSO Proximal MCMC. This is conditional on latent gamma indicators and
+# uses the weighted l1 epigraph, not the marginal mixture-Laplace Gibbs model.
+fit_ssl_prox = sample_bayes_cox(
+    X, time, event;
+    prior = SpikeSlabLassoPrior(),
+    sampler = :mala,
+    constraint = :prox,
+)
+```
+
 If `p0` is omitted or set to `nothing`, HS/RHS-style priors estimate it by
 fitting one univariate Cox PH model per covariate with `Survival.jl`; `p0` is
 the number of covariates with Wald p-value below `p0_alpha`, clamped to

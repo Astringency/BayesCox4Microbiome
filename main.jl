@@ -28,11 +28,20 @@ export AbstractCoxPrior,
     car_similarity_matrix,
     car_weight_matrix,
     cox_logpartiallikelihood,
+    cox_score_gradient,
     cox_loglik_events,
+    project_sum0,
+    sum0_moreau,
+    sum0_moreau_gradient,
+    project_l1_epigraph,
+    project_weighted_l1_epigraph,
+    l1_moreau,
+    weighted_l1_moreau,
     logposterior,
     initial_state,
     sample_bayes_cox,
     posterior_beta_draws,
+    posterior_logposterior_draws,
     posterior_beta_map,
     posterior_beta_summary,
     sampler_diagnostics,
@@ -56,6 +65,7 @@ include("mainfuncs/spike_slab_lasso_methods.jl")
 include("mainfuncs/posterior.jl")
 include("mainfuncs/mh_sampler.jl")
 include("mainfuncs/gibbs_sampler.jl")
+include("mainfuncs/mala_sampler.jl")
 include("mainfuncs/turing_sampler.jl")
 include("mainfuncs/api.jl")
 
