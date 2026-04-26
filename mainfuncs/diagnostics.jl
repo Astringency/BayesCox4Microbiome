@@ -15,6 +15,8 @@ function _require_pkg(name::Symbol)
     return Base.require(Base.PkgId(Base.UUID(uuid), String(name)))
 end
 
+_call_latest(f, args...; kwargs...) = Base.invokelatest(f, args...; kwargs...)
+
 function _is_chains_object(x)
     MCMCChains = _require_pkg(:MCMCChains)
     return x isa getproperty(MCMCChains, :Chains)
@@ -52,7 +54,7 @@ end
 function _write_json(path::AbstractString, x)
     JSON = _require_pkg(:JSON)
     open(path, "w") do io
-        JSON.print(io, _jsonable(x), 4)
+        _call_latest(getproperty(JSON, :print), io, _jsonable(x), 4)
         write(io, "\n")
     end
     return path
@@ -211,8 +213,8 @@ end
 
 function _posterior_summary_dataframe(chains)
     MCMCChains = _require_pkg(:MCMCChains)
-    summary = DataFrame(MCMCChains.summarystats(chains))
-    qs = DataFrame(MCMCChains.quantile(chains; q = [0.025, 0.5, 0.975]))
+    summary = DataFrame(_call_latest(getproperty(MCMCChains, :summarystats), chains))
+    qs = DataFrame(_call_latest(getproperty(MCMCChains, :quantile), chains; q = [0.025, 0.5, 0.975]))
     if :parameters in propertynames(summary) && :parameters in propertynames(qs)
         rename_map = Dict{Symbol,Symbol}()
         for c in propertynames(qs)
@@ -298,7 +300,7 @@ function save_run_outputs(
             ),
             "posterior_summary" => summary_df,
         )
-        JLD2.jldsave(joinpath(output_dir, "result_bundle.jld2"); result_bundle = bundle)
+        _call_latest(getproperty(JLD2, :jldsave), joinpath(output_dir, "result_bundle.jld2"); result_bundle = bundle)
     end
 
     return (
@@ -317,7 +319,7 @@ function _load_chains_from_run(input_dir::AbstractString)
     if isfile(bundle_path)
         try
             JLD2 = _require_pkg(:JLD2)
-            bundle = JLD2.load(bundle_path, "result_bundle")
+            bundle = _call_latest(getproperty(JLD2, :load), bundle_path, "result_bundle")
             if haskey(bundle, "samples_chain")
                 return bundle["samples_chain"]
             elseif haskey(bundle, "samples")
@@ -337,7 +339,7 @@ function _read_metadata(input_dir::AbstractString)
     isfile(path) || return Dict{String,Any}()
     try
         JSON = _require_pkg(:JSON)
-        return Dict{String,Any}(JSON.parsefile(path))
+        return Dict{String,Any}(_call_latest(getproperty(JSON, :parsefile), path))
     catch
         return Dict{String,Any}()
     end
@@ -374,7 +376,7 @@ function _save_plot_all_formats(plot_obj, output_dir::AbstractString, stem::Abst
     paths = String[]
     for fmt in fmt_list
         path = joinpath(output_dir, "$stem.$fmt")
-        Plots.savefig(plot_obj, path)
+        _call_latest(getproperty(Plots, :savefig), plot_obj, path)
         push!(paths, path)
     end
     return paths
@@ -384,10 +386,10 @@ function _plot_mcmc_chains(chains, output_dir::AbstractString, stem::AbstractStr
     _require_pkg(:StatsPlots)
     Plots = _require_pkg(:Plots)
     try
-        Plots.gr()
+        _call_latest(getproperty(Plots, :gr))
     catch
     end
-    plot_obj = Plots.plot(chains; seriestype = seriestype, kwargs...)
+    plot_obj = _call_latest(getproperty(Plots, :plot), chains; seriestype = seriestype, kwargs...)
     return _save_plot_all_formats(plot_obj, output_dir, stem, formats)
 end
 
@@ -411,13 +413,13 @@ end
 function _save_rhat_plots(summary::DataFrame, output_dir::AbstractString; rhat_threshold::Real, formats)
     Plots = _require_pkg(:Plots)
     try
-        Plots.gr()
+        _call_latest(getproperty(Plots, :gr))
     catch
     end
     paths = String[]
     beta_rows = _beta_rhat_dataframe(summary)
     if nrow(beta_rows) > 0
-        p = Plots.scatter(
+        p = _call_latest(getproperty(Plots, :scatter),
             beta_rows.beta_index,
             Float64.(beta_rows.rhat);
             xlabel = "beta index",
@@ -425,19 +427,19 @@ function _save_rhat_plots(summary::DataFrame, output_dir::AbstractString; rhat_t
             label = "beta",
             title = "R-hat by beta index",
         )
-        Plots.hline!(p, [Float64(rhat_threshold)]; label = "threshold")
+        _call_latest(getproperty(Plots, :hline!), p, [Float64(rhat_threshold)]; label = "threshold")
         append!(paths, _save_plot_all_formats(p, output_dir, "rhat_scatter", formats))
     end
     all_rows = _rhat_dataframe(summary)
     if nrow(all_rows) > 0
-        p = Plots.histogram(
+        p = _call_latest(getproperty(Plots, :histogram),
             Float64.(all_rows.rhat);
             xlabel = "R-hat",
             ylabel = "count",
             label = "parameters",
             title = "R-hat histogram",
         )
-        Plots.vline!(p, [Float64(rhat_threshold)]; label = "threshold")
+        _call_latest(getproperty(Plots, :vline!), p, [Float64(rhat_threshold)]; label = "threshold")
         append!(paths, _save_plot_all_formats(p, output_dir, "rhat_histogram", formats))
     end
     return paths
