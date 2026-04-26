@@ -3,11 +3,13 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+current_time=$(date "+%Y-%m-%d %H:%M:%S")
+
 # TEST
 test_n=400
 test_p=50
-julia -t 4 --project=. scripts/run_simulation.jl \
-    --sampler nuts \
+julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
+    --sampler mala \
     --samples 5000 \
     --warmup 2000 \
     --chains 4 \
@@ -16,14 +18,15 @@ julia -t 4 --project=. scripts/run_simulation.jl \
     --p $test_p \
     --nonzero 12 \
     --baseline weibull \
-    --priors cox-hs \
+    --priors lasso \
+    --constraint prox \
     --target-accept 0.8 \
     --seed 1 \
     --use-car true \
     --car-distance bray \
     --p0 truth \
     --p0-alpha 0.05 \
-    --outdir results/simulation/test_n${test_n}_p${test_p}_non12_weibull &
+    --outdir results/simulation/test_n${test_n}_p${test_p}_non12_weibull_${current_time} &
 
 # MAIN LOOP
 
