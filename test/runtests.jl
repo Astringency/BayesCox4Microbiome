@@ -156,6 +156,15 @@ end
     @test size(chn, 3) == 1
     @test "logposterior" in string.(names(chn))
 
+    wide = chains_to_wide_dataframe(chn)
+    @test all(wide.chain .== 1)
+    @test :iter in propertynames(wide)
+    @test :draw in propertynames(wide)
+    @test Symbol("beta[1]") in propertynames(wide)
+    @test Symbol("beta[2]") in propertynames(wide)
+    @test :logposterior in propertynames(wide)
+    @test nrow(wide) == 6
+
     mktempdir() do dir
         save_run_outputs(
             result;

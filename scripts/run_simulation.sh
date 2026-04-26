@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
 
-set -eu
+set -euo pipefail
 cd "$(dirname "$0")/.."
 
-current_time=$(date "+%Y-%m-%d %H:%M:%S")
+current_time=$(date "+%Y%m%d_%H%M%S")
 
 # TEST
 test_n=400
 test_p=50
+pids=()
 julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
     --sampler mala \
     --samples 5000 \
     --warmup 2000 \
     --chains 4 \
     --reps 1 \
-    --n $test_n \
-    --p $test_p \
+    --n "$test_n" \
+    --p "$test_p" \
     --nonzero 12 \
     --baseline weibull \
     --priors lasso \
@@ -26,7 +27,8 @@ julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
     --car-distance bray \
     --p0 truth \
     --p0-alpha 0.05 \
-    --outdir results/simulation/test_n${test_n}_p${test_p}_non12_weibull_${current_time} &
+    --outdir "results/simulation/test_n${test_n}_p${test_p}_non12_weibull_${current_time}" &
+pids+=("$!")
 
 # MAIN LOOP
 
@@ -63,6 +65,16 @@ julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
 #     done
 # done
 
-wait
+status=0
+for pid in "${pids[@]}"; do
+    if ! wait "$pid"; then
+        status=1
+    fi
+done
+
+if [[ "$status" -ne 0 ]]; then
+    echo "SIMULATION FAILED!" >&2
+    exit "$status"
+fi
 
 echo "ALL SIMULATION DONE!"

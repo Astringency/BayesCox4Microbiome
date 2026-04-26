@@ -146,8 +146,16 @@ end
 as_mcmc_chains(result::CoxSamplerResult) = result_to_chains(result)
 
 function _chains_array_and_names(chains)
-    arr = Array(chains)
-    ndims(arr) == 3 || throw(ArgumentError("Chains array must be 3-dimensional."))
+    arr = try
+        Array(getfield(chains, :value))
+    catch
+        Array(chains)
+    end
+    if ndims(arr) == 2
+        arr = reshape(arr, size(arr, 1), size(arr, 2), 1)
+    elseif ndims(arr) != 3
+        throw(ArgumentError("Chains values must be a 2- or 3-dimensional array; got $(ndims(arr)) dimensions with size $(size(arr))."))
+    end
     return arr, string.(names(chains))
 end
 
