@@ -1,7 +1,14 @@
 #!/usr/bin/env julia
 
 using Pkg
-Pkg.activate(joinpath(@__DIR__, ".."))
+
+function _activate_repo_project()
+    project = abspath(joinpath(@__DIR__, "..", "Project.toml"))
+    active = Base.active_project()
+    active !== project && Pkg.activate(dirname(project))
+end
+
+_activate_repo_project()
 
 using BayesCox4Micro
 
@@ -54,4 +61,3 @@ function main()
 end
 
 main()
-

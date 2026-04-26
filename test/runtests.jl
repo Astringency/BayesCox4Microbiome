@@ -102,6 +102,25 @@ end
     @test size(posterior_beta_draws(lasso)) == (4, 4)
     @test length(posterior_logposterior_draws(lasso)) == 4
 
+    lasso_multi = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = BayesianLassoPrior(),
+        sampler = :mala,
+        constraint = :prox,
+        n_samples = 2,
+        warmup = 2,
+        chains = 2,
+        mala_step_size = 1e-6,
+        progress = false,
+        seed = 22,
+    )
+    @test size(result_to_chains(lasso_multi), 3) == 2
+    @test lasso_multi.samples isa MultiMHSamples
+    @test size(posterior_beta_draws(lasso_multi)) == (4, 4)
+    @test length(posterior_logposterior_draws(lasso_multi)) == 4
+
     sslasso = sample_bayes_cox(
         X,
         time,

@@ -304,7 +304,7 @@ julia --project=. scripts\run_simulation.jl --sampler mala --constraint prox --p
 | `--sampler` | `nuts` | Sampler backend. Supported values are `nuts`, `mh`, `mala`, and `gibbs`. `gibbs` is only implemented for SSLASSO. |
 | `--samples` | `500` | Number of saved posterior samples per fit. |
 | `--warmup` | `200` | Number of warmup/adaptation iterations. |
-| `--chains` | `4` | Number of NUTS chains. For `mh`, `mala`, and `gibbs`, the script passes a single-chain run. |
+| `--chains` | `4` | Number of chains. NUTS uses Turing's multi-chain sampler; `mh`, `mala`, and `gibbs` run independent chains and combine them for diagnostics. |
 | `--target-accept` | `0.8` | Target acceptance probability passed to NUTS or adaptive non-NUTS samplers. |
 | `--seed` | `1` | Base random seed. Repetition `rep` uses `seed + rep - 1`. |
 | `--use-car` | `true` | Whether to use CAR smoothing for HS/RHS-style prior names. Boolean parsing treats `true`, `1`, `yes`, and `y` as true; any other value is false. |
@@ -318,6 +318,11 @@ julia --project=. scripts\run_simulation.jl --sampler mala --constraint prox --p
 | `--prox-l1-lambda` | `1e-3` | L1 epigraph Moreau smoothing parameter for MALA proximal LASSO / proximal SSLASSO. Used only by `--sampler mala` with LASSO or SSLASSO and `--constraint prox`. |
 | `--prox-root-tol` | `1e-10` | Root-finding tolerance for L1 epigraph projections used by proximal MALA. |
 | `--prox-root-maxiter` | `100` | Maximum root-finding iterations for L1 epigraph projections used by proximal MALA. |
+| `--mala-step-size` | `1e-4` | Initial MALA step size. |
+| `--mala-target-accept` | `0.574` | Target acceptance rate for MALA step-size adaptation. This is separate from `--target-accept`. |
+| `--mala-adapt-every` | `50` | Number of warmup iterations between MALA step-size adaptation updates. |
+| `--mala-min-step` | `1e-8` | Lower bound for the adapted MALA step size. |
+| `--mala-max-step` | `1.0` | Upper bound for the adapted MALA step size. |
 
 Simulation data generation follows the paper-style setup in
 `scripts/analysis_common.jl`: true nonzero coefficients are inserted at fixed
@@ -376,7 +381,7 @@ julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler ma
 | `--sampler` | `nuts` | Sampler backend. Supported values are `nuts`, `mh`, `mala`, and `gibbs`. `gibbs` is only implemented for SSLASSO. |
 | `--samples` | `500` | Number of saved posterior samples per fit. |
 | `--warmup` | `200` | Number of warmup/adaptation iterations. |
-| `--chains` | `4` | Number of NUTS chains. For `mh`, `mala`, and `gibbs`, the script passes a single-chain run. |
+| `--chains` | `4` | Number of chains. NUTS uses Turing's multi-chain sampler; `mh`, `mala`, and `gibbs` run independent chains and combine them for diagnostics. |
 | `--target-accept` | `0.8` | Target acceptance probability passed to NUTS or adaptive non-NUTS samplers. |
 | `--seed` | `1` | Random seed. |
 | `--use-car` | `true` | Whether to use CAR smoothing for HS/RHS-style prior names. Boolean parsing treats `true`, `1`, `yes`, and `y` as true; any other value is false. |
@@ -390,6 +395,11 @@ julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler ma
 | `--prox-l1-lambda` | `1e-3` | L1 epigraph Moreau smoothing parameter for MALA proximal LASSO / proximal SSLASSO. Used only by `--sampler mala` with LASSO or SSLASSO and `--constraint prox`. |
 | `--prox-root-tol` | `1e-10` | Root-finding tolerance for L1 epigraph projections used by proximal MALA. |
 | `--prox-root-maxiter` | `100` | Maximum root-finding iterations for L1 epigraph projections used by proximal MALA. |
+| `--mala-step-size` | `1e-4` | Initial MALA step size. |
+| `--mala-target-accept` | `0.574` | Target acceptance rate for MALA step-size adaptation. This is separate from `--target-accept`. |
+| `--mala-adapt-every` | `50` | Number of warmup iterations between MALA step-size adaptation updates. |
+| `--mala-min-step` | `1e-8` | Lower bound for the adapted MALA step size. |
+| `--mala-max-step` | `1.0` | Upper bound for the adapted MALA step size. |
 
 The script detects taxa columns as numeric columns not listed in
 `--time-col`, `--status-col`, or `--exclude-cols`. Missing abundance values are

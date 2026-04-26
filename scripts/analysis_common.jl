@@ -220,6 +220,10 @@ end
 function posterior_draw_layout(result, n_total::Integer)
     if result.samples isa MHSamples
         return (chains = 1, draws = n_total)
+    elseif result.samples isa MultiMHSamples
+        n_chain = length(result.samples.chains)
+        n_iter = size(result.samples.chains[1].draws, 1)
+        return (chains = n_chain, draws = n_iter)
     end
     try
         value = getfield(result.samples, :value)
@@ -377,6 +381,11 @@ function fit_and_evaluate(
     prox_l1_lambda::Real = 1e-3,
     prox_root_tol::Real = 1e-10,
     prox_root_maxiter::Integer = 100,
+    mala_step_size::Real = 1e-4,
+    mala_target_accept::Real = 0.574,
+    mala_adapt_every::Integer = 50,
+    mala_min_step::Real = 1e-8,
+    mala_max_step::Real = 1.0,
     realdata::Bool = false,
     progress::Bool = true,
 )
@@ -411,6 +420,7 @@ function fit_and_evaluate(
                     sampler = sampler,
                     n_samples = n_samples,
                     warmup = warmup,
+                    chains = chains,
                     target_accept = target_accept,
                     seed = seed,
                     use_car = use_car,
@@ -421,6 +431,11 @@ function fit_and_evaluate(
                     prox_l1_lambda = prox_l1_lambda,
                     prox_root_tol = prox_root_tol,
                     prox_root_maxiter = prox_root_maxiter,
+                    mala_step_size = mala_step_size,
+                    mala_target_accept = mala_target_accept,
+                    mala_adapt_every = mala_adapt_every,
+                    mala_min_step = mala_min_step,
+                    mala_max_step = mala_max_step,
                     progress = progress,
                 )
             else
@@ -432,6 +447,7 @@ function fit_and_evaluate(
                     sampler = sampler,
                     n_samples = n_samples,
                     warmup = warmup,
+                    chains = chains,
                     target_accept = target_accept,
                     seed = seed,
                     use_car = use_car,
@@ -451,6 +467,7 @@ function fit_and_evaluate(
                 sampler = sampler,
                 n_samples = n_samples,
                 warmup = warmup,
+                chains = chains,
                 target_accept = target_accept,
                 seed = seed,
                 use_car = use_car,

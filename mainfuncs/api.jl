@@ -321,6 +321,7 @@ function sample_bayes_cox(
     prior::AbstractCoxPrior = RegularizedHorseshoePrior(),
     sampler::Symbol = :nuts,
     seed = nothing,
+    chains = nothing,
     use_car::Bool = false,
     car_weights = nothing,
     car_distance = nothing,
@@ -347,12 +348,26 @@ function sample_bayes_cox(
             ))
         end
     rng = seed === nothing ? Random.default_rng() : MersenneTwister(seed)
+    chain_count = chains === nothing ? (sampler == :nuts ? nothing : 1) : Int(chains)
+    chain_count !== nothing && chain_count <= 0 && throw(ArgumentError("chains must be positive."))
     if sampler == :nuts
-        sampled = _sample_nuts(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
+        sampled =
+            if chain_count === nothing
+                _sample_nuts(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
+            else
+                _sample_nuts(data, prior; rng = rng, chains = chain_count, car_weights = resolved_car_weights, kwargs...)
+            end
         samples = sampled.samples
         diagnostics = sampled.diagnostics
     elseif sampler == :mh
-        timed = @timed _sample_mh(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
+        timed = @timed _sample_mh_chains(
+            data,
+            prior,
+            chain_count;
+            rng = rng,
+            car_weights = resolved_car_weights,
+            kwargs...,
+        )
         samples = timed.value
         warmup_seconds = missing
         sample_seconds = missing
@@ -366,7 +381,14 @@ function sample_bayes_cox(
             gc_percent,
         )
     elseif sampler == :mala
-        timed = @timed _sample_mala(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
+        timed = @timed _sample_mala_chains(
+            data,
+            prior,
+            chain_count;
+            rng = rng,
+            car_weights = resolved_car_weights,
+            kwargs...,
+        )
         samples = timed.value
         warmup_seconds = missing
         sample_seconds = missing
@@ -384,7 +406,13 @@ function sample_bayes_cox(
             throw(ArgumentError("sampler=:gibbs is currently implemented only for SpikeSlabLassoPrior."))
         use_car && resolved_car_weights !== nothing &&
             throw(ArgumentError("sampler=:gibbs for SSLASSO does not support CAR weights."))
-        timed = @timed _sample_ssl_gibbs(data, prior; rng = rng, kwargs...)
+        timed = @timed _sample_gibbs_chains(
+            data,
+            prior,
+            chain_count;
+            rng = rng,
+            kwargs...,
+        )
         samples = timed.value
         warmup_seconds = missing
         sample_seconds = missing
@@ -405,10 +433,91 @@ end
 
 sampler_diagnostics(result::CoxSamplerResult) = result.diagnostics
 
+function _mhsamples_to_chains(samples::Vector{MHSamples})
+    isempty(samples) && throw(ArgumentError("at least one chain is required."))
+    names_with_lp = vcat(samples[1].names, ["logposterior"])
+    n_iter = size(samples[1].draws, 1)
+    n_param = length(names_with_lp)
+    n_chain = length(samples)
+    arr = Array{Float64}(undef, n_iter, n_param, n_chain)
+    for (c, sample) in enumerate(samples)
+        sample.names == samples[1].names ||
+            throw(ArgumentError("all chains must have identical parameter names."))
+        size(sample.draws, 1) == n_iter ||
+            throw(ArgumentError("all chains must have the same number of saved draws."))
+        size(sample.draws, 2) + 1 == n_param ||
+            throw(ArgumentError("sample draw dimension does not match parameter names."))
+        arr[:, 1:(n_param - 1), c] .= sample.draws
+        arr[:, n_param, c] .= sample.logposterior
+    end
+    MCMCChains = Base.require(Base.PkgId(Base.UUID("c7f686f2-ff18-58e9-bc7b-31028e88f75d"), "MCMCChains"))
+    return Base.invokelatest(getproperty(MCMCChains, :Chains), arr, Symbol.(names_with_lp))
+end
+
+_mhsamples_to_chains(samples::MultiMHSamples) = _mhsamples_to_chains(samples.chains)
+
+function _independent_rng(rng::AbstractRNG)
+    return MersenneTwister(rand(rng, UInt64))
+end
+
+function _sample_mh_chains(
+    data::CoxPreparedData,
+    prior::AbstractCoxPrior,
+    chains::Integer;
+    rng::AbstractRNG,
+    progress::Bool = true,
+    kwargs...,
+)
+    chains == 1 && return _sample_mh(data, prior; rng = rng, progress = progress, kwargs...)
+    samples = Vector{MHSamples}(undef, chains)
+    for c in 1:chains
+        @info "Running MH chain $c/$chains"
+        samples[c] = _sample_mh(data, prior; rng = _independent_rng(rng), progress = progress, kwargs...)
+    end
+    return MultiMHSamples(samples)
+end
+
+function _sample_mala_chains(
+    data::CoxPreparedData,
+    prior::AbstractCoxPrior,
+    chains::Integer;
+    rng::AbstractRNG,
+    progress::Bool = true,
+    kwargs...,
+)
+    chains == 1 && return _sample_mala(data, prior; rng = rng, progress = progress, kwargs...)
+    samples = Vector{MHSamples}(undef, chains)
+    for c in 1:chains
+        @info "Running MALA chain $c/$chains"
+        samples[c] = _sample_mala(data, prior; rng = _independent_rng(rng), progress = progress, kwargs...)
+    end
+    return MultiMHSamples(samples)
+end
+
+function _sample_gibbs_chains(
+    data::CoxPreparedData,
+    prior::SpikeSlabLassoPrior,
+    chains::Integer;
+    rng::AbstractRNG,
+    progress::Bool = true,
+    kwargs...,
+)
+    chains == 1 && return _sample_ssl_gibbs(data, prior; rng = rng, chains = 1, progress = progress, kwargs...)
+    samples = Vector{MHSamples}(undef, chains)
+    for c in 1:chains
+        @info "Running Gibbs chain $c/$chains"
+        samples[c] = _sample_ssl_gibbs(data, prior; rng = _independent_rng(rng), chains = 1, progress = progress, kwargs...)
+    end
+    return MultiMHSamples(samples)
+end
+
 function posterior_beta_draws(result::CoxSamplerResult)
     if result.samples isa MHSamples
         p = size(result.data.z, 2)
         return result.samples.draws[:, 1:p]
+    elseif result.samples isa MultiMHSamples
+        p = size(result.data.z, 2)
+        return reduce(vcat, [sample.draws[:, 1:p] for sample in result.samples.chains])
     end
     p = size(result.data.z, 2)
     beta_vars = [Symbol("beta[$j]") for j in 1:p]
@@ -453,8 +562,10 @@ end
 function posterior_logposterior_draws(result::CoxSamplerResult)
     if result.samples isa MHSamples
         return result.samples.logposterior
+    elseif result.samples isa MultiMHSamples
+        return reduce(vcat, [sample.logposterior for sample in result.samples.chains])
     end
-    for stat in (:logjoint, :log_density, :lp)
+    for stat in (:logposterior, :logjoint, :log_density, :lp)
         try
             values = _chain_variable_draws(result.samples, [stat])
             return vec(values[:, 1])
@@ -492,22 +603,52 @@ end
 function sslasso_inclusion_probabilities(result::CoxSamplerResult)
     result.prior isa SpikeSlabLassoPrior ||
         throw(ArgumentError("sslasso_inclusion_probabilities requires SpikeSlabLassoPrior."))
-    result.samples isa MHSamples ||
-        throw(ArgumentError("sslasso_inclusion_probabilities currently supports built-in MHSamples."))
 
     prior = result.prior
-    draws = result.samples.draws
     p = size(result.data.z, 2)
     gamma_names = ["gamma[$j]" for j in 1:p]
-    gamma_idx = [findfirst(==(name), result.samples.names) for name in gamma_names]
-    if all(!isnothing, gamma_idx)
-        return vec(mean(draws[:, Int.(gamma_idx)]; dims = 1))
+    if result.samples isa MHSamples || result.samples isa MultiMHSamples
+        sample_list = result.samples isa MHSamples ? [result.samples] : result.samples.chains
+        names0 = sample_list[1].names
+        draws = reduce(vcat, [sample.draws for sample in sample_list])
+        gamma_idx = [findfirst(==(name), names0) for name in gamma_names]
+        if all(!isnothing, gamma_idx)
+            return vec(mean(draws[:, Int.(gamma_idx)]; dims = 1))
+        end
+        theta_idx = findfirst(==("logit_theta"), names0)
+        theta_idx === nothing && (theta_idx = findfirst(==("theta"), names0))
+        theta_idx === nothing &&
+            throw(ArgumentError("could not find logit_theta or theta in SSLASSO samples."))
+        out = zeros(size(draws, 1), p)
+        for r in axes(draws, 1)
+            theta = names0[theta_idx] == "theta" ? draws[r, theta_idx] : _logistic(draws[r, theta_idx])
+            for j in 1:p
+                b = draws[r, j]
+                log_spike = log1p(-theta) + _laplace_logpdf(b, prior.spike_scale)
+                log_slab = log(theta) + _laplace_logpdf(b, prior.slab_scale)
+                out[r, j] = exp(log_slab - _logsumexp2(log_spike, log_slab))
+            end
+        end
+        return vec(mean(out; dims=1))
     end
-    out = zeros(size(draws, 1), p)
-    for r in axes(draws, 1)
-        theta = _logistic(draws[r, p + 1])
+
+    chain_names = string.(Base.invokelatest(names, result.samples))
+    gamma_idx = [findfirst(==(name), chain_names) for name in gamma_names]
+    if all(!isnothing, gamma_idx)
+        gamma_draws = _chain_variable_draws(result.samples, Symbol.(gamma_names))
+        return vec(mean(gamma_draws; dims = 1))
+    end
+    theta_name =
+        "logit_theta" in chain_names ? :logit_theta :
+        "theta" in chain_names ? :theta :
+        throw(ArgumentError("could not find logit_theta or theta in SSLASSO samples."))
+    beta_draws = posterior_beta_draws(result)
+    theta_draws = vec(_chain_variable_draws(result.samples, [theta_name])[:, 1])
+    out = zeros(size(beta_draws, 1), p)
+    for r in axes(beta_draws, 1)
+        theta = theta_name == :theta ? theta_draws[r] : _logistic(theta_draws[r])
         for j in 1:p
-            b = draws[r, j]
+            b = beta_draws[r, j]
             log_spike = log1p(-theta) + _laplace_logpdf(b, prior.spike_scale)
             log_slab = log(theta) + _laplace_logpdf(b, prior.slab_scale)
             out[r, j] = exp(log_slab - _logsumexp2(log_spike, log_slab))

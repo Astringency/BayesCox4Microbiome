@@ -104,6 +104,15 @@ function _sampler_acceptance_metadata(result::CoxSamplerResult)
             "warmup_acceptance_rate" => result.samples.warmup_acceptance_rate,
             "final_step_size" => result.samples.final_step,
         )
+    elseif result.samples isa MultiMHSamples
+        samples = result.samples.chains
+        return Dict(
+            "acceptance_rate" => mean([s.acceptance_rate for s in samples]),
+            "warmup_acceptance_rate" => mean([s.warmup_acceptance_rate for s in samples]),
+            "acceptance_rate_by_chain" => [s.acceptance_rate for s in samples],
+            "warmup_acceptance_rate_by_chain" => [s.warmup_acceptance_rate for s in samples],
+            "final_step_size_by_chain" => [s.final_step for s in samples],
+        )
     end
     return Dict(
         "acceptance_rate" => missing,
@@ -147,6 +156,8 @@ function result_to_chains(result::CoxSamplerResult)
     Chains = getproperty(MCMCChains, :Chains)
     if result.samples isa Chains
         return result.samples
+    elseif result.samples isa MultiMHSamples
+        return _mhsamples_to_chains(result.samples)
     elseif result.samples isa MHSamples
         draws = result.samples.draws
         names = copy(result.samples.names)

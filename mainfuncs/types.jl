@@ -34,6 +34,10 @@ struct MHSamples
     final_step::Vector{Float64}
 end
 
+struct MultiMHSamples
+    chains::Vector{MHSamples}
+end
+
 struct SamplingDiagnostics
     warmup_seconds::Union{Missing,Float64}
     sample_seconds::Union{Missing,Float64}

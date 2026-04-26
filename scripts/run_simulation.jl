@@ -1,7 +1,14 @@
 #!/usr/bin/env julia
 
 using Pkg
-Pkg.activate(joinpath(@__DIR__, ".."))
+
+function _activate_repo_project()
+    project = abspath(joinpath(@__DIR__, "..", "Project.toml"))
+    active = Base.active_project()
+    active !== project && Pkg.activate(dirname(project))
+end
+
+_activate_repo_project()
 
 function _include_script(path::AbstractString)
     if get(ENV, "USE_REVISE", "false") in ("1", "true", "yes", "y")
@@ -43,6 +50,11 @@ function main()
     prox_l1_lambda = arg(args, "prox-l1-lambda", 1e-3)
     prox_root_tol = arg(args, "prox-root-tol", 1e-10)
     prox_root_maxiter = arg(args, "prox-root-maxiter", 100)
+    mala_step_size = arg(args, "mala-step-size", 1e-4)
+    mala_target_accept = arg(args, "mala-target-accept", 0.574)
+    mala_adapt_every = arg(args, "mala-adapt-every", 50)
+    mala_min_step = arg(args, "mala-min-step", 1e-8)
+    mala_max_step = arg(args, "mala-max-step", 1.0)
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
     figs_dir = ensure_dir(joinpath(outdir, "figures"))
@@ -76,6 +88,11 @@ function main()
                 prox_l1_lambda = prox_l1_lambda,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
+                mala_step_size = mala_step_size,
+                mala_target_accept = mala_target_accept,
+                mala_adapt_every = mala_adapt_every,
+                mala_min_step = mala_min_step,
+                mala_max_step = mala_max_step,
                 progress = progress,
             )
             summary = copy(fit.summary)
@@ -112,6 +129,11 @@ function main()
                     "prox_l1_lambda" => prox_l1_lambda,
                     "prox_root_tol" => prox_root_tol,
                     "prox_root_maxiter" => prox_root_maxiter,
+                    "mala_step_size" => mala_step_size,
+                    "mala_target_accept" => mala_target_accept,
+                    "mala_adapt_every" => mala_adapt_every,
+                    "mala_min_step" => mala_min_step,
+                    "mala_max_step" => mala_max_step,
                     "use_car" => use_car && occursin("hs", lowercase(prior)),
                     "car_distance" => string(car_distance),
                     "p0_alpha" => p0_alpha,

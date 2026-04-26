@@ -22,6 +22,8 @@ julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
     --priors lasso \
     --constraint prox \
     --target-accept 0.8 \
+    --mala-step-size 1e-6 \
+    --mala-target-accept 0.7 \
     --seed 1 \
     --use-car true \
     --car-distance bray \
