@@ -60,6 +60,19 @@ function _write_json(path::AbstractString, x)
     return path
 end
 
+function _csv_value(x)
+    x === nothing && return missing
+    x === missing && return missing
+    x isa Symbol && return String(x)
+    x isa Type && return string(x)
+    (x isa AbstractVector || x isa Tuple || x isa NamedTuple || x isa AbstractDict) && return string(_jsonable(x))
+    return x
+end
+
+function _write_csv(path::AbstractString, table)
+    return CSV.write(path, table; transform = (col, val) -> _csv_value(val))
+end
+
 function _git_commit_hash()
     try
         return readchomp(`git rev-parse HEAD`)
@@ -248,7 +261,7 @@ function _diagnostics_summary_dataframe(chains; metadata = Dict(), rhat_threshol
         rename!(df, :ess => :ess_bulk)
     end
     for (k, v) in pairs(metadata)
-        df[!, Symbol(k)] = fill(_safe_string(v), nrow(df))
+        df[!, Symbol(k)] = fill(_csv_value(v), nrow(df))
     end
     df.rhat_threshold = fill(Float64(rhat_threshold), nrow(df))
     return df
@@ -273,9 +286,9 @@ function save_run_outputs(
     summary_df = posterior_summary === nothing ? _posterior_summary_dataframe(chains) : DataFrame(posterior_summary)
 
     if save_csv
-        CSV.write(joinpath(output_dir, "samples_wide.csv"), wide)
-        CSV.write(joinpath(output_dir, "samples_long.csv"), long)
-        CSV.write(joinpath(output_dir, "posterior_summary.csv"), summary_df)
+        _write_csv(joinpath(output_dir, "samples_wide.csv"), wide)
+        _write_csv(joinpath(output_dir, "samples_long.csv"), long)
+        _write_csv(joinpath(output_dir, "posterior_summary.csv"), summary_df)
     end
     _write_json(joinpath(output_dir, "metadata.json"), meta)
     _write_json(joinpath(output_dir, "diagnostics.json"), merge(copy(diagnostics), _sampler_acceptance_metadata(result)))
@@ -481,11 +494,11 @@ function diagnose_run(
         metadata = metadata,
         rhat_threshold = rhat_threshold,
     )
-    CSV.write(joinpath(output_dir, "diagnostics_summary.csv"), summary)
+    _write_csv(joinpath(output_dir, "diagnostics_summary.csv"), summary)
     _write_json(joinpath(output_dir, "diagnostics_summary.json"), [Dict(String(c) => _jsonable(row[c]) for c in propertynames(summary)) for row in eachrow(summary)])
 
     gamma_df = _gamma_inclusion_dataframe(chains)
-    !isempty(gamma_df) && CSV.write(joinpath(output_dir, "gamma_inclusion_probabilities.csv"), gamma_df)
+    !isempty(gamma_df) && _write_csv(joinpath(output_dir, "gamma_inclusion_probabilities.csv"), gamma_df)
 
     plot_paths = String[]
     if !isempty(selected)
