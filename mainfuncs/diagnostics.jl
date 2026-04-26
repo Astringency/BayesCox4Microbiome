@@ -376,7 +376,13 @@ function _save_plot_all_formats(plot_obj, output_dir::AbstractString, stem::Abst
     paths = String[]
     for fmt in fmt_list
         path = joinpath(output_dir, "$stem.$fmt")
-        _call_latest(getproperty(Plots, :savefig), plot_obj, path)
+        if lowercase(fmt) == "eps"
+            open(path, "w") do io
+                _call_latest(show, io, MIME("application/postscript"), plot_obj)
+            end
+        else
+            _call_latest(getproperty(Plots, :savefig), plot_obj, path)
+        end
         push!(paths, path)
     end
     return paths

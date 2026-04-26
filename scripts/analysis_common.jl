@@ -518,7 +518,9 @@ function _save_plots_vector(plot_obj, path::AbstractString; save_eps::Bool = tru
     Plots.savefig(plot_obj, pdf_path)
     if save_eps
         eps_path = _plot_path_with_ext(path, ".eps")
-        Plots.savefig(plot_obj, eps_path)
+        open(eps_path, "w") do io
+            Base.invokelatest(show, io, MIME("application/postscript"), plot_obj)
+        end
     end
     return pdf_path
 end
