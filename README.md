@@ -24,8 +24,10 @@ The package metadata is defined in `Project.toml`:
 - Package name: `BayesCox4Micro`
 - Package version: `0.1.0`
 - Julia compatibility: `1.11`
-- Main dependencies: `CSV`, `DataFrames`, `Distances`, `Distributions`,
-  `PosteriorStats`, `ProgressMeter`, `Survival`, and `Turing`.
+- Main modeling dependencies: `Distances`, `Distributions`, `PosteriorStats`,
+  `ProgressMeter`, `Survival`, and `Turing`.
+- Data, persistence, and diagnostics dependencies: `CSV`, `DataFrames`,
+  `JLD2`, `JSON`, `MCMCChains`, `Plots`, and `StatsPlots`.
 
 `Manifest.toml` is committed so the exact dependency resolution can be restored
 with `Pkg.instantiate()`.
@@ -81,12 +83,15 @@ BayesCox4Micro/
     mala_sampler.jl
     turing_sampler.jl
     api.jl
+    diagnostics.jl
   scripts/
     analysis_common.jl
     run_simulation.jl
     analyze_real_data.jl
+    run_diagnose.jl
     run_simulation.{ps1,cmd,sh}
     analyze_real_data.{ps1,cmd,sh}
+    run_diagnose.{ps1,cmd,sh}
   data/
     T1D.csv
   docs/
@@ -120,11 +125,16 @@ Key roles:
 - `mainfuncs/posterior.jl` and `mainfuncs/api.jl` provide posterior extraction,
   summaries, MAP extraction, diagnostics, C-index, `cox_paper_prior`, and the
   top-level `sample_bayes_cox` API.
+- `mainfuncs/diagnostics.jl` converts sampler outputs to
+  `MCMCChains.Chains`, writes raw samples and metadata, and generates
+  diagnostics by calling `MCMCChains`, `StatsPlots`, and `Plots`.
 - `scripts/analysis_common.jl` contains shared CLI parsing, simulation data
   generation, fitting, metrics, and dependency-light PDF/EPS plotting.
 - `scripts/run_simulation.jl` runs simulation grids.
 - `scripts/analyze_real_data.jl` analyzes a CSV survival dataset such as
   `data/T1D.csv`.
+- `scripts/run_diagnose.jl` regenerates diagnostics from saved run outputs
+  without rerunning MCMC.
 
 ## Implementation Details
 
@@ -218,6 +228,11 @@ Supported sampler symbols are:
   requires `SpikeSlabLassoPrior`, supports `chains = 1`, and does not support
   CAR weights.
 
+All sampler outputs can be saved through `save_run_outputs`. NUTS results keep
+the original Turing/MCMCChains chain dimension. Built-in `:mh`, `:mala`, and
+`:gibbs` results are stored as explicit single-chain `MCMCChains.Chains`
+objects with `chain = 1`.
+
 ### Zero-Sum Coefficient Constraint
 
 The package implements two active ways to enforce the compositional zero-sum
@@ -298,6 +313,18 @@ discovery summaries. Metrics include log partial likelihood, LPML, AIC, BIC,
 WAIC, DIC, PSIS-LOO/LOOIC, Pareto-k diagnostics, C-index, and sampler timing
 diagnostics.
 
+Each fitted simulation run is also saved under:
+
+```text
+results/simulation/runs/<run_id>/
+  samples_wide.csv
+  samples_long.csv
+  result_bundle.jld2
+  metadata.json
+  diagnostics.json
+  posterior_summary.csv
+```
+
 ## Real-Data Analysis Script
 
 Run:
@@ -343,3 +370,93 @@ When `--p0` is automatic, the script also writes
 Outputs include taxa column names, per-prior coefficient summaries, coefficient
 plots for posterior mean, median, and MAP estimates, model metrics, and a
 metrics plot.
+
+Each fitted real-data run is also saved under:
+
+```text
+results/realdata/T1D/runs/<run_id>/
+  samples_wide.csv
+  samples_long.csv
+  result_bundle.jld2
+  metadata.json
+  diagnostics.json
+  posterior_summary.csv
+```
+
+## Saving Samples and Diagnostics
+
+Raw sampler results can be converted to `MCMCChains.Chains` and saved without
+rerunning the model:
+
+```julia
+result = sample_bayes_cox(X, time, event; prior = BayesianLassoPrior(), sampler = :mh)
+
+chains = result_to_chains(result)
+save_run_outputs(
+    result;
+    output_dir = "results/runs/example",
+    run_id = "example",
+    metadata = Dict("dataset_name" => "example", "prior_name" => "lasso"),
+    settings = Dict("n_samples" => 500, "warmup" => 200, "thin" => 1),
+)
+
+diagnose_run("results/runs/example"; output_dir = "results/runs/example/diagnose")
+```
+
+The saved CSV files use:
+
+- `samples_wide.csv`: `chain`, `iter`, `draw`, one column per parameter, and
+  `logposterior` when available.
+- `samples_long.csv`: `chain`, `iter`, `draw`, `parameter`, `value`.
+
+`result_bundle.jld2` stores the wide and long tables, a `MCMCChains.Chains`
+object when available, diagnostics, metadata, settings, data information, and
+posterior summaries.
+
+`diagnose_run` writes:
+
+```text
+diagnostics_summary.csv
+diagnostics_summary.json
+traceplot.<format>
+density.<format>
+acf.<format>
+rhat_scatter.<format>      # multi-chain only
+rhat_histogram.<format>    # multi-chain only
+gamma_inclusion_probabilities.csv  # when gamma parameters are present
+```
+
+Diagnostics use Julia ecosystem packages rather than custom implementations:
+
+- `MCMCChains.jl` for summary statistics, ESS, R-hat, quantiles, and ACF used by
+  plotting recipes.
+- `StatsPlots.jl` / `Plots.jl` for trace, density, ACF, R-hat scatter, and
+  R-hat histogram plots.
+
+Run diagnostics from the command line:
+
+```powershell
+julia --project=. scripts\run_diagnose.jl --input results\runs\example
+scripts\run_diagnose.cmd results\runs\example
+powershell -ExecutionPolicy Bypass -File scripts\run_diagnose.ps1 results/runs/example
+```
+
+```bash
+bash scripts/run_diagnose.sh results/runs/example
+```
+
+`scripts/run_diagnose.jl` parameters:
+
+| Parameter | Default | Explanation |
+|---|---:|---|
+| `--input` | `results/runs/example` | Directory containing `result_bundle.jld2` or `samples_wide.csv`. A positional first argument is also accepted. |
+| `--output` | `<input>/diagnose` | Directory for diagnostic plots and summaries. |
+| `--params` | automatic | Comma-separated parameters to plot, for example `beta[1],beta[2],theta,logposterior`. |
+| `--top-k-beta` | `10` | If `--params` is omitted, plot beta coefficients with the largest absolute posterior means. |
+| `--max-lag` | `50` | Maximum lag passed to the MCMCChains autocorrelation plot recipe. |
+| `--rhat-threshold` | `1.01` | Reference line for R-hat scatter and histogram plots. |
+| `--format` | `png,pdf` | Comma-separated output formats for plots. |
+
+If only one chain is available, R-hat is not computable. The diagnostic runner
+emits a warning, writes summaries with missing R-hat values when necessary, and
+skips R-hat plots instead of failing.

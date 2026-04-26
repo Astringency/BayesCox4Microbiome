@@ -89,6 +89,33 @@ function main()
         summary.variable = string.(taxa_cols)
         summary.selected = (summary.lower .* summary.upper) .> 0
         write_table(joinpath(tables_dir, "coef_$prior.csv"), summary)
+        run_id = "realdata_$(prior)"
+        save_run_outputs(
+            fit.result;
+            output_dir = joinpath(outdir, "runs", run_id),
+            run_id = run_id,
+            metadata = Dict(
+                "dataset_name" => basename(input),
+                "method_name" => prior,
+                "prior_name" => prior,
+                "sampler" => string(sampler),
+                "p0" => fit.p0,
+                "input" => input,
+            ),
+            settings = Dict(
+                "n_samples" => n_samples,
+                "warmup" => warmup,
+                "chains" => chains,
+                "target_accept" => target_accept,
+                "seed" => seed,
+                "thin" => 1,
+                "constraint" => "soft_center",
+                "use_car" => use_car && occursin("hs", lowercase(prior)),
+                "car_distance" => string(car_distance),
+                "p0_alpha" => p0_alpha,
+            ),
+            posterior_summary = summary,
+        )
         coefficient_plot(
             summary,
             joinpath(figs_dir, "coef_$prior.pdf");

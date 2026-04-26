@@ -1,6 +1,10 @@
-using Test
+﻿using Test
 using Random
 using BayesCox4Micro
+using CSV
+using DataFrames
+using JLD2
+using MCMCChains
 
 @testset "sum-to-zero Moreau helpers" begin
     beta = [1.0, -2.0, 4.0, 0.5]
@@ -127,4 +131,76 @@ end
         seed = 4,
     )
     @test size(posterior_beta_draws(mh)) == (3, 4)
+end
+
+function toy_result(samples)
+    X = [0.2 0.3 0.5;
+         0.1 0.6 0.3;
+         0.4 0.2 0.4;
+         0.3 0.3 0.4;
+         0.5 0.2 0.3]
+    time = [1.0, 2.0, 3.0, 4.0, 5.0]
+    event = [1, 0, 1, 1, 0]
+    data = prepare_cox_data(X, time, event; transform = :none)
+    return CoxSamplerResult(samples, data, BayesianLassoPrior(lambda = 1.0), :mh)
+end
+
+@testset "sampler result saving and diagnostics" begin
+    draws = [0.1 0.2; 0.2 0.1; 0.3 0.0; 0.4 -0.1; 0.5 -0.2; 0.6 -0.3]
+    lps = collect(-6.0:-1.0)
+    mh_samples = MHSamples(draws, lps, ["beta[1]", "beta[2]"], 0.5, 0.4, [0.1, 0.1])
+    result = toy_result(mh_samples)
+
+    chn = result_to_chains(result)
+    @test chn isa MCMCChains.Chains
+    @test size(chn, 3) == 1
+    @test "logposterior" in string.(names(chn))
+
+    mktempdir() do dir
+        save_run_outputs(
+            result;
+            output_dir = dir,
+            run_id = "toy",
+            metadata = Dict("prior_name" => "lasso", "sampler" => "mh"),
+            settings = Dict("n_samples" => 6, "warmup" => 2, "thin" => 1, "seed" => 11),
+        )
+        @test isfile(joinpath(dir, "samples_wide.csv"))
+        @test isfile(joinpath(dir, "samples_long.csv"))
+        @test isfile(joinpath(dir, "metadata.json"))
+        @test isfile(joinpath(dir, "diagnostics.json"))
+        @test isfile(joinpath(dir, "result_bundle.jld2"))
+
+        bundle = JLD2.load(joinpath(dir, "result_bundle.jld2"), "result_bundle")
+        @test haskey(bundle, "samples")
+        @test haskey(bundle, "samples_chain")
+        @test nrow(CSV.read(joinpath(dir, "samples_wide.csv"), DataFrame)) == 6
+
+        diag = diagnose_run(dir; formats = "png", top_k_beta = 2, max_lag = 3)
+        @test isfile(joinpath(diag.output_dir, "diagnostics_summary.csv"))
+        @test isfile(joinpath(diag.output_dir, "traceplot.png"))
+        @test isfile(joinpath(diag.output_dir, "density.png"))
+        @test isfile(joinpath(diag.output_dir, "acf.png"))
+        @test !isfile(joinpath(diag.output_dir, "rhat_scatter.png"))
+    end
+end
+
+@testset "Turing-style Chains saving and multi-chain R-hat plots" begin
+    arr = Array{Float64}(undef, 8, 3, 2)
+    for c in 1:2, i in 1:8
+        arr[i, 1, c] = 0.1i + 0.01c
+        arr[i, 2, c] = -0.1i + 0.01c
+        arr[i, 3, c] = -i
+    end
+    chn = Chains(arr, [Symbol("beta[1]"), Symbol("beta[2]"), :logposterior])
+    result = toy_result(chn)
+
+    mktempdir() do dir
+        save_run_outputs(result; output_dir = dir, run_id = "toy_chains")
+        @test isfile(joinpath(dir, "result_bundle.jld2"))
+        @test size(result_to_chains(result), 3) == 2
+
+        diag = diagnose_run(dir; formats = "png", top_k_beta = 2, max_lag = 3)
+        @test isfile(joinpath(diag.output_dir, "rhat_scatter.png"))
+        @test isfile(joinpath(diag.output_dir, "rhat_histogram.png"))
+    end
 end

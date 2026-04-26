@@ -46,7 +46,15 @@ export AbstractCoxPrior,
     posterior_beta_summary,
     sampler_diagnostics,
     sslasso_inclusion_probabilities,
-    concordance_index
+    concordance_index,
+    result_to_chains,
+    as_mcmc_chains,
+    chains_to_wide_dataframe,
+    samples_wide_dataframe,
+    samples_long_dataframe,
+    dataframe_to_chains,
+    save_run_outputs,
+    diagnose_run
 
 include("priors/abstract.jl")
 include("priors/horseshoe.jl")
@@ -68,5 +76,6 @@ include("mainfuncs/gibbs_sampler.jl")
 include("mainfuncs/mala_sampler.jl")
 include("mainfuncs/turing_sampler.jl")
 include("mainfuncs/api.jl")
+include("mainfuncs/diagnostics.jl")
 
 end # module

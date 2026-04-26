@@ -71,6 +71,36 @@ function main()
             summary.true_beta = sim.beta
             summary.nonzero = sim.beta .!= 0
             write_table(joinpath(tables_dir, "coef_$label.csv"), summary)
+            save_run_outputs(
+                fit.result;
+                output_dir = joinpath(outdir, "runs", label),
+                run_id = label,
+                metadata = Dict(
+                    "simulation_id" => label,
+                    "replicate_id" => rep,
+                    "method_name" => prior,
+                    "prior_name" => prior,
+                    "sampler" => string(sampler),
+                    "baseline" => string(baseline),
+                    "n" => n,
+                    "p" => p,
+                    "nonzero_count" => nonzero,
+                    "p0" => fit.p0,
+                ),
+                settings = Dict(
+                    "n_samples" => n_samples,
+                    "warmup" => warmup,
+                    "chains" => chains,
+                    "target_accept" => target_accept,
+                    "seed" => sim_seed,
+                    "thin" => 1,
+                    "constraint" => "soft_center",
+                    "use_car" => use_car && occursin("hs", lowercase(prior)),
+                    "car_distance" => string(car_distance),
+                    "p0_alpha" => p0_alpha,
+                ),
+                posterior_summary = summary,
+            )
             coefficient_plot(
                 summary,
                 joinpath(figs_dir, "coef_$label.pdf");
