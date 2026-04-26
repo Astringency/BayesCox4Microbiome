@@ -264,6 +264,12 @@ sampler also applies L1 epigraph Moreau smoothing through `project_l1_epigraph`
 and `l1_moreau`. For `SpikeSlabLassoPrior`, it uses
 `project_weighted_l1_epigraph` and `weighted_l1_moreau`.
 
+The simulation and real-data scripts expose the same zero-sum constraint
+controls through `--constraint`, `--soft-center-scale`, and
+`--prox-sum0-lambda`. The L1 epigraph proximal controls
+`--prox-l1-lambda`, `--prox-root-tol`, and `--prox-root-maxiter` are relevant
+only for `--sampler mala` with `lasso` or `sslasso` and `--constraint prox`.
+
 ## Simulation Script
 
 Run:
@@ -276,6 +282,12 @@ Example smoke test:
 
 ```powershell
 julia --project=. scripts\run_simulation.jl --sampler mh --samples 50 --warmup 20 --reps 1 --n 200 --p 50 --nonzero 6 --priors hs,cox-rhs,lasso --baseline weibull --p0 truth
+```
+
+Example with the proximal zero-sum constraint:
+
+```powershell
+julia --project=. scripts\run_simulation.jl --sampler mala --constraint prox --prox-sum0-lambda 1e-3 --samples 50 --warmup 20 --reps 1 --n 200 --p 50 --nonzero 6 --priors hs,lasso,sslasso --baseline weibull --p0 truth
 ```
 
 `scripts/run_simulation.jl` accepts the following parameters.
@@ -300,6 +312,12 @@ julia --project=. scripts\run_simulation.jl --sampler mh --samples 50 --warmup 2
 | `--car-distance` | `bray` | Distance used to construct CAR weights. Supported values are `bray`, `jaccard`, and `jsd`. |
 | `--p0` | `auto` | Prior nonzero count for HS/RHS-style priors. `auto`, omitted, `none`, or `missing` triggers univariate Cox screening; a numeric value fixes `p0`; `truth` uses the simulation `--nonzero` value. |
 | `--p0-alpha` | `0.05` | Wald p-value threshold used by univariate Cox screening when `--p0` is automatic. |
+| `--constraint` | `soft_center` | Zero-sum coefficient constraint passed to `sample_bayes_cox`. Supported values are `soft_center`, `prox`, and `none`. |
+| `--soft-center-scale` | automatic | Optional scale for `constraint = :soft_center`. If omitted, the package uses `0.001 * p`. |
+| `--prox-sum0-lambda` | `1e-3` | Moreau-Yosida smoothing parameter for the zero-sum constraint when `--constraint prox`. |
+| `--prox-l1-lambda` | `1e-3` | L1 epigraph Moreau smoothing parameter for MALA proximal LASSO / proximal SSLASSO. Used only by `--sampler mala` with LASSO or SSLASSO and `--constraint prox`. |
+| `--prox-root-tol` | `1e-10` | Root-finding tolerance for L1 epigraph projections used by proximal MALA. |
+| `--prox-root-maxiter` | `100` | Maximum root-finding iterations for L1 epigraph projections used by proximal MALA. |
 
 Simulation data generation follows the paper-style setup in
 `scripts/analysis_common.jl`: true nonzero coefficients are inserted at fixed
@@ -339,6 +357,12 @@ Example:
 julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler nuts --samples 500 --warmup 200 --priors hs,cox-rhs,lasso,sslasso
 ```
 
+Example with the proximal zero-sum constraint:
+
+```powershell
+julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler mala --constraint prox --prox-sum0-lambda 1e-3 --samples 500 --warmup 200 --priors hs,lasso,sslasso
+```
+
 `scripts/analyze_real_data.jl` accepts the following parameters.
 
 | Parameter | Default | Explanation |
@@ -360,6 +384,12 @@ julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler nu
 | `--car-distance` | `bray` | Distance used to construct CAR weights. Supported values are `bray`, `jaccard`, and `jsd`. |
 | `--p0` | `auto` | Prior nonzero count for HS/RHS-style priors. `auto`, omitted, `none`, or `missing` triggers univariate Cox screening; a numeric value fixes `p0`. `truth` is rejected for real-data analysis. |
 | `--p0-alpha` | `0.05` | Wald p-value threshold used by univariate Cox screening when `--p0` is automatic. |
+| `--constraint` | `soft_center` | Zero-sum coefficient constraint passed to `sample_bayes_cox`. Supported values are `soft_center`, `prox`, and `none`. |
+| `--soft-center-scale` | automatic | Optional scale for `constraint = :soft_center`. If omitted, the package uses `0.001 * p`. |
+| `--prox-sum0-lambda` | `1e-3` | Moreau-Yosida smoothing parameter for the zero-sum constraint when `--constraint prox`. |
+| `--prox-l1-lambda` | `1e-3` | L1 epigraph Moreau smoothing parameter for MALA proximal LASSO / proximal SSLASSO. Used only by `--sampler mala` with LASSO or SSLASSO and `--constraint prox`. |
+| `--prox-root-tol` | `1e-10` | Root-finding tolerance for L1 epigraph projections used by proximal MALA. |
+| `--prox-root-maxiter` | `100` | Maximum root-finding iterations for L1 epigraph projections used by proximal MALA. |
 
 The script detects taxa columns as numeric columns not listed in
 `--time-col`, `--status-col`, or `--exclude-cols`. Missing abundance values are

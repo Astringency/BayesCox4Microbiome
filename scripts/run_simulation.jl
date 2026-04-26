@@ -37,6 +37,12 @@ function main()
     car_distance = Symbol(arg(args, "car-distance", "bray"))
     p0_arg = parse_optional_p0(args; default = nothing)
     p0_alpha = arg(args, "p0-alpha", 0.05)
+    constraint = Symbol(arg(args, "constraint", "soft_center"))
+    soft_center_scale = haskey(args, "soft-center-scale") ? parse(Float64, args["soft-center-scale"]) : nothing
+    prox_sum0_lambda = arg(args, "prox-sum0-lambda", 1e-3)
+    prox_l1_lambda = arg(args, "prox-l1-lambda", 1e-3)
+    prox_root_tol = arg(args, "prox-root-tol", 1e-10)
+    prox_root_maxiter = arg(args, "prox-root-maxiter", 100)
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
     figs_dir = ensure_dir(joinpath(outdir, "figures"))
@@ -64,6 +70,12 @@ function main()
                 car_distance = car_distance,
                 p0 = p0_value,
                 p0_alpha = p0_alpha,
+                constraint = constraint,
+                soft_center_scale = soft_center_scale,
+                prox_sum0_lambda = prox_sum0_lambda,
+                prox_l1_lambda = prox_l1_lambda,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
                 progress = progress,
             )
             summary = copy(fit.summary)
@@ -94,7 +106,12 @@ function main()
                     "target_accept" => target_accept,
                     "seed" => sim_seed,
                     "thin" => 1,
-                    "constraint" => "soft_center",
+                    "constraint" => string(constraint),
+                    "soft_center_scale" => soft_center_scale,
+                    "prox_sum0_lambda" => prox_sum0_lambda,
+                    "prox_l1_lambda" => prox_l1_lambda,
+                    "prox_root_tol" => prox_root_tol,
+                    "prox_root_maxiter" => prox_root_maxiter,
                     "use_car" => use_car && occursin("hs", lowercase(prior)),
                     "car_distance" => string(car_distance),
                     "p0_alpha" => p0_alpha,

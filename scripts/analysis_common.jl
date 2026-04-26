@@ -370,6 +370,12 @@ function fit_and_evaluate(
     car_distance = :bray,
     p0 = nothing,
     p0_alpha::Real = 0.05,
+    constraint::Symbol = :soft_center,
+    soft_center_scale = nothing,
+    prox_sum0_lambda::Real = 1e-3,
+    prox_l1_lambda::Real = 1e-3,
+    prox_root_tol::Real = 1e-10,
+    prox_root_maxiter::Integer = 100,
     realdata::Bool = false,
     progress::Bool = true,
 )
@@ -389,23 +395,52 @@ function fit_and_evaluate(
                 seed = seed,
                 use_car = use_car,
                 car_distance = car_distance,
+                constraint = constraint,
+                soft_center_scale = soft_center_scale,
+                prox_sum0_lambda = prox_sum0_lambda,
                 progress = progress,
             )
         elseif sampler == :mh || sampler == :mala
-            sample_bayes_cox(
-                X,
-                time,
-                event;
-                prior = prior,
-                sampler = sampler,
-                n_samples = n_samples,
-                warmup = warmup,
-                target_accept = target_accept,
-                seed = seed,
-                use_car = use_car,
-                car_distance = car_distance,
-                progress = progress,
-            )
+            if sampler == :mala
+                sample_bayes_cox(
+                    X,
+                    time,
+                    event;
+                    prior = prior,
+                    sampler = sampler,
+                    n_samples = n_samples,
+                    warmup = warmup,
+                    target_accept = target_accept,
+                    seed = seed,
+                    use_car = use_car,
+                    car_distance = car_distance,
+                    constraint = constraint,
+                    soft_center_scale = soft_center_scale,
+                    prox_sum0_lambda = prox_sum0_lambda,
+                    prox_l1_lambda = prox_l1_lambda,
+                    prox_root_tol = prox_root_tol,
+                    prox_root_maxiter = prox_root_maxiter,
+                    progress = progress,
+                )
+            else
+                sample_bayes_cox(
+                    X,
+                    time,
+                    event;
+                    prior = prior,
+                    sampler = sampler,
+                    n_samples = n_samples,
+                    warmup = warmup,
+                    target_accept = target_accept,
+                    seed = seed,
+                    use_car = use_car,
+                    car_distance = car_distance,
+                    constraint = constraint,
+                    soft_center_scale = soft_center_scale,
+                    prox_sum0_lambda = prox_sum0_lambda,
+                    progress = progress,
+                )
+            end
         elseif sampler == :gibbs
             sample_bayes_cox(
                 X,
@@ -419,6 +454,9 @@ function fit_and_evaluate(
                 seed = seed,
                 use_car = use_car,
                 car_distance = car_distance,
+                constraint = constraint,
+                soft_center_scale = soft_center_scale,
+                prox_sum0_lambda = prox_sum0_lambda,
                 progress = progress,
             )
         else
