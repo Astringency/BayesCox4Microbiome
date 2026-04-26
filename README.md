@@ -129,7 +129,7 @@ Key roles:
   `MCMCChains.Chains`, writes raw samples and metadata, and generates
   diagnostics by calling `MCMCChains`, `StatsPlots`, and `Plots`.
 - `scripts/analysis_common.jl` contains shared CLI parsing, simulation data
-  generation, fitting, metrics, and dependency-light PDF/EPS plotting.
+  generation, fitting, metrics, and `Plots.jl`-based PDF/EPS plotting.
 - `scripts/run_simulation.jl` runs simulation grids.
 - `scripts/analyze_real_data.jl` analyzes a CSV survival dataset such as
   `data/T1D.csv`.
