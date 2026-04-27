@@ -258,9 +258,9 @@ function cox_paper_prior(
             slab_df = 4.0,
             slab_s2 = 2.0,
         )
-    elseif key in ("lasso", "bayesian-lasso")
+    elseif key in ("lasso", "bayesian-lasso", "prox-lasso")
         return BayesianLassoPrior(lambda = nothing, lambda2_shape = 1.0, lambda2_rate = 0.1)
-    elseif key in ("sslasso", "spike-slab", "spike-and-slab")
+    elseif key in ("sslasso", "spike-slab", "spike-and-slab", "prox-sslasso")
         return realdata ? SpikeSlabLassoPrior(spike_scale = 1.0, slab_scale = 10.0) :
                           SpikeSlabLassoPrior(spike_scale = 0.04, slab_scale = 0.5)
     end
@@ -322,6 +322,7 @@ function sample_bayes_cox(
     sampler::Symbol = :nuts,
     seed = nothing,
     chains = nothing,
+    multichains::Bool = false,
     use_car::Bool = false,
     car_weights = nothing,
     car_distance = nothing,
@@ -365,6 +366,7 @@ function sample_bayes_cox(
             prior,
             chain_count;
             rng = rng,
+            multichains = multichains,
             car_weights = resolved_car_weights,
             kwargs...,
         )
@@ -386,6 +388,29 @@ function sample_bayes_cox(
             prior,
             chain_count;
             rng = rng,
+            multichains = multichains,
+            car_weights = resolved_car_weights,
+            kwargs...,
+        )
+        samples = timed.value
+        warmup_seconds = missing
+        sample_seconds = missing
+        gc_percent = timed.time > 0 ? 100 * timed.gctime / timed.time : NaN
+        diagnostics = SamplingDiagnostics(
+            warmup_seconds,
+            sample_seconds,
+            timed.time,
+            Int64(timed.bytes),
+            timed.gctime,
+            gc_percent,
+        )
+    elseif sampler == :ula
+        timed = @timed _sample_ula_chains(
+            data,
+            prior,
+            chain_count;
+            rng = rng,
+            multichains = multichains,
             car_weights = resolved_car_weights,
             kwargs...,
         )
@@ -411,6 +436,7 @@ function sample_bayes_cox(
             prior,
             chain_count;
             rng = rng,
+            multichains = multichains,
             kwargs...,
         )
         samples = timed.value
@@ -426,7 +452,7 @@ function sample_bayes_cox(
             gc_percent,
         )
     else
-        throw(ArgumentError("sampler must be :nuts, :mh, :mala, or :gibbs."))
+        throw(ArgumentError("sampler must be :nuts, :mh, :mala, :ula, or :gibbs."))
     end
     return CoxSamplerResult(samples, data, prior, sampler, diagnostics)
 end
@@ -465,14 +491,23 @@ function _sample_mh_chains(
     prior::AbstractCoxPrior,
     chains::Integer;
     rng::AbstractRNG,
+    multichains::Bool = false,
     progress::Bool = true,
     kwargs...,
 )
     chains == 1 && return _sample_mh(data, prior; rng = rng, progress = progress, kwargs...)
     samples = Vector{MHSamples}(undef, chains)
-    for c in 1:chains
-        @info "Running MH chain $c/$chains"
-        samples[c] = _sample_mh(data, prior; rng = _independent_rng(rng), progress = progress, kwargs...)
+    rngs = [_independent_rng(rng) for _ in 1:chains]
+    if multichains
+        Threads.@threads for c in 1:chains
+            @info "Running MH chain $c/$chains"
+            samples[c] = _sample_mh(data, prior; rng = rngs[c], progress = false, kwargs...)
+        end
+    else
+        for c in 1:chains
+            @info "Running MH chain $c/$chains"
+            samples[c] = _sample_mh(data, prior; rng = rngs[c], progress = progress, kwargs...)
+        end
     end
     return MultiMHSamples(samples)
 end
@@ -482,14 +517,49 @@ function _sample_mala_chains(
     prior::AbstractCoxPrior,
     chains::Integer;
     rng::AbstractRNG,
+    multichains::Bool = false,
     progress::Bool = true,
     kwargs...,
 )
     chains == 1 && return _sample_mala(data, prior; rng = rng, progress = progress, kwargs...)
     samples = Vector{MHSamples}(undef, chains)
-    for c in 1:chains
-        @info "Running MALA chain $c/$chains"
-        samples[c] = _sample_mala(data, prior; rng = _independent_rng(rng), progress = progress, kwargs...)
+    rngs = [_independent_rng(rng) for _ in 1:chains]
+    if multichains
+        Threads.@threads for c in 1:chains
+            @info "Running MALA chain $c/$chains"
+            samples[c] = _sample_mala(data, prior; rng = rngs[c], progress = false, kwargs...)
+        end
+    else
+        for c in 1:chains
+            @info "Running MALA chain $c/$chains"
+            samples[c] = _sample_mala(data, prior; rng = rngs[c], progress = progress, kwargs...)
+        end
+    end
+    return MultiMHSamples(samples)
+end
+
+function _sample_ula_chains(
+    data::CoxPreparedData,
+    prior::AbstractCoxPrior,
+    chains::Integer;
+    rng::AbstractRNG,
+    multichains::Bool = false,
+    progress::Bool = true,
+    kwargs...,
+)
+    chains == 1 && return _sample_ula(data, prior; rng = rng, progress = progress, kwargs...)
+    samples = Vector{MHSamples}(undef, chains)
+    rngs = [_independent_rng(rng) for _ in 1:chains]
+    if multichains
+        Threads.@threads for c in 1:chains
+            @info "Running ULA chain $c/$chains"
+            samples[c] = _sample_ula(data, prior; rng = rngs[c], progress = false, kwargs...)
+        end
+    else
+        for c in 1:chains
+            @info "Running ULA chain $c/$chains"
+            samples[c] = _sample_ula(data, prior; rng = rngs[c], progress = progress, kwargs...)
+        end
     end
     return MultiMHSamples(samples)
 end
@@ -499,14 +569,23 @@ function _sample_gibbs_chains(
     prior::SpikeSlabLassoPrior,
     chains::Integer;
     rng::AbstractRNG,
+    multichains::Bool = false,
     progress::Bool = true,
     kwargs...,
 )
     chains == 1 && return _sample_ssl_gibbs(data, prior; rng = rng, chains = 1, progress = progress, kwargs...)
     samples = Vector{MHSamples}(undef, chains)
-    for c in 1:chains
-        @info "Running Gibbs chain $c/$chains"
-        samples[c] = _sample_ssl_gibbs(data, prior; rng = _independent_rng(rng), chains = 1, progress = progress, kwargs...)
+    rngs = [_independent_rng(rng) for _ in 1:chains]
+    if multichains
+        Threads.@threads for c in 1:chains
+            @info "Running Gibbs chain $c/$chains"
+            samples[c] = _sample_ssl_gibbs(data, prior; rng = rngs[c], chains = 1, progress = false, kwargs...)
+        end
+    else
+        for c in 1:chains
+            @info "Running Gibbs chain $c/$chains"
+            samples[c] = _sample_ssl_gibbs(data, prior; rng = rngs[c], chains = 1, progress = progress, kwargs...)
+        end
     end
     return MultiMHSamples(samples)
 end

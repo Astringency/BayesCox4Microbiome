@@ -80,6 +80,76 @@ Turing.@model function _bayes_cox_turing_model(
     return beta
 end
 
+Turing.@model function _lasso_prox_turing_model(
+    data::CoxPreparedData,
+    prior::BayesianLassoPrior,
+    constraint::Symbol,
+    soft_center_scale::Float64,
+    prox_sum0_lambda::Float64,
+    prox_l1_lambda::Float64,
+    alpha_prior_shape::Float64,
+    alpha_prior_rate::Float64,
+    prox_root_tol::Float64,
+    prox_root_maxiter::Int,
+)
+    p = size(data.z, 2)
+    beta ~ Turing.filldist(Normal(0, 1), p)
+    eta ~ Normal(0, 1)
+    u = vcat(beta, [eta])
+    lp = _lasso_prox_logposterior(
+        u,
+        data,
+        prior;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+        prox_l1_lambda = prox_l1_lambda,
+        alpha_prior_shape = alpha_prior_shape,
+        alpha_prior_rate = alpha_prior_rate,
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    Turing.@addlogprob! lp - sum(logpdf.(Normal(0, 1), beta)) - logpdf(Normal(0, 1), eta)
+    return beta
+end
+
+Turing.@model function _ssl_prox_turing_block_model(
+    data::CoxPreparedData,
+    prior::SpikeSlabLassoPrior,
+    gamma::AbstractVector{Bool},
+    theta::Float64,
+    constraint::Symbol,
+    soft_center_scale::Float64,
+    prox_sum0_lambda::Float64,
+    prox_l1_lambda::Float64,
+    alpha_prior_shape::Float64,
+    alpha_prior_rate::Float64,
+    prox_root_tol::Float64,
+    prox_root_maxiter::Int,
+)
+    p = size(data.z, 2)
+    beta ~ Turing.filldist(Normal(0, 1), p)
+    eta ~ Normal(0, 1)
+    u = vcat(beta, [eta])
+    lp = _ssl_prox_logposterior(
+        u,
+        data,
+        prior,
+        gamma,
+        theta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+        prox_l1_lambda = prox_l1_lambda,
+        alpha_prior_shape = alpha_prior_shape,
+        alpha_prior_rate = alpha_prior_rate,
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    Turing.@addlogprob! lp - sum(logpdf.(Normal(0, 1), beta)) - logpdf(Normal(0, 1), eta)
+    return beta
+end
+
 function _combine_callbacks(timing_callback, user_callback)
     user_callback === nothing && return timing_callback
     return (args...; kwargs...) -> begin
@@ -106,6 +176,12 @@ function _sample_nuts(
     car_precision::Real = 1.0,
     progress::Bool = true,
     callback = nothing,
+    prox_l1_lambda::Real = 1e-3,
+    alpha_prior_shape = nothing,
+    alpha_prior_rate = nothing,
+    prox_root_tol::Real = 1e-10,
+    prox_root_maxiter::Integer = 100,
+    thin::Integer = 1,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -116,6 +192,47 @@ function _sample_nuts(
     resolved_constraint = _resolve_constraint(constraint, soft_center)
     scale = soft_center_scale === nothing ? _default_soft_center_scale(p) : Float64(soft_center_scale)
     resolved_car_weights = use_car ? _prepare_car_weights(car_weights, p) : nothing
+    if resolved_constraint == :prox && prior isa BayesianLassoPrior
+        return _sample_lasso_prox_nuts(
+            data,
+            prior;
+            n_samples = n_samples,
+            warmup = warmup,
+            chains = chains,
+            target_accept = target_accept,
+            rng = rng,
+            constraint = resolved_constraint,
+            soft_center_scale = scale,
+            prox_sum0_lambda = prox_sum0_lambda,
+            prox_l1_lambda = prox_l1_lambda,
+            alpha_prior_shape = alpha_prior_shape,
+            alpha_prior_rate = alpha_prior_rate,
+            prox_root_tol = prox_root_tol,
+            prox_root_maxiter = prox_root_maxiter,
+            progress = progress,
+            callback = callback,
+        )
+    elseif resolved_constraint == :prox && prior isa SpikeSlabLassoPrior
+        return _sample_ssl_prox_nuts_gibbs(
+            data,
+            prior;
+            n_samples = n_samples,
+            warmup = warmup,
+            thin = thin,
+            chains = chains,
+            target_accept = target_accept,
+            rng = rng,
+            constraint = resolved_constraint,
+            soft_center_scale = scale,
+            prox_sum0_lambda = prox_sum0_lambda,
+            prox_l1_lambda = prox_l1_lambda,
+            alpha_prior_shape = alpha_prior_shape,
+            alpha_prior_rate = alpha_prior_rate,
+            prox_root_tol = prox_root_tol,
+            prox_root_maxiter = prox_root_maxiter,
+            progress = progress,
+        )
+    end
     model = _bayes_cox_turing_model(
         data,
         prior,
@@ -172,4 +289,266 @@ function _sample_nuts(
         gc_percent,
     )
     return (samples = timed.value, diagnostics = diagnostics)
+end
+
+function _prox_alpha_hyperparameters(prior::AbstractCoxPrior, alpha_prior_shape, alpha_prior_rate)
+    shape = Float64(something(alpha_prior_shape, prior isa BayesianLassoPrior ? prior.lambda2_shape : 1.0))
+    rate = Float64(something(alpha_prior_rate, prior isa BayesianLassoPrior ? prior.lambda2_rate : 1.0))
+    _check_positive(shape, "alpha_prior_shape")
+    _check_positive(rate, "alpha_prior_rate")
+    return shape, rate
+end
+
+function _chains_value_array(chains)
+    return Array(getfield(chains, :value))
+end
+
+function _chains_param_names(chains)
+    return string.(names(chains))
+end
+
+function _prox_continuous_draws(chains, p::Integer)
+    arr = _chains_value_array(chains)
+    param_names = _chains_param_names(chains)
+    beta_idx = [findfirst(==(string("beta[$j]")), param_names) for j in 1:p]
+    any(isnothing, beta_idx) && throw(ArgumentError("NUTS output does not contain all beta parameters."))
+    eta_idx = findfirst(==("eta"), param_names)
+    eta_idx === nothing && throw(ArgumentError("NUTS output does not contain eta."))
+    n_iter = size(arr, 1)
+    n_chain = size(arr, 3)
+    draws = Vector{Matrix{Float64}}(undef, n_chain)
+    for c in 1:n_chain
+        mat = Matrix{Float64}(undef, n_iter, p + 1)
+        for j in 1:p
+            mat[:, j] .= arr[:, beta_idx[j], c]
+        end
+        mat[:, p + 1] .= arr[:, eta_idx, c]
+        draws[c] = mat
+    end
+    return draws
+end
+
+function _sample_lasso_prox_nuts(
+    data::CoxPreparedData,
+    prior::BayesianLassoPrior;
+    n_samples::Integer,
+    warmup::Integer,
+    chains::Integer,
+    target_accept::Real,
+    rng::AbstractRNG,
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape,
+    alpha_prior_rate,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+    progress::Bool,
+    callback = nothing,
+)
+    p = size(data.z, 2)
+    a_shape, a_rate = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
+    model = _lasso_prox_turing_model(
+        data,
+        prior,
+        constraint,
+        Float64(soft_center_scale),
+        Float64(prox_sum0_lambda),
+        Float64(prox_l1_lambda),
+        a_shape,
+        a_rate,
+        Float64(prox_root_tol),
+        Int(prox_root_maxiter),
+    )
+    sampler = Turing.NUTS(warmup, Float64(target_accept))
+    timed = @timed if chains == 1
+        Turing.sample(rng, model, sampler, n_samples; progress = progress, callback = callback)
+    else
+        Turing.sample(rng, model, sampler, Turing.MCMCThreads(), n_samples, chains; progress = progress, callback = callback)
+    end
+    chain_draws = _prox_continuous_draws(timed.value, p)
+    names = vcat(["beta[$j]" for j in 1:p], ["eta"])
+    samples = Vector{MHSamples}(undef, length(chain_draws))
+    for c in eachindex(chain_draws)
+        draws = chain_draws[c]
+        lps = [_lasso_prox_logposterior(
+            view(draws, i, :),
+            data,
+            prior;
+            constraint = constraint,
+            soft_center_scale = soft_center_scale,
+            prox_sum0_lambda = prox_sum0_lambda,
+            prox_l1_lambda = prox_l1_lambda,
+            alpha_prior_shape = a_shape,
+            alpha_prior_rate = a_rate,
+            prox_root_tol = prox_root_tol,
+            prox_root_maxiter = prox_root_maxiter,
+        ) for i in axes(draws, 1)]
+        samples[c] = MHSamples(draws, lps, names, NaN, NaN, fill(NaN, p + 1))
+    end
+    gc_percent = timed.time > 0 ? 100 * timed.gctime / timed.time : NaN
+    diagnostics = SamplingDiagnostics(missing, missing, timed.time, Int64(timed.bytes), timed.gctime, gc_percent)
+    return (samples = chains == 1 ? samples[1] : MultiMHSamples(samples), diagnostics = diagnostics)
+end
+
+function _sample_ssl_prox_nuts_gibbs(
+    data::CoxPreparedData,
+    prior::SpikeSlabLassoPrior;
+    n_samples::Integer,
+    warmup::Integer,
+    thin::Integer,
+    chains::Integer,
+    target_accept::Real,
+    rng::AbstractRNG,
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape,
+    alpha_prior_rate,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+    progress::Bool,
+)
+    timed = @timed begin
+        if chains == 1
+            _sample_ssl_prox_nuts_gibbs_one(
+                data,
+                prior;
+                n_samples = n_samples,
+                warmup = warmup,
+                thin = thin,
+                rng = rng,
+                target_accept = target_accept,
+                constraint = constraint,
+                soft_center_scale = soft_center_scale,
+                prox_sum0_lambda = prox_sum0_lambda,
+                prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = alpha_prior_shape,
+                alpha_prior_rate = alpha_prior_rate,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
+                progress = progress,
+            )
+        else
+            samples = Vector{MHSamples}(undef, chains)
+            rngs = [MersenneTwister(rand(rng, UInt64)) for _ in 1:chains]
+            Threads.@threads for c in 1:chains
+                samples[c] = _sample_ssl_prox_nuts_gibbs_one(
+                    data,
+                    prior;
+                    n_samples = n_samples,
+                    warmup = warmup,
+                    thin = thin,
+                    rng = rngs[c],
+                    target_accept = target_accept,
+                    constraint = constraint,
+                    soft_center_scale = soft_center_scale,
+                    prox_sum0_lambda = prox_sum0_lambda,
+                    prox_l1_lambda = prox_l1_lambda,
+                    alpha_prior_shape = alpha_prior_shape,
+                    alpha_prior_rate = alpha_prior_rate,
+                    prox_root_tol = prox_root_tol,
+                    prox_root_maxiter = prox_root_maxiter,
+                    progress = false,
+                )
+            end
+            MultiMHSamples(samples)
+        end
+    end
+    gc_percent = timed.time > 0 ? 100 * timed.gctime / timed.time : NaN
+    diagnostics = SamplingDiagnostics(missing, missing, timed.time, Int64(timed.bytes), timed.gctime, gc_percent)
+    return (samples = timed.value, diagnostics = diagnostics)
+end
+
+function _sample_ssl_prox_nuts_gibbs_one(
+    data::CoxPreparedData,
+    prior::SpikeSlabLassoPrior;
+    n_samples::Integer,
+    warmup::Integer,
+    thin::Integer,
+    rng::AbstractRNG,
+    target_accept::Real,
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape,
+    alpha_prior_rate,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+    progress::Bool,
+)
+    p = size(data.z, 2)
+    a_shape, a_rate = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
+    gamma = trues(p)
+    theta = 0.5
+    total_iter = warmup + n_samples * thin
+    names = vcat(["beta[$j]" for j in 1:p], ["eta"], ["gamma[$j]" for j in 1:p], ["theta"])
+    draws = Matrix{Float64}(undef, n_samples, length(names))
+    lps = Vector{Float64}(undef, n_samples)
+    saved = 0
+    prog = progress ? Progress(total_iter; desc = "SSLASSO prox NUTS-Gibbs", showspeed = true, dt = 0.0) : nothing
+    u = vcat(zeros(Float64, p), [0.0])
+    for iter in 1:total_iter
+        model = _ssl_prox_turing_block_model(
+            data,
+            prior,
+            gamma,
+            theta,
+            constraint,
+            Float64(soft_center_scale),
+            Float64(prox_sum0_lambda),
+            Float64(prox_l1_lambda),
+            a_shape,
+            a_rate,
+            Float64(prox_root_tol),
+            Int(prox_root_maxiter),
+        )
+        chain = Turing.sample(rng, model, Turing.NUTS(0, Float64(target_accept)), 1; progress = false)
+        block_draw = _prox_continuous_draws(chain, p)[1]
+        u = vec(block_draw[1, :])
+        beta = view(u, 1:p)
+        alpha = exp(clamp(u[p + 1], -700.0, 700.0))
+        theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
+        for j in 1:p
+            gamma[j] = false
+            h0 = weighted_l1_moreau(beta, alpha, _ssl_weights(prior, gamma), prox_l1_lambda;
+                prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
+            gamma[j] = true
+            h1 = weighted_l1_moreau(beta, alpha, _ssl_weights(prior, gamma), prox_l1_lambda;
+                prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
+            logit_p = log(theta_clamped) - log1p(-theta_clamped) - (h1 - h0)
+            gamma[j] = rand(rng) < _logistic(logit_p)
+        end
+        theta = rand(rng, Beta(prior.theta_a + count(gamma), prior.theta_b + p - count(gamma)))
+
+        if iter > warmup && (iter - warmup) % thin == 0
+            saved += 1
+            @views draws[saved, 1:p] .= beta
+            draws[saved, p + 1] = u[p + 1]
+            @views draws[saved, (p + 2):(2p + 1)] .= Float64.(gamma)
+            draws[saved, 2p + 2] = theta
+            lps[saved] = _ssl_prox_logposterior(
+                u,
+                data,
+                prior,
+                gamma,
+                theta;
+                constraint = constraint,
+                soft_center_scale = soft_center_scale,
+                prox_sum0_lambda = prox_sum0_lambda,
+                prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = a_shape,
+                alpha_prior_rate = a_rate,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
+            )
+        end
+        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
+        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+    end
+    prog !== nothing && finish!(prog)
+    return MHSamples(draws, lps, names, NaN, NaN, fill(NaN, length(names)))
 end

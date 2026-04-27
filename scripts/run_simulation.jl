@@ -37,6 +37,7 @@ function main()
     n_samples = arg(args, "samples", 500)
     warmup = arg(args, "warmup", 200)
     chains = arg(args, "chains", 4)
+    multichains = arg(args, "multichains", false)
     target_accept = arg(args, "target-accept", 0.8)
     seed0 = arg(args, "seed", 1)
     use_car = arg(args, "use-car", true)
@@ -76,6 +77,7 @@ function main()
                 n_samples = n_samples,
                 warmup = warmup,
                 chains = chains,
+                multichains = multichains,
                 target_accept = target_accept,
                 seed = sim_seed,
                 use_car = use_car && occursin("hs", lowercase(prior)),
@@ -120,6 +122,7 @@ function main()
                     "n_samples" => n_samples,
                     "warmup" => warmup,
                     "chains" => chains,
+                    "multichains" => multichains,
                     "target_accept" => target_accept,
                     "seed" => sim_seed,
                     "thin" => 1,

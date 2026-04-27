@@ -279,7 +279,7 @@ end
 
 function _soft_threshold(x::Real, threshold::Real)
     ax = abs(x)
-    return ax <= threshold ? zero(Float64) : copysign(ax - threshold, x)
+    return ax <= threshold ? zero(x) : sign(x) * (ax - threshold)
 end
 
 function _l1_projection_root(
@@ -327,13 +327,13 @@ function project_l1_epigraph(
 )
     nu = _l1_projection_root(
         beta,
-        Float64(alpha);
+        alpha;
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
-    nu == 0.0 && sum(abs, beta) <= alpha && return (beta = collect(Float64, beta), alpha = Float64(alpha), nu = 0.0)
-    prox_beta = [_soft_threshold(Float64(b), nu) for b in beta]
-    return (beta = prox_beta, alpha = Float64(alpha) + nu, nu = nu)
+    nu == 0.0 && sum(abs, beta) <= alpha && return (beta = collect(beta), alpha = alpha, nu = 0.0)
+    prox_beta = [_soft_threshold(b, nu) for b in beta]
+    return (beta = prox_beta, alpha = alpha + nu, nu = nu)
 end
 
 function project_weighted_l1_epigraph(
@@ -345,16 +345,16 @@ function project_weighted_l1_epigraph(
 )
     nu = _l1_projection_root(
         beta,
-        Float64(alpha);
+        alpha;
         weights = weights,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
     if nu == 0.0 && sum(weights[j] * abs(beta[j]) for j in eachindex(beta)) <= alpha
-        return (beta = collect(Float64, beta), alpha = Float64(alpha), nu = 0.0)
+        return (beta = collect(beta), alpha = alpha, nu = 0.0)
     end
-    prox_beta = [_soft_threshold(Float64(beta[j]), nu * Float64(weights[j])) for j in eachindex(beta)]
-    return (beta = prox_beta, alpha = Float64(alpha) + nu, nu = nu)
+    prox_beta = [_soft_threshold(beta[j], nu * weights[j]) for j in eachindex(beta)]
+    return (beta = prox_beta, alpha = alpha + nu, nu = nu)
 end
 
 function l1_moreau(
@@ -366,7 +366,7 @@ function l1_moreau(
 )
     lambda = _check_positive(lambda_l1, "lambda_l1")
     prox = project_l1_epigraph(beta, alpha; prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
-    dist2 = sum((Float64(beta[j]) - prox.beta[j])^2 for j in eachindex(beta)) + (Float64(alpha) - prox.alpha)^2
+    dist2 = sum((beta[j] - prox.beta[j])^2 for j in eachindex(beta)) + (alpha - prox.alpha)^2
     return 0.5 * dist2 / lambda
 end
 
@@ -386,6 +386,6 @@ function weighted_l1_moreau(
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
-    dist2 = sum((Float64(beta[j]) - prox.beta[j])^2 for j in eachindex(beta)) + (Float64(alpha) - prox.alpha)^2
+    dist2 = sum((beta[j] - prox.beta[j])^2 for j in eachindex(beta)) + (alpha - prox.alpha)^2
     return 0.5 * dist2 / lambda
 end

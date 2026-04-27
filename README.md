@@ -184,8 +184,8 @@ The repository implements the following priors through concrete subtypes of
 | `cox-rhs` | `cox_paper_prior("cox-rhs"; ...)` | Regularized horseshoe with Cox-specific `tau0` and the regularized slab. |
 | `lasso` | `cox_paper_prior("lasso")` | Bayesian LASSO. If `lambda` is not fixed, `lambda2 ~ Gamma(lambda2_shape, 1 / lambda2_rate)` with defaults `lambda2_shape = 1`, `lambda2_rate = 0.1`; local variances use the normal-exponential mixture representation. |
 | `sslasso` | `cox_paper_prior("sslasso"; realdata = false/true)` | Spike-and-slab LASSO. The marginal API uses a mixture of Laplace components with `theta ~ Beta(theta_a, theta_b)`. Simulation defaults are `spike_scale = 0.04`, `slab_scale = 0.5`; real-data script defaults are `spike_scale = 1`, `slab_scale = 10`. |
-| `prox-lasso` | `sample_bayes_cox(...; prior = BayesianLassoPrior(), sampler = :mala, constraint = :prox)` | Proximal MALA implementation for the Bayesian LASSO using an L1 epigraph variable and Moreau smoothing. This is an API mode, not a `cox_paper_prior` string. |
-| `prox-sslasso` | `sample_bayes_cox(...; prior = SpikeSlabLassoPrior(), sampler = :mala, constraint = :prox)` | Conditional proximal SSLASSO implementation. Discrete `gamma` indicators are updated by Gibbs steps, while continuous `beta` and the L1 epigraph variable are updated by MALA with weighted L1 Moreau smoothing. This is an API mode, not a `cox_paper_prior` string. |
+| `prox-lasso` | `cox_paper_prior("prox-lasso")` plus `constraint = :prox` | Proximal LASSO implementation using an L1 epigraph variable and Moreau smoothing. Supported by `mala`, `ula`, and the prox-specialized `nuts` path. |
+| `prox-sslasso` | `cox_paper_prior("prox-sslasso")` plus `constraint = :prox` | Conditional proximal SSLASSO implementation. Discrete `gamma` indicators are updated by Gibbs steps, while continuous `beta` and the L1 epigraph variable are updated by MALA, ULA, or NUTS block updates with weighted L1 Moreau smoothing. |
 
 For HS/RHS-style priors, `p0` controls the expected number of nonzero
 coefficients in the tau0 formulas. If `p0` is omitted, `cox_paper_prior`
@@ -220,10 +220,14 @@ In both analysis scripts, CAR is only passed to prior names containing `hs`.
 Supported sampler symbols are:
 
 - `:nuts`: Turing NUTS. Supports multiple threaded chains through
-  `Turing.MCMCThreads()` when `chains > 1`.
+  `Turing.MCMCThreads()` when `chains > 1`. With `constraint = :prox`, NUTS
+  also supports proximal LASSO through the smoothed density and proximal
+  SSLASSO through a NUTS-within-Gibbs block sampler.
 - `:mh`: adaptive random-walk Metropolis fallback.
 - `:mala`: MALA for continuous states, including proximal LASSO and proximal
   SSLASSO modes when `constraint = :prox`.
+- `:ula`: unadjusted Langevin updates with fixed `--mala-step-size`; for
+  hybrid priors, non-beta hyperparameters still use fixed random-walk MH steps.
 - `:gibbs`: SSLASSO-only Gibbs / Metropolis-within-Gibbs sampler. It currently
   requires `SpikeSlabLassoPrior`, supports `chains = 1`, and does not support
   CAR weights.
@@ -301,10 +305,11 @@ julia --project=. scripts\run_simulation.jl --sampler mala --constraint prox --p
 | `--nonzero` | `6` | Number of true nonzero coefficients. Supported values are `6` and `12`; comma-separated grids are supported. |
 | `--baseline` | `weibull` | Baseline event-time model. Supported values are `weibull`, `exponential`, and `gompertz`; comma-separated grids are supported. |
 | `--priors` | `hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso` | Comma-separated prior names to fit. |
-| `--sampler` | `nuts` | Sampler backend. Supported values are `nuts`, `mh`, `mala`, and `gibbs`. `gibbs` is only implemented for SSLASSO. |
+| `--sampler` | `nuts` | Sampler backend. Supported values are `nuts`, `mh`, `mala`, `ula`, and `gibbs`. `gibbs` is only implemented for SSLASSO. |
 | `--samples` | `500` | Number of saved posterior samples per fit. |
 | `--warmup` | `200` | Number of warmup/adaptation iterations. |
-| `--chains` | `4` | Number of chains. NUTS uses Turing's multi-chain sampler; `mh`, `mala`, and `gibbs` run independent chains and combine them for diagnostics. |
+| `--chains` | `4` | Number of chains. NUTS uses Turing's multi-chain sampler; `mh`, `mala`, `ula`, and `gibbs` run independent chains and combine them for diagnostics. |
+| `--multichains` | `false` | Run non-NUTS independent chains in parallel with Julia threads. Start Julia with multiple threads for this to help. |
 | `--target-accept` | `0.8` | Target acceptance probability passed to NUTS or adaptive non-NUTS samplers. |
 | `--seed` | `1` | Base random seed. Repetition `rep` uses `seed + rep - 1`. |
 | `--use-car` | `true` | Whether to use CAR smoothing for HS/RHS-style prior names. Boolean parsing treats `true`, `1`, `yes`, and `y` as true; any other value is false. |
@@ -315,9 +320,9 @@ julia --project=. scripts\run_simulation.jl --sampler mala --constraint prox --p
 | `--constraint` | `soft_center` | Zero-sum coefficient constraint passed to `sample_bayes_cox`. Supported values are `soft_center`, `prox`, and `none`. |
 | `--soft-center-scale` | automatic | Optional scale for `constraint = :soft_center`. If omitted, the package uses `0.001 * p`. |
 | `--prox-sum0-lambda` | `1e-3` | Moreau-Yosida smoothing parameter for the zero-sum constraint when `--constraint prox`. |
-| `--prox-l1-lambda` | `1e-3` | L1 epigraph Moreau smoothing parameter for MALA proximal LASSO / proximal SSLASSO. Used only by `--sampler mala` with LASSO or SSLASSO and `--constraint prox`. |
-| `--prox-root-tol` | `1e-10` | Root-finding tolerance for L1 epigraph projections used by proximal MALA. |
-| `--prox-root-maxiter` | `100` | Maximum root-finding iterations for L1 epigraph projections used by proximal MALA. |
+| `--prox-l1-lambda` | `1e-3` | L1 epigraph Moreau smoothing parameter for proximal LASSO / proximal SSLASSO. Used by `mala`, `ula`, and prox-specialized `nuts` paths with LASSO or SSLASSO and `--constraint prox`. |
+| `--prox-root-tol` | `1e-10` | Root-finding tolerance for L1 epigraph projections used by proximal samplers. |
+| `--prox-root-maxiter` | `100` | Maximum root-finding iterations for L1 epigraph projections used by proximal samplers. |
 | `--mala-step-size` | `1e-4` | Initial MALA step size. |
 | `--mala-target-accept` | `0.574` | Target acceptance rate for MALA step-size adaptation. This is separate from `--target-accept`. |
 | `--mala-adapt-every` | `50` | Number of warmup iterations between MALA step-size adaptation updates. |
@@ -378,10 +383,11 @@ julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler ma
 | `--status-col` | `status` | Column name containing the event indicator. Values must be `0/1`. |
 | `--exclude-cols` | `Sex,Antibiotics` | Comma-separated non-taxa columns to exclude from the abundance matrix, in addition to the time and status columns. |
 | `--priors` | `hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso` | Comma-separated prior names to fit. |
-| `--sampler` | `nuts` | Sampler backend. Supported values are `nuts`, `mh`, `mala`, and `gibbs`. `gibbs` is only implemented for SSLASSO. |
+| `--sampler` | `nuts` | Sampler backend. Supported values are `nuts`, `mh`, `mala`, `ula`, and `gibbs`. `gibbs` is only implemented for SSLASSO. |
 | `--samples` | `500` | Number of saved posterior samples per fit. |
 | `--warmup` | `200` | Number of warmup/adaptation iterations. |
-| `--chains` | `4` | Number of chains. NUTS uses Turing's multi-chain sampler; `mh`, `mala`, and `gibbs` run independent chains and combine them for diagnostics. |
+| `--chains` | `4` | Number of chains. NUTS uses Turing's multi-chain sampler; `mh`, `mala`, `ula`, and `gibbs` run independent chains and combine them for diagnostics. |
+| `--multichains` | `false` | Run non-NUTS independent chains in parallel with Julia threads. Start Julia with multiple threads for this to help. |
 | `--target-accept` | `0.8` | Target acceptance probability passed to NUTS or adaptive non-NUTS samplers. |
 | `--seed` | `1` | Random seed. |
 | `--use-car` | `true` | Whether to use CAR smoothing for HS/RHS-style prior names. Boolean parsing treats `true`, `1`, `yes`, and `y` as true; any other value is false. |
@@ -392,9 +398,9 @@ julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler ma
 | `--constraint` | `soft_center` | Zero-sum coefficient constraint passed to `sample_bayes_cox`. Supported values are `soft_center`, `prox`, and `none`. |
 | `--soft-center-scale` | automatic | Optional scale for `constraint = :soft_center`. If omitted, the package uses `0.001 * p`. |
 | `--prox-sum0-lambda` | `1e-3` | Moreau-Yosida smoothing parameter for the zero-sum constraint when `--constraint prox`. |
-| `--prox-l1-lambda` | `1e-3` | L1 epigraph Moreau smoothing parameter for MALA proximal LASSO / proximal SSLASSO. Used only by `--sampler mala` with LASSO or SSLASSO and `--constraint prox`. |
-| `--prox-root-tol` | `1e-10` | Root-finding tolerance for L1 epigraph projections used by proximal MALA. |
-| `--prox-root-maxiter` | `100` | Maximum root-finding iterations for L1 epigraph projections used by proximal MALA. |
+| `--prox-l1-lambda` | `1e-3` | L1 epigraph Moreau smoothing parameter for proximal LASSO / proximal SSLASSO. Used by `mala`, `ula`, and prox-specialized `nuts` paths with LASSO or SSLASSO and `--constraint prox`. |
+| `--prox-root-tol` | `1e-10` | Root-finding tolerance for L1 epigraph projections used by proximal samplers. |
+| `--prox-root-maxiter` | `100` | Maximum root-finding iterations for L1 epigraph projections used by proximal samplers. |
 | `--mala-step-size` | `1e-4` | Initial MALA step size. |
 | `--mala-target-accept` | `0.574` | Target acceptance rate for MALA step-size adaptation. This is separate from `--target-accept`. |
 | `--mala-adapt-every` | `50` | Number of warmup iterations between MALA step-size adaptation updates. |

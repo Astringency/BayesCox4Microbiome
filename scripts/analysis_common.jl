@@ -369,6 +369,7 @@ function fit_and_evaluate(
     n_samples::Integer = 1000,
     warmup::Integer = 500,
     chains::Integer = 4,
+    multichains::Bool = false,
     target_accept::Real = 0.8,
     seed::Integer = 1,
     use_car::Bool = false,
@@ -408,10 +409,13 @@ function fit_and_evaluate(
                 constraint = constraint,
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
+                prox_l1_lambda = prox_l1_lambda,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
                 progress = progress,
             )
-        elseif sampler == :mh || sampler == :mala
-            if sampler == :mala
+        elseif sampler == :mh || sampler == :mala || sampler == :ula
+            if sampler == :mala || sampler == :ula
                 sample_bayes_cox(
                     X,
                     time,
@@ -421,6 +425,7 @@ function fit_and_evaluate(
                     n_samples = n_samples,
                     warmup = warmup,
                     chains = chains,
+                    multichains = multichains,
                     target_accept = target_accept,
                     seed = seed,
                     use_car = use_car,
@@ -448,6 +453,7 @@ function fit_and_evaluate(
                     n_samples = n_samples,
                     warmup = warmup,
                     chains = chains,
+                    multichains = multichains,
                     target_accept = target_accept,
                     seed = seed,
                     use_car = use_car,
@@ -468,6 +474,7 @@ function fit_and_evaluate(
                 n_samples = n_samples,
                 warmup = warmup,
                 chains = chains,
+                multichains = multichains,
                 target_accept = target_accept,
                 seed = seed,
                 use_car = use_car,
@@ -478,7 +485,7 @@ function fit_and_evaluate(
                 progress = progress,
             )
         else
-            throw(ArgumentError("sampler must be :nuts, :mh, :mala, or :gibbs."))
+            throw(ArgumentError("sampler must be :nuts, :mh, :mala, :ula, or :gibbs."))
     end
     draws = posterior_beta_draws(result)
     layout = posterior_draw_layout(result, size(draws, 1))

@@ -324,7 +324,7 @@ function save_run_outputs(
             ),
             "posterior_summary" => summary_df,
         )
-        _call_latest(getproperty(JLD2, :jldsave), joinpath(output_dir, "result_bundle.jld2"); result_bundle = bundle)
+        _call_latest(getproperty(JLD2, :jldsave), joinpath(output_dir, "result_bundle.jld2"), IOStream; result_bundle = bundle)
     end
 
     return (
