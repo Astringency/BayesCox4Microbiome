@@ -44,6 +44,7 @@ function main()
     exclude_cols = split_strings(arg(args, "exclude-cols", "Sex,Antibiotics"))
     priors = split_strings(arg(args, "priors", "hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso"))
     sampler = Symbol(arg(args, "sampler", "nuts"))
+    nuts_backend = Symbol(arg(args, "nuts-backend", "turing"))
     n_samples = arg(args, "samples", 500)
     warmup = arg(args, "warmup", 200)
     chains = arg(args, "chains", 4)
@@ -92,6 +93,7 @@ function main()
             event;
             prior_name = prior,
             sampler = sampler,
+            nuts_backend = nuts_backend,
             n_samples = n_samples,
             warmup = warmup,
             chains = chains,
@@ -130,6 +132,7 @@ function main()
                 "method_name" => prior,
                 "prior_name" => prior,
                 "sampler" => string(sampler),
+                "nuts_backend" => string(nuts_backend),
                 "p0" => fit.p0,
                 "input" => input,
             ),

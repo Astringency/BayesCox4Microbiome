@@ -273,6 +273,7 @@ function sample_bayes_cox(
     event::AbstractVector;
     prior::AbstractCoxPrior = RegularizedHorseshoePrior(),
     sampler::Symbol = :nuts,
+    nuts_backend::Symbol = :turing,
     transform::Symbol = :log,
     pseudocount::Real = 1e-6,
     closure::Bool = true,
@@ -310,6 +311,7 @@ function sample_bayes_cox(
         data;
         prior = prior,
         sampler = sampler,
+        nuts_backend = nuts_backend,
         use_car = use_car,
         car_weights = resolved_car_weights,
         kwargs...,
@@ -320,6 +322,7 @@ function sample_bayes_cox(
     data::CoxPreparedData;
     prior::AbstractCoxPrior = RegularizedHorseshoePrior(),
     sampler::Symbol = :nuts,
+    nuts_backend::Symbol = :turing,
     seed = nothing,
     chains = nothing,
     multichains::Bool = false,
@@ -349,18 +352,33 @@ function sample_bayes_cox(
             ))
         end
     rng = seed === nothing ? Random.default_rng() : MersenneTwister(seed)
-    chain_count = chains === nothing ? (sampler == :nuts ? nothing : 1) : Int(chains)
+    effective_sampler = sampler == :nuts_explicit ? :nuts : sampler
+    effective_nuts_backend = sampler == :nuts_explicit ? :explicit : nuts_backend
+    effective_nuts_backend in (:turing, :explicit) ||
+        throw(ArgumentError("nuts_backend must be :turing or :explicit."))
+    chain_count = chains === nothing ? (effective_sampler == :nuts ? nothing : 1) : Int(chains)
     chain_count !== nothing && chain_count <= 0 && throw(ArgumentError("chains must be positive."))
-    if sampler == :nuts
+    if effective_sampler == :nuts
         sampled =
-            if chain_count === nothing
-                _sample_nuts(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
+            if effective_nuts_backend == :turing
+                if chain_count === nothing
+                    _sample_nuts(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
+                else
+                    _sample_nuts(data, prior; rng = rng, chains = chain_count, car_weights = resolved_car_weights, kwargs...)
+                end
             else
-                _sample_nuts(data, prior; rng = rng, chains = chain_count, car_weights = resolved_car_weights, kwargs...)
+                if use_car && resolved_car_weights !== nothing
+                    throw(ArgumentError("nuts_backend=:explicit does not currently support CAR weights; use nuts_backend=:turing."))
+                end
+                if chain_count === nothing
+                    _sample_nuts_explicit(data, prior; rng = rng, multichains = multichains, kwargs...)
+                else
+                    _sample_nuts_explicit(data, prior; rng = rng, chains = chain_count, multichains = multichains, kwargs...)
+                end
             end
         samples = sampled.samples
         diagnostics = sampled.diagnostics
-    elseif sampler == :mh
+    elseif effective_sampler == :mh
         timed = @timed _sample_mh_chains(
             data,
             prior,
@@ -382,7 +400,7 @@ function sample_bayes_cox(
             timed.gctime,
             gc_percent,
         )
-    elseif sampler == :mala
+    elseif effective_sampler == :mala
         timed = @timed _sample_mala_chains(
             data,
             prior,
@@ -404,7 +422,7 @@ function sample_bayes_cox(
             timed.gctime,
             gc_percent,
         )
-    elseif sampler == :ula
+    elseif effective_sampler == :ula
         timed = @timed _sample_ula_chains(
             data,
             prior,
@@ -426,7 +444,7 @@ function sample_bayes_cox(
             timed.gctime,
             gc_percent,
         )
-    elseif sampler == :gibbs
+    elseif effective_sampler == :gibbs
         prior isa SpikeSlabLassoPrior ||
             throw(ArgumentError("sampler=:gibbs is currently implemented only for SpikeSlabLassoPrior."))
         use_car && resolved_car_weights !== nothing &&
@@ -452,9 +470,9 @@ function sample_bayes_cox(
             gc_percent,
         )
     else
-        throw(ArgumentError("sampler must be :nuts, :mh, :mala, :ula, or :gibbs."))
+        throw(ArgumentError("sampler must be :nuts, :nuts_explicit, :mh, :mala, :ula, or :gibbs."))
     end
-    return CoxSamplerResult(samples, data, prior, sampler, diagnostics)
+    return CoxSamplerResult(samples, data, prior, effective_sampler, diagnostics)
 end
 
 sampler_diagnostics(result::CoxSamplerResult) = result.diagnostics

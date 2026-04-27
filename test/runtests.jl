@@ -3,6 +3,7 @@ using Random
 using BayesCox4Micro
 using CSV
 using DataFrames
+using ForwardDiff
 using JLD2
 using MCMCChains
 
@@ -44,17 +45,23 @@ end
     @test isfinite(weighted_l1_moreau(beta, 0.8, weights2, 1e-3))
 end
 
-@testset "Cox score gradient finite difference" begin
+@testset "Cox score gradient correctness" begin
     X = [0.2 0.3 0.5;
          0.1 0.6 0.3;
          0.4 0.2 0.4;
          0.3 0.3 0.4;
          0.5 0.2 0.3]
-    time = [1.0, 2.0, 3.0, 4.0, 5.0]
+    time = [1.0, 2.0, 3.0, 3.0, 5.0]
     event = [1, 0, 1, 1, 0]
     data = prepare_cox_data(X, time, event; transform = :none)
     beta = [0.2, -0.1, 0.05]
     grad = cox_score_gradient(data, beta)
+    work = CoxGradientWorkspace(data)
+    grad_prealloc = similar(grad)
+    cox_score_gradient!(grad_prealloc, data, beta, work)
+    grad_ad = ForwardDiff.gradient(b -> cox_logpartiallikelihood(data, b), beta)
+    @test grad ≈ grad_prealloc atol=1e-12 rtol=1e-12
+    @test grad ≈ grad_ad atol=1e-8 rtol=1e-8
     epsfd = 1e-6
     for j in eachindex(beta)
         e = zeros(length(beta))
@@ -150,6 +157,82 @@ end
         seed = 4,
     )
     @test size(posterior_beta_draws(mh)) == (3, 4)
+
+    ula = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = BayesianLassoPrior(),
+        sampler = :ula,
+        constraint = :prox,
+        n_samples = 2,
+        warmup = 2,
+        mala_step_size = 1e-6,
+        progress = false,
+        seed = 5,
+    )
+    @test size(posterior_beta_draws(ula)) == (2, 4)
+    @test length(posterior_logposterior_draws(ula)) == 2
+
+    ula_multi = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = BayesianLassoPrior(),
+        sampler = :ula,
+        constraint = :prox,
+        n_samples = 2,
+        warmup = 1,
+        chains = 2,
+        mala_step_size = 1e-6,
+        progress = false,
+        seed = 6,
+    )
+    @test ula_multi.samples isa MultiMHSamples
+    @test size(result_to_chains(ula_multi), 3) == 2
+    @test size(posterior_beta_draws(ula_multi)) == (4, 4)
+end
+
+@testset "NUTS backend smoke tests" begin
+    Random.seed!(120)
+    X = rand(10, 3) .+ 0.1
+    time = collect(1.0:10.0)
+    event = [1, 0, 1, 1, 0, 1, 0, 1, 1, 0]
+
+    nuts_turing = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = BayesianLassoPrior(),
+        sampler = :nuts,
+        nuts_backend = :turing,
+        constraint = :prox,
+        n_samples = 1,
+        warmup = 1,
+        chains = 1,
+        progress = false,
+        seed = 7,
+    )
+    @test size(posterior_beta_draws(nuts_turing)) == (1, 3)
+
+    nuts_explicit = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = BayesianLassoPrior(),
+        sampler = :nuts,
+        nuts_backend = :explicit,
+        constraint = :prox,
+        n_samples = 2,
+        warmup = 1,
+        chains = 2,
+        progress = false,
+        seed = 8,
+    )
+    @test nuts_explicit.samples isa MultiMHSamples
+    @test size(result_to_chains(nuts_explicit), 3) == 2
+    @test size(posterior_beta_draws(nuts_explicit)) == (4, 3)
+    @test length(posterior_logposterior_draws(nuts_explicit)) == 4
 end
 
 function toy_result(samples)

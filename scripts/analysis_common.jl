@@ -366,6 +366,7 @@ function fit_and_evaluate(
     event::AbstractVector;
     prior_name::AbstractString = "cox-rhs",
     sampler::Symbol = :nuts,
+    nuts_backend::Symbol = :turing,
     n_samples::Integer = 1000,
     warmup::Integer = 500,
     chains::Integer = 4,
@@ -392,16 +393,18 @@ function fit_and_evaluate(
 )
     prior = prior_from_name(prior_name, X, time, event; p0 = p0, p0_alpha = p0_alpha, realdata = realdata)
     result =
-        if sampler == :nuts
+        if sampler == :nuts || sampler == :nuts_explicit
             sample_bayes_cox(
                 X,
                 time,
                 event;
                 prior = prior,
                 sampler = sampler,
+                nuts_backend = nuts_backend,
                 n_samples = n_samples,
                 warmup = warmup,
                 chains = chains,
+                multichains = multichains,
                 target_accept = target_accept,
                 seed = seed,
                 use_car = use_car,
@@ -485,7 +488,7 @@ function fit_and_evaluate(
                 progress = progress,
             )
         else
-            throw(ArgumentError("sampler must be :nuts, :mh, :mala, :ula, or :gibbs."))
+            throw(ArgumentError("sampler must be :nuts, :nuts_explicit, :mh, :mala, :ula, or :gibbs."))
     end
     draws = posterior_beta_draws(result)
     layout = posterior_draw_layout(result, size(draws, 1))

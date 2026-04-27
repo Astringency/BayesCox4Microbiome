@@ -295,7 +295,7 @@ function _l1_projection_root(
     if weights === nothing
         l1 = sum(abs, beta)
         l1 <= alpha && return 0.0
-        hi = maximum(abs.(beta))
+        hi = maximum(abs, beta)
         f = nu -> sum(max(abs(b) - nu, 0.0) for b in beta) - nu - alpha
     else
         length(weights) == length(beta) || throw(DimensionMismatch("weights length must match beta."))
@@ -319,6 +319,31 @@ function _l1_projection_root(
     return 0.5 * (lo + hi)
 end
 
+function project_l1_epigraph!(
+    prox_beta::AbstractVector{Float64},
+    beta::AbstractVector,
+    alpha::Real;
+    prox_root_tol::Real = 1e-10,
+    prox_root_maxiter::Integer = 100,
+)
+    length(prox_beta) == length(beta) ||
+        throw(DimensionMismatch("prox_beta length must match beta."))
+    nu = _l1_projection_root(
+        beta,
+        alpha;
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    if nu == 0.0 && sum(abs, beta) <= alpha
+        copyto!(prox_beta, beta)
+        return (beta = prox_beta, alpha = Float64(alpha), nu = 0.0)
+    end
+    @inbounds for j in eachindex(beta)
+        prox_beta[j] = _soft_threshold(beta[j], nu)
+    end
+    return (beta = prox_beta, alpha = Float64(alpha) + nu, nu = nu)
+end
+
 function project_l1_epigraph(
     beta::AbstractVector,
     alpha::Real;
@@ -334,6 +359,33 @@ function project_l1_epigraph(
     nu == 0.0 && sum(abs, beta) <= alpha && return (beta = collect(beta), alpha = alpha, nu = 0.0)
     prox_beta = [_soft_threshold(b, nu) for b in beta]
     return (beta = prox_beta, alpha = alpha + nu, nu = nu)
+end
+
+function project_weighted_l1_epigraph!(
+    prox_beta::AbstractVector{Float64},
+    beta::AbstractVector,
+    alpha::Real,
+    weights::AbstractVector;
+    prox_root_tol::Real = 1e-10,
+    prox_root_maxiter::Integer = 100,
+)
+    length(prox_beta) == length(beta) ||
+        throw(DimensionMismatch("prox_beta length must match beta."))
+    nu = _l1_projection_root(
+        beta,
+        alpha;
+        weights = weights,
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    if nu == 0.0 && sum(weights[j] * abs(beta[j]) for j in eachindex(beta)) <= alpha
+        copyto!(prox_beta, beta)
+        return (beta = prox_beta, alpha = Float64(alpha), nu = 0.0)
+    end
+    @inbounds for j in eachindex(beta)
+        prox_beta[j] = _soft_threshold(beta[j], nu * weights[j])
+    end
+    return (beta = prox_beta, alpha = Float64(alpha) + nu, nu = nu)
 end
 
 function project_weighted_l1_epigraph(

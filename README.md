@@ -24,8 +24,9 @@ The package metadata is defined in `Project.toml`:
 - Package name: `BayesCox4Micro`
 - Package version: `0.1.0`
 - Julia compatibility: `1.11`
-- Main modeling dependencies: `Distances`, `Distributions`, `PosteriorStats`,
-  `ProgressMeter`, `Survival`, and `Turing`.
+- Main modeling dependencies: `AdvancedHMC`, `Distances`, `Distributions`,
+  `ForwardDiff`, `LogDensityProblems`, `LogDensityProblemsAD`,
+  `PosteriorStats`, `ProgressMeter`, `Survival`, and `Turing`.
 - Data, persistence, and diagnostics dependencies: `CSV`, `DataFrames`,
   `JLD2`, `JSON`, `MCMCChains`, `Plots`, and `StatsPlots`.
 
@@ -39,6 +40,8 @@ julia --project=. -e "using Pkg; Pkg.instantiate()"
 julia --project=. -e "using Pkg; Pkg.test()"
 julia --project=. scripts\run_simulation.jl --samples 50 --warmup 20 --reps 1
 julia --project=. scripts\analyze_real_data.jl --samples 50 --warmup 20
+julia --project=. scripts\bench_cox_gradient.jl 400 50
+julia --project=. scripts\bench_samplers.jl 400 50 25 25
 ```
 
 For threaded NUTS chains, start Julia with threads enabled:
@@ -70,25 +73,35 @@ BayesCox4Micro/
     spike_slab_lasso.jl
   mainfuncs/
     types.jl
-    prior_common.jl
-    data.jl
-    cox_likelihood.jl
-    horseshoe_methods.jl
-    regularized_horseshoe_methods.jl
-    bayesian_lasso_methods.jl
-    spike_slab_lasso_methods.jl
+    data/
+      data.jl
+    likelihood/
+      cox_likelihood.jl
+    priors/
+      prior_common.jl
+      horseshoe_methods.jl
+      regularized_horseshoe_methods.jl
+      bayesian_lasso_methods.jl
+      spike_slab_lasso_methods.jl
+    targets/
+      cox_targets.jl
+    samplers/
+      mh_sampler.jl
+      gibbs_sampler.jl
+      mala_sampler.jl
+      nuts_turing_sampler.jl
+      nuts_explicit_sampler.jl
+    diagnostics/
+      diagnostics.jl
     posterior.jl
-    mh_sampler.jl
-    gibbs_sampler.jl
-    mala_sampler.jl
-    turing_sampler.jl
     api.jl
-    diagnostics.jl
   scripts/
     analysis_common.jl
     run_simulation.jl
     analyze_real_data.jl
     run_diagnose.jl
+    bench_cox_gradient.jl
+    bench_samplers.jl
     run_simulation.{ps1,cmd,sh}
     analyze_real_data.{ps1,cmd,sh}
     run_diagnose.{ps1,cmd,sh}
@@ -109,23 +122,30 @@ Key roles:
 - `src/BayesCox4Micro.jl` loads `main.jl`, which defines the module and exports
   the public API.
 - `priors/` contains the prior type definitions.
-- `mainfuncs/prior_common.jl` contains shared prior utilities, CAR weight
+- `mainfuncs/priors/prior_common.jl` contains shared prior utilities, CAR weight
   construction, zero-sum constraint helpers, and proximal projection helpers.
-- `mainfuncs/data.jl` prepares Cox data, including zero handling, optional
+- `mainfuncs/data/data.jl` prepares Cox data, including zero handling, optional
   closure, log transform, optional standardization, and risk-set construction.
-- `mainfuncs/cox_likelihood.jl` implements the Cox partial likelihood, event
-  log-likelihood contributions, and score gradient.
-- `mainfuncs/*_methods.jl` implements prior-specific validation, initial states,
-  state names, and log posterior contributions.
-- `mainfuncs/turing_sampler.jl` implements the Turing/NUTS backend.
-- `mainfuncs/mh_sampler.jl` implements adaptive random-walk Metropolis.
-- `mainfuncs/mala_sampler.jl` implements MALA and proximal MALA variants.
-- `mainfuncs/gibbs_sampler.jl` implements the SSLASSO Gibbs /
+- `mainfuncs/likelihood/cox_likelihood.jl` implements the Cox partial
+  likelihood, event log-likelihood contributions, and the fast explicit Cox
+  score gradient.
+- `mainfuncs/priors/*_methods.jl` implements prior-specific validation,
+  initial states, state names, and log posterior contributions.
+- `mainfuncs/targets/cox_targets.jl` implements explicit log density and
+  gradient targets for proximal Cox samplers.
+- `mainfuncs/samplers/nuts_turing_sampler.jl` implements the existing
+  Turing/NUTS backend.
+- `mainfuncs/samplers/nuts_explicit_sampler.jl` implements the AdvancedHMC
+  explicit-gradient NUTS backend for proximal LASSO.
+- `mainfuncs/samplers/mh_sampler.jl` implements adaptive random-walk Metropolis.
+- `mainfuncs/samplers/mala_sampler.jl` implements MALA, ULA, and proximal
+  variants with reusable workspaces.
+- `mainfuncs/samplers/gibbs_sampler.jl` implements the SSLASSO Gibbs /
   Metropolis-within-Gibbs sampler.
 - `mainfuncs/posterior.jl` and `mainfuncs/api.jl` provide posterior extraction,
   summaries, MAP extraction, diagnostics, C-index, `cox_paper_prior`, and the
   top-level `sample_bayes_cox` API.
-- `mainfuncs/diagnostics.jl` converts sampler outputs to
+- `mainfuncs/diagnostics/diagnostics.jl` converts sampler outputs to
   `MCMCChains.Chains`, writes raw samples and metadata, and generates
   diagnostics by calling `MCMCChains`, `StatsPlots`, and `Plots`.
 - `scripts/analysis_common.jl` contains shared CLI parsing, simulation data
@@ -219,10 +239,14 @@ In both analysis scripts, CAR is only passed to prior names containing `hs`.
 
 Supported sampler symbols are:
 
-- `:nuts`: Turing NUTS. Supports multiple threaded chains through
-  `Turing.MCMCThreads()` when `chains > 1`. With `constraint = :prox`, NUTS
-  also supports proximal LASSO through the smoothed density and proximal
-  SSLASSO through a NUTS-within-Gibbs block sampler.
+- `:nuts`: NUTS with selectable backend. The default
+  `nuts_backend = :turing` preserves the existing Turing.jl behavior. Use
+  `nuts_backend = :explicit` for the AdvancedHMC explicit-gradient backend.
+  The explicit backend currently supports proximal Bayesian LASSO
+  (`prior = BayesianLassoPrior(), constraint = :prox`) and returns the same
+  `MHSamples` / `MultiMHSamples` shape used by the built-in samplers.
+- `:nuts_explicit`: convenience alias for `sampler = :nuts,
+  nuts_backend = :explicit`.
 - `:mh`: adaptive random-walk Metropolis fallback.
 - `:mala`: MALA for continuous states, including proximal LASSO and proximal
   SSLASSO modes when `constraint = :prox`.
@@ -232,10 +256,34 @@ Supported sampler symbols are:
   requires `SpikeSlabLassoPrior`, supports `chains = 1`, and does not support
   CAR weights.
 
-All sampler outputs can be saved through `save_run_outputs`. NUTS results keep
-the original Turing/MCMCChains chain dimension. Built-in `:mh`, `:mala`, and
-`:gibbs` results are stored as explicit single-chain `MCMCChains.Chains`
-objects with `chain = 1`.
+Turing NUTS supports multiple threaded chains through `Turing.MCMCThreads()`
+when `chains > 1`. Built-in MH/MALA/ULA/Gibbs and explicit NUTS parallelize at
+the chain level when `multichains = true`; each chain gets an independent RNG
+and private sampler workspaces. Progress bars are disabled inside threaded
+worker chains.
+
+All sampler outputs can be saved through `save_run_outputs`. Turing NUTS
+results keep the original Turing/MCMCChains chain dimension. Built-in `:mh`,
+`:mala`, `:ula`, `:gibbs`, and explicit `:nuts` results are converted to
+`MCMCChains.Chains` by `result_to_chains`.
+
+Example backend selection:
+
+```julia
+fit_turing = sample_bayes_cox(X, time, event;
+    prior = BayesianLassoPrior(),
+    sampler = :nuts,
+    nuts_backend = :turing,
+    constraint = :prox)
+
+fit_explicit = sample_bayes_cox(X, time, event;
+    prior = BayesianLassoPrior(),
+    sampler = :nuts,
+    nuts_backend = :explicit,
+    constraint = :prox,
+    chains = 4,
+    multichains = true)
+```
 
 ### Zero-Sum Coefficient Constraint
 

@@ -1,7 +1,80 @@
+mutable struct MALAWorkspace
+    grad_u::Vector{Float64}
+    grad_prop::Vector{Float64}
+    proposal::Vector{Float64}
+    noise::Vector{Float64}
+    diff::Vector{Float64}
+end
+
+function MALAWorkspace(d::Integer)
+    d > 0 || throw(ArgumentError("workspace dimension must be positive."))
+    return MALAWorkspace(
+        Vector{Float64}(undef, d),
+        Vector{Float64}(undef, d),
+        Vector{Float64}(undef, d),
+        Vector{Float64}(undef, d),
+        Vector{Float64}(undef, d),
+    )
+end
+
 function _mala_logq(y::AbstractVector, x::AbstractVector, grad_x::AbstractVector, step_size::Real)
     gamma_L = Float64(step_size)
     diff = y .- x .- gamma_L .* grad_x
     return -0.25 / gamma_L * sum(abs2, diff)
+end
+
+function _mala_logq!(
+    diff::AbstractVector{Float64},
+    y::AbstractVector,
+    x::AbstractVector,
+    grad_x::AbstractVector,
+    step_size::Real,
+)
+    gamma_L = Float64(step_size)
+    length(diff) == length(y) == length(x) == length(grad_x) ||
+        throw(DimensionMismatch("MALA log proposal dimensions must match."))
+    s = 0.0
+    @inbounds for j in eachindex(diff)
+        v = Float64(y[j]) - Float64(x[j]) - gamma_L * Float64(grad_x[j])
+        diff[j] = v
+        s += v * v
+    end
+    return -0.25 / gamma_L * s
+end
+
+function _copy_gradient!(dest::AbstractVector{Float64}, gradient::Function, u::AbstractVector)
+    g = gradient(u)
+    length(g) == length(dest) || throw(DimensionMismatch("gradient length does not match state."))
+    copyto!(dest, g)
+    return dest
+end
+
+function _mala_step!(
+    logpost::Function,
+    gradient!::Function,
+    u::Vector{Float64},
+    current_lp::Float64,
+    gamma_L::Float64,
+    rng::AbstractRNG,
+    work::MALAWorkspace,
+)
+    d = length(u)
+    length(work.proposal) == d || throw(DimensionMismatch("MALA workspace dimension does not match state."))
+    gradient!(work.grad_u, u)
+    randn!(rng, work.noise)
+    scale = sqrt(2 * gamma_L)
+    @inbounds for j in 1:d
+        work.proposal[j] = u[j] + gamma_L * work.grad_u[j] + scale * work.noise[j]
+    end
+    prop_lp = logpost(work.proposal)
+    if !isfinite(prop_lp)
+        return current_lp, false
+    end
+    gradient!(work.grad_prop, work.proposal)
+    log_alpha = prop_lp + _mala_logq!(work.diff, u, work.proposal, work.grad_prop, gamma_L) -
+        current_lp - _mala_logq!(work.diff, work.proposal, u, work.grad_u, gamma_L)
+    accepted = log(rand(rng)) < log_alpha
+    return accepted ? prop_lp : current_lp, accepted
 end
 
 function _mala_step(
@@ -12,17 +85,29 @@ function _mala_step(
     gamma_L::Float64,
     rng::AbstractRNG,
 )
-    grad_u = gradient(u)
-    proposal = u .+ gamma_L .* grad_u .+ sqrt(2 * gamma_L) .* randn(rng, length(u))
-    prop_lp = logpost(proposal)
-    if !isfinite(prop_lp)
-        return u, current_lp, false
+    work = MALAWorkspace(length(u))
+    gradient! = (dest, x) -> _copy_gradient!(dest, gradient, x)
+    lp_new, accepted = _mala_step!(logpost, gradient!, u, current_lp, gamma_L, rng, work)
+    return accepted ? copy(work.proposal) : u, lp_new, accepted
+end
+
+function _ula_step!(
+    proposal::AbstractVector{Float64},
+    gradient!::Function,
+    u::Vector{Float64},
+    gamma_L::Float64,
+    rng::AbstractRNG,
+    work::MALAWorkspace,
+)
+    d = length(u)
+    length(proposal) == d || throw(DimensionMismatch("proposal length does not match state."))
+    gradient!(work.grad_u, u)
+    randn!(rng, work.noise)
+    scale = sqrt(2 * gamma_L)
+    @inbounds for j in 1:d
+        proposal[j] = u[j] + gamma_L * work.grad_u[j] + scale * work.noise[j]
     end
-    grad_prop = gradient(proposal)
-    log_alpha = prop_lp + _mala_logq(u, proposal, grad_prop, gamma_L) -
-        current_lp - _mala_logq(proposal, u, grad_u, gamma_L)
-    accepted = log(rand(rng)) < log_alpha
-    return accepted ? proposal : u, accepted ? prop_lp : current_lp, accepted
+    return proposal
 end
 
 function _ula_step(
@@ -31,8 +116,9 @@ function _ula_step(
     gamma_L::Float64,
     rng::AbstractRNG,
 )
-    grad_u = gradient(u)
-    return u .+ gamma_L .* grad_u .+ sqrt(2 * gamma_L) .* randn(rng, length(u))
+    work = MALAWorkspace(length(u))
+    gradient! = (dest, x) -> _copy_gradient!(dest, gradient, x)
+    return copy(_ula_step!(work.proposal, gradient!, u, gamma_L, rng, work))
 end
 
 function _full_logposterior_gradient_beta(
@@ -415,6 +501,17 @@ function _lasso_prox_logposterior(
     return lp
 end
 
+mutable struct ProxGradientWorkspace
+    cox::CoxGradientWorkspace
+    prox_beta::Vector{Float64}
+    weights::Vector{Float64}
+end
+
+function ProxGradientWorkspace(data::CoxPreparedData)
+    p = size(data.z, 2)
+    return ProxGradientWorkspace(CoxGradientWorkspace(data), Vector{Float64}(undef, p), Vector{Float64}(undef, p))
+end
+
 function _lasso_prox_gradient(
     u::AbstractVector,
     data::CoxPreparedData;
@@ -427,14 +524,53 @@ function _lasso_prox_gradient(
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
+    grad = zeros(Float64, length(u))
+    work = ProxGradientWorkspace(data)
+    return _lasso_prox_gradient!(
+        grad,
+        u,
+        data,
+        work;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+        prox_l1_lambda = prox_l1_lambda,
+        alpha_prior_shape = alpha_prior_shape,
+        alpha_prior_rate = alpha_prior_rate,
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+end
+
+function _lasso_prox_gradient!(
+    grad::AbstractVector{Float64},
+    u::AbstractVector,
+    data::CoxPreparedData,
+    work::ProxGradientWorkspace;
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape::Real,
+    alpha_prior_rate::Real,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+)
     p = size(data.z, 2)
+    length(u) == p + 1 || throw(DimensionMismatch("u length must be p + 1 for prox LASSO."))
+    length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox LASSO."))
     beta = view(u, 1:p)
     eta = u[p + 1]
     alpha = exp(clamp(eta, -700.0, 700.0))
     lambda_l1 = _check_positive(prox_l1_lambda, "prox_l1_lambda")
-    prox = project_l1_epigraph(beta, alpha; prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
-    grad = zeros(Float64, p + 1)
-    grad[1:p] .= cox_score_gradient(data, beta)
+    prox = project_l1_epigraph!(
+        work.prox_beta,
+        beta,
+        alpha;
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    cox_score_gradient!(view(grad, 1:p), data, beta, work.cox)
     _constraint_gradient_penalty!(
         view(grad, 1:p),
         beta;
@@ -502,9 +638,24 @@ function _sample_lasso_prox_mala(
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
+    work = ProxGradientWorkspace(data)
+    gradient! = (grad, u) -> _lasso_prox_gradient!(
+        grad,
+        u,
+        data,
+        work;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+        prox_l1_lambda = prox_l1_lambda,
+        alpha_prior_shape = alpha_prior_shape,
+        alpha_prior_rate = alpha_prior_rate,
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
     return _run_full_mala(logpost, gradient, init, names; n_samples = n_samples, warmup = warmup, thin = thin, rng = rng,
         mala_step_size = mala_step_size, mala_target_accept = mala_target_accept, mala_adapt_every = mala_adapt_every,
-        mala_min_step = mala_min_step, mala_max_step = mala_max_step, progress = progress)
+        mala_min_step = mala_min_step, mala_max_step = mala_max_step, progress = progress, gradient! = gradient!)
 end
 
 function _run_full_mala(
@@ -522,6 +673,7 @@ function _run_full_mala(
     mala_min_step::Real,
     mala_max_step::Real,
     progress::Bool,
+    gradient! = nothing,
 )
     gamma_L = _check_positive(mala_step_size, "mala_step_size")
     gamma_min = _check_positive(mala_min_step, "mala_min_step")
@@ -533,15 +685,17 @@ function _run_full_mala(
     lps = Vector{Float64}(undef, n_samples)
     current_lp = logpost(u)
     isfinite(current_lp) || throw(ArgumentError("initial state has non-finite log posterior."))
+    work = MALAWorkspace(d)
+    gradient_bang = gradient! === nothing ? ((dest, x) -> _copy_gradient!(dest, gradient, x)) : gradient!
     accept_warmup = 0
     accept_sample = 0
     accept_window = 0
     saved = 0
     prog = progress ? Progress(total_iter; desc = "MALA sampling", showspeed = true, dt = 0.0) : nothing
     for iter in 1:total_iter
-        u_new, lp_new, accepted = _mala_step(logpost, gradient, u, current_lp, gamma_L, rng)
+        lp_new, accepted = _mala_step!(logpost, gradient_bang, u, current_lp, gamma_L, rng, work)
         if accepted
-            u = u_new
+            copyto!(u, work.proposal)
             current_lp = lp_new
             if iter <= warmup
                 accept_warmup += 1
@@ -585,6 +739,7 @@ function _run_full_ula(
     rng::AbstractRNG,
     mala_step_size::Real,
     progress::Bool,
+    gradient! = nothing,
 )
     gamma_L = _check_positive(mala_step_size, "mala_step_size")
     total_iter = warmup + n_samples * thin
@@ -594,13 +749,15 @@ function _run_full_ula(
     lps = Vector{Float64}(undef, n_samples)
     current_lp = logpost(u)
     isfinite(current_lp) || throw(ArgumentError("initial state has non-finite log posterior."))
+    work = MALAWorkspace(d)
+    gradient_bang = gradient! === nothing ? ((dest, x) -> _copy_gradient!(dest, gradient, x)) : gradient!
     saved = 0
     prog = progress ? Progress(total_iter; desc = "ULA sampling", showspeed = true, dt = 0.0) : nothing
     for iter in 1:total_iter
-        prop = _ula_step(gradient, u, gamma_L, rng)
+        prop = _ula_step!(work.proposal, gradient_bang, u, gamma_L, rng, work)
         prop_lp = logpost(prop)
         if isfinite(prop_lp)
-            u = prop
+            copyto!(u, prop)
             current_lp = prop_lp
         end
         if iter > warmup && (iter - warmup) % thin == 0
@@ -616,7 +773,23 @@ function _run_full_ula(
 end
 
 function _ssl_weights(prior::SpikeSlabLassoPrior, gamma::AbstractVector{Bool})
-    return [inv(gamma[j] ? prior.slab_scale : prior.spike_scale) for j in eachindex(gamma)]
+    weights = Vector{Float64}(undef, length(gamma))
+    return _ssl_weights!(weights, prior, gamma)
+end
+
+function _ssl_weights!(
+    weights::AbstractVector{Float64},
+    prior::SpikeSlabLassoPrior,
+    gamma::AbstractVector{Bool},
+)
+    length(weights) == length(gamma) ||
+        throw(DimensionMismatch("weights length must match gamma."))
+    spike_weight = inv(prior.spike_scale)
+    slab_weight = inv(prior.slab_scale)
+    @inbounds for j in eachindex(gamma)
+        weights[j] = gamma[j] ? slab_weight : spike_weight
+    end
+    return weights
 end
 
 function _ssl_prox_logposterior(
@@ -667,15 +840,59 @@ function _ssl_prox_gradient(
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
+    grad = zeros(Float64, length(u))
+    work = ProxGradientWorkspace(data)
+    return _ssl_prox_gradient!(
+        grad,
+        u,
+        data,
+        prior,
+        gamma,
+        work;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+        prox_l1_lambda = prox_l1_lambda,
+        alpha_prior_shape = alpha_prior_shape,
+        alpha_prior_rate = alpha_prior_rate,
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+end
+
+function _ssl_prox_gradient!(
+    grad::AbstractVector{Float64},
+    u::AbstractVector,
+    data::CoxPreparedData,
+    prior::SpikeSlabLassoPrior,
+    gamma::AbstractVector{Bool},
+    work::ProxGradientWorkspace;
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape::Real,
+    alpha_prior_rate::Real,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+)
     p = size(data.z, 2)
+    length(u) == p + 1 || throw(DimensionMismatch("u length must be p + 1 for prox SSLASSO."))
+    length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox SSLASSO."))
     beta = view(u, 1:p)
     eta = u[p + 1]
     alpha = exp(clamp(eta, -700.0, 700.0))
-    weights = _ssl_weights(prior, gamma)
+    weights = _ssl_weights!(work.weights, prior, gamma)
     lambda_l1 = _check_positive(prox_l1_lambda, "prox_l1_lambda")
-    prox = project_weighted_l1_epigraph(beta, alpha, weights; prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
-    grad = zeros(Float64, p + 1)
-    grad[1:p] .= cox_score_gradient(data, beta)
+    prox = project_weighted_l1_epigraph!(
+        work.prox_beta,
+        beta,
+        alpha,
+        weights;
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    cox_score_gradient!(view(grad, 1:p), data, beta, work.cox)
     _constraint_gradient_penalty!(
         view(grad, 1:p),
         beta;
@@ -722,6 +939,9 @@ function _sample_ssl_prox_mala(
     length(u) == p + 1 || throw(DimensionMismatch("initial length must be p + 1 for prox SSLASSO MALA."))
     gamma = trues(p)
     theta = 0.5
+    weights = _ssl_weights(prior, gamma)
+    spike_weight = inv(prior.spike_scale)
+    slab_weight = inv(prior.slab_scale)
     names = vcat(["beta[$j]" for j in 1:p], ["eta"], ["gamma[$j]" for j in 1:p], ["theta"])
     d = length(names)
     draws = Matrix{Float64}(undef, n_samples, d)
@@ -747,6 +967,24 @@ function _sample_ssl_prox_mala(
     )
     current_lp = logpost(u)
     isfinite(current_lp) || throw(ArgumentError("initial state has non-finite log posterior."))
+    mala_work = MALAWorkspace(p + 1)
+    prox_work = ProxGradientWorkspace(data)
+    gradient_current! = (grad, uu) -> _ssl_prox_gradient!(
+        grad,
+        uu,
+        data,
+        prior,
+        gamma,
+        prox_work;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+        prox_l1_lambda = prox_l1_lambda,
+        alpha_prior_shape = alpha_prior_shape,
+        alpha_prior_rate = alpha_prior_rate,
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
     accept_warmup = 0
     accept_sample = 0
     accept_window = 0
@@ -768,23 +1006,9 @@ function _sample_ssl_prox_mala(
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
         )
-        gradient_current = uu -> _ssl_prox_gradient(
-            uu,
-            data,
-            prior,
-            gamma;
-            constraint = constraint,
-            soft_center_scale = soft_center_scale,
-            prox_sum0_lambda = prox_sum0_lambda,
-            prox_l1_lambda = prox_l1_lambda,
-            alpha_prior_shape = alpha_prior_shape,
-            alpha_prior_rate = alpha_prior_rate,
-            prox_root_tol = prox_root_tol,
-            prox_root_maxiter = prox_root_maxiter,
-        )
-        u_new, lp_new, accepted = _mala_step(logpost_current, gradient_current, u, current_lp, gamma_L, rng)
+        lp_new, accepted = _mala_step!(logpost_current, gradient_current!, u, current_lp, gamma_L, rng, mala_work)
         if accepted
-            u = u_new
+            copyto!(u, mala_work.proposal)
             current_lp = lp_new
             if iter <= warmup
                 accept_warmup += 1
@@ -799,13 +1023,16 @@ function _sample_ssl_prox_mala(
         theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
         for j in 1:p
             gamma[j] = false
-            h0 = weighted_l1_moreau(beta, alpha, _ssl_weights(prior, gamma), prox_l1_lambda;
+            weights[j] = spike_weight
+            h0 = weighted_l1_moreau(beta, alpha, weights, prox_l1_lambda;
                 prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
             gamma[j] = true
-            h1 = weighted_l1_moreau(beta, alpha, _ssl_weights(prior, gamma), prox_l1_lambda;
+            weights[j] = slab_weight
+            h1 = weighted_l1_moreau(beta, alpha, weights, prox_l1_lambda;
                 prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
             logit_p = log(theta_clamped) - log1p(-theta_clamped) - (h1 - h0)
             gamma[j] = rand(rng) < _logistic(logit_p)
+            weights[j] = gamma[j] ? slab_weight : spike_weight
         end
         theta = rand(rng, Beta(prior.theta_a + count(gamma), prior.theta_b + p - count(gamma)))
         current_lp = logpost_current(u)
@@ -1045,8 +1272,23 @@ function _sample_ula(
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
         )
+        work = ProxGradientWorkspace(data)
+        gradient! = (grad, u) -> _lasso_prox_gradient!(
+            grad,
+            u,
+            data,
+            work;
+            constraint = resolved_constraint,
+            soft_center_scale = scale,
+            prox_sum0_lambda = prox_sum0_lambda,
+            prox_l1_lambda = prox_l1_lambda,
+            alpha_prior_shape = a_shape,
+            alpha_prior_rate = a_rate,
+            prox_root_tol = prox_root_tol,
+            prox_root_maxiter = prox_root_maxiter,
+        )
         return _run_full_ula(logpost, gradient, init, names; n_samples = n_samples, warmup = warmup, thin = thin,
-            rng = rng, mala_step_size = mala_step_size, progress = progress)
+            rng = rng, mala_step_size = mala_step_size, progress = progress, gradient! = gradient!)
     elseif prior isa SpikeSlabLassoPrior && resolved_constraint == :prox
         return _sample_ssl_prox_ula(
             data,
@@ -1121,6 +1363,9 @@ function _sample_ssl_prox_ula(
     length(u) == p + 1 || throw(DimensionMismatch("initial length must be p + 1 for prox SSLASSO ULA."))
     gamma = trues(p)
     theta = 0.5
+    weights = _ssl_weights(prior, gamma)
+    spike_weight = inv(prior.spike_scale)
+    slab_weight = inv(prior.slab_scale)
     names = vcat(["beta[$j]" for j in 1:p], ["eta"], ["gamma[$j]" for j in 1:p], ["theta"])
     d = length(names)
     draws = Matrix{Float64}(undef, n_samples, d)
@@ -1143,23 +1388,27 @@ function _sample_ssl_prox_ula(
         prox_root_maxiter = prox_root_maxiter,
     )
     saved = 0
+    mala_work = MALAWorkspace(p + 1)
+    prox_work = ProxGradientWorkspace(data)
+    gradient_current! = (grad, uu) -> _ssl_prox_gradient!(
+        grad,
+        uu,
+        data,
+        prior,
+        gamma,
+        prox_work;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+        prox_l1_lambda = prox_l1_lambda,
+        alpha_prior_shape = alpha_prior_shape,
+        alpha_prior_rate = alpha_prior_rate,
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
     prog = progress ? Progress(total_iter; desc = "SSLASSO prox ULA", showspeed = true, dt = 0.0) : nothing
     for iter in 1:total_iter
-        gradient_current = uu -> _ssl_prox_gradient(
-            uu,
-            data,
-            prior,
-            gamma;
-            constraint = constraint,
-            soft_center_scale = soft_center_scale,
-            prox_sum0_lambda = prox_sum0_lambda,
-            prox_l1_lambda = prox_l1_lambda,
-            alpha_prior_shape = alpha_prior_shape,
-            alpha_prior_rate = alpha_prior_rate,
-            prox_root_tol = prox_root_tol,
-            prox_root_maxiter = prox_root_maxiter,
-        )
-        prop = _ula_step(gradient_current, u, gamma_L, rng)
+        prop = _ula_step!(mala_work.proposal, gradient_current!, u, gamma_L, rng, mala_work)
         prop_lp = _ssl_prox_logposterior(
             prop,
             data,
@@ -1176,7 +1425,7 @@ function _sample_ssl_prox_ula(
             prox_root_maxiter = prox_root_maxiter,
         )
         if isfinite(prop_lp)
-            u = prop
+            copyto!(u, prop)
             current_lp = prop_lp
         end
 
@@ -1185,15 +1434,33 @@ function _sample_ssl_prox_ula(
         theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
         for j in 1:p
             gamma[j] = false
-            h0 = weighted_l1_moreau(beta, alpha, _ssl_weights(prior, gamma), prox_l1_lambda;
+            weights[j] = spike_weight
+            h0 = weighted_l1_moreau(beta, alpha, weights, prox_l1_lambda;
                 prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
             gamma[j] = true
-            h1 = weighted_l1_moreau(beta, alpha, _ssl_weights(prior, gamma), prox_l1_lambda;
+            weights[j] = slab_weight
+            h1 = weighted_l1_moreau(beta, alpha, weights, prox_l1_lambda;
                 prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
             logit_p = log(theta_clamped) - log1p(-theta_clamped) - (h1 - h0)
             gamma[j] = rand(rng) < _logistic(logit_p)
+            weights[j] = gamma[j] ? slab_weight : spike_weight
         end
         theta = rand(rng, Beta(prior.theta_a + count(gamma), prior.theta_b + p - count(gamma)))
+        current_lp = _ssl_prox_logposterior(
+            u,
+            data,
+            prior,
+            gamma,
+            theta;
+            constraint = constraint,
+            soft_center_scale = soft_center_scale,
+            prox_sum0_lambda = prox_sum0_lambda,
+            prox_l1_lambda = prox_l1_lambda,
+            alpha_prior_shape = alpha_prior_shape,
+            alpha_prior_rate = alpha_prior_rate,
+            prox_root_tol = prox_root_tol,
+            prox_root_maxiter = prox_root_maxiter,
+        )
 
         if iter > warmup && (iter - warmup) % thin == 0
             saved += 1
