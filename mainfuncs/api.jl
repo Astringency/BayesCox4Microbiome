@@ -352,8 +352,11 @@ function sample_bayes_cox(
             ))
         end
     rng = seed === nothing ? Random.default_rng() : MersenneTwister(seed)
-    effective_sampler = sampler == :nuts_explicit ? :nuts : sampler
-    effective_nuts_backend = sampler == :nuts_explicit ? :explicit : nuts_backend
+    effective_sampler =
+        sampler in (:nuts_explicit, :nuts_explict, :nuts_turing) ? :nuts : sampler
+    effective_nuts_backend =
+        sampler in (:nuts_explicit, :nuts_explict) ? :explicit :
+        sampler == :nuts_turing ? :turing : nuts_backend
     effective_nuts_backend in (:turing, :explicit) ||
         throw(ArgumentError("nuts_backend must be :turing or :explicit."))
     chain_count = chains === nothing ? (effective_sampler == :nuts ? nothing : 1) : Int(chains)
@@ -367,13 +370,10 @@ function sample_bayes_cox(
                     _sample_nuts(data, prior; rng = rng, chains = chain_count, car_weights = resolved_car_weights, kwargs...)
                 end
             else
-                if use_car && resolved_car_weights !== nothing
-                    throw(ArgumentError("nuts_backend=:explicit does not currently support CAR weights; use nuts_backend=:turing."))
-                end
                 if chain_count === nothing
-                    _sample_nuts_explicit(data, prior; rng = rng, multichains = multichains, kwargs...)
+                    _sample_nuts_explicit(data, prior; rng = rng, multichains = multichains, car_weights = resolved_car_weights, use_car = use_car, kwargs...)
                 else
-                    _sample_nuts_explicit(data, prior; rng = rng, chains = chain_count, multichains = multichains, kwargs...)
+                    _sample_nuts_explicit(data, prior; rng = rng, chains = chain_count, multichains = multichains, car_weights = resolved_car_weights, use_car = use_car, kwargs...)
                 end
             end
         samples = sampled.samples
@@ -445,9 +445,7 @@ function sample_bayes_cox(
             gc_percent,
         )
     elseif effective_sampler == :gibbs
-        prior isa SpikeSlabLassoPrior ||
-            throw(ArgumentError("sampler=:gibbs is currently implemented only for SpikeSlabLassoPrior."))
-        use_car && resolved_car_weights !== nothing &&
+        prior isa SpikeSlabLassoPrior && use_car && resolved_car_weights !== nothing &&
             throw(ArgumentError("sampler=:gibbs for SSLASSO does not support CAR weights."))
         timed = @timed _sample_gibbs_chains(
             data,
@@ -470,7 +468,7 @@ function sample_bayes_cox(
             gc_percent,
         )
     else
-        throw(ArgumentError("sampler must be :nuts, :nuts_explicit, :mh, :mala, :ula, or :gibbs."))
+        throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :nuts_explict, :mh, :mala, :ula, or :gibbs."))
     end
     return CoxSamplerResult(samples, data, prior, effective_sampler, diagnostics)
 end
@@ -589,20 +587,82 @@ function _sample_gibbs_chains(
     rng::AbstractRNG,
     multichains::Bool = false,
     progress::Bool = true,
+    n_samples::Integer = 5000,
+    warmup::Integer = 2000,
+    thin::Integer = 1,
+    target_accept::Real = 0.8,
+    constraint::Symbol = :soft_center,
+    soft_center = nothing,
+    soft_center_scale::Union{Nothing,Real} = nothing,
+    prox_sum0_lambda::Real = 1e-3,
+    prox_l1_lambda::Real = 1e-3,
+    alpha_prior_shape = nothing,
+    alpha_prior_rate = nothing,
+    prox_root_tol::Real = 1e-10,
+    prox_root_maxiter::Integer = 100,
     kwargs...,
 )
-    chains == 1 && return _sample_ssl_gibbs(data, prior; rng = rng, chains = 1, progress = progress, kwargs...)
+    resolved_constraint = _resolve_constraint(constraint, soft_center)
+    if resolved_constraint == :prox
+        return _sample_ssl_prox_nuts_gibbs(
+            data,
+            prior;
+            n_samples = n_samples,
+            warmup = warmup,
+            thin = thin,
+            chains = chains,
+            target_accept = target_accept,
+            rng = rng,
+            constraint = resolved_constraint,
+            soft_center_scale = soft_center_scale === nothing ? _default_soft_center_scale(size(data.z, 2)) : Float64(soft_center_scale),
+            prox_sum0_lambda = prox_sum0_lambda,
+            prox_l1_lambda = prox_l1_lambda,
+            alpha_prior_shape = alpha_prior_shape,
+            alpha_prior_rate = alpha_prior_rate,
+            prox_root_tol = prox_root_tol,
+            prox_root_maxiter = prox_root_maxiter,
+            progress = progress,
+            kwargs...,
+        ).samples
+    end
+    chains == 1 && return _sample_ssl_gibbs(data, prior; rng = rng, chains = 1, progress = progress, n_samples = n_samples, warmup = warmup, thin = thin, target_accept = target_accept, constraint = resolved_constraint, soft_center_scale = soft_center_scale, prox_sum0_lambda = prox_sum0_lambda, kwargs...)
     samples = Vector{MHSamples}(undef, chains)
     rngs = [_independent_rng(rng) for _ in 1:chains]
     if multichains
         Threads.@threads for c in 1:chains
             @info "Running Gibbs chain $c/$chains"
-            samples[c] = _sample_ssl_gibbs(data, prior; rng = rngs[c], chains = 1, progress = false, kwargs...)
+            samples[c] = _sample_ssl_gibbs(data, prior; rng = rngs[c], chains = 1, progress = false, n_samples = n_samples, warmup = warmup, thin = thin, target_accept = target_accept, constraint = resolved_constraint, soft_center_scale = soft_center_scale, prox_sum0_lambda = prox_sum0_lambda, kwargs...)
         end
     else
         for c in 1:chains
             @info "Running Gibbs chain $c/$chains"
-            samples[c] = _sample_ssl_gibbs(data, prior; rng = rngs[c], chains = 1, progress = progress, kwargs...)
+            samples[c] = _sample_ssl_gibbs(data, prior; rng = rngs[c], chains = 1, progress = progress, n_samples = n_samples, warmup = warmup, thin = thin, target_accept = target_accept, constraint = resolved_constraint, soft_center_scale = soft_center_scale, prox_sum0_lambda = prox_sum0_lambda, kwargs...)
+        end
+    end
+    return MultiMHSamples(samples)
+end
+
+function _sample_gibbs_chains(
+    data::CoxPreparedData,
+    prior::AbstractCoxPrior,
+    chains::Integer;
+    rng::AbstractRNG,
+    multichains::Bool = false,
+    progress::Bool = true,
+    kwargs...,
+)
+    chains == 1 && return _sample_coordinate_gibbs(data, prior; rng = rng, progress = progress, kwargs...)
+    samples = Vector{MHSamples}(undef, chains)
+    rngs = [_independent_rng(rng) for _ in 1:chains]
+    if multichains
+        Threads.@threads for c in 1:chains
+            @info "Running coordinate Gibbs chain $c/$chains"
+            samples[c] = _sample_coordinate_gibbs(data, prior; rng = rngs[c], progress = false, kwargs...)
+        end
+    else
+        for c in 1:chains
+            @info "Running coordinate Gibbs chain $c/$chains"
+            samples[c] = _sample_coordinate_gibbs(data, prior; rng = rngs[c], progress = progress, kwargs...)
         end
     end
     return MultiMHSamples(samples)

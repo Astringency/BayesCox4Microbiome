@@ -160,20 +160,27 @@ function cox_score_gradient!(
     eta = work.eta
     fill!(grad, 0.0)
     fill!(work.s1, 0.0)
-    max_eta = -Inf
     @inbounds for i in 1:n
         s = 0.0
         for j in 1:p
             s += Float64(z[i, j]) * Float64(beta[j])
         end
         eta[i] = s
-        max_eta = max(max_eta, s)
     end
 
     s0 = 0.0
+    max_eta = -Inf
     @inbounds for k in eachindex(risk.group_start)
         for pos in risk.group_start[k]:risk.group_stop[k]
             i = risk.order[pos]
+            if eta[i] > max_eta
+                scale = isfinite(max_eta) ? exp(max_eta - eta[i]) : 0.0
+                s0 *= scale
+                for j in 1:p
+                    work.s1[j] *= scale
+                end
+                max_eta = eta[i]
+            end
             w = exp(eta[i] - max_eta)
             s0 += w
             for j in 1:p

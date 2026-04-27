@@ -237,3 +237,117 @@ function _sample_ssl_gibbs(
     final_step = global_scale .* step
     return MHSamples(draws, lps, names, sample_rate, warmup_rate, final_step)
 end
+
+function _sample_coordinate_gibbs(
+    data::CoxPreparedData,
+    prior::AbstractCoxPrior;
+    n_samples::Integer = 5000,
+    warmup::Integer = 2000,
+    thin::Integer = 1,
+    rng::AbstractRNG = Random.default_rng(),
+    initial = nothing,
+    initial_step::Union{Real,AbstractVector{<:Real}} = 0.05,
+    target_accept::Real = 0.44,
+    adapt_every::Integer = 50,
+    min_step::Real = 1e-5,
+    max_step::Real = 1.0,
+    constraint::Symbol = :soft_center,
+    soft_center = nothing,
+    soft_center_scale::Union{Nothing,Real} = nothing,
+    prox_sum0_lambda::Real = 1e-3,
+    car_weights = nothing,
+    use_car::Bool = car_weights !== nothing,
+    car_precision::Real = 1.0,
+    progress::Bool = true,
+    kwargs...,
+)
+    n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
+    warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
+    thin > 0 || throw(ArgumentError("thin must be positive."))
+    adapt_every > 0 || throw(ArgumentError("adapt_every must be positive."))
+    0 < target_accept < 1 || throw(ArgumentError("target_accept must be in (0, 1)."))
+    _validate_prior(prior)
+
+    p = size(data.z, 2)
+    n_events = count(!=(0), data.event)
+    u =
+        if initial !== nothing
+            collect(Float64, initial)
+        elseif prior isa RegularizedHorseshoePrior
+            initial_state(prior, p, n_events; n_obs = size(data.z, 1))
+        else
+            initial_state(prior, p, n_events)
+        end
+    names = _state_names(prior, p)
+    d = length(u)
+    length(names) == d || throw(DimensionMismatch("initial state length does not match prior state."))
+    step = initial_step isa Real ? fill(Float64(initial_step), d) : collect(Float64, initial_step)
+    length(step) == d || throw(DimensionMismatch("initial_step length must match state dimension."))
+    all(>(0), step) || throw(ArgumentError("initial_step entries must be positive."))
+    min_s = _check_positive(min_step, "min_step")
+    max_s = _check_positive(max_step, "max_step")
+
+    resolved_constraint = _resolve_constraint(constraint, soft_center)
+    sc_scale = soft_center_scale === nothing ? _default_soft_center_scale(p) : Float64(soft_center_scale)
+    logpost = uu -> logposterior(
+        uu,
+        data,
+        prior;
+        constraint = resolved_constraint,
+        soft_center_scale = sc_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+        car_weights = car_weights,
+        use_car = use_car,
+        car_precision = car_precision,
+    )
+
+    total_iter = warmup + n_samples * thin
+    draws = Matrix{Float64}(undef, n_samples, d)
+    lps = Vector{Float64}(undef, n_samples)
+    current_lp = logpost(u)
+    isfinite(current_lp) || throw(ArgumentError("initial state has non-finite log posterior."))
+
+    accept_window = zeros(Int, d)
+    accept_warmup = zeros(Int, d)
+    accept_sample = zeros(Int, d)
+    saved = 0
+    proposal = copy(u)
+    prog = progress ? Progress(total_iter; desc = "Coordinate Gibbs sampling", showspeed = true, dt = 0.0) : nothing
+
+    for iter in 1:total_iter
+        for j in 1:d
+            copyto!(proposal, u)
+            proposal[j] += step[j] * randn(rng)
+            prop_lp = logpost(proposal)
+            accepted = isfinite(prop_lp) && log(rand(rng)) < prop_lp - current_lp
+            if accepted
+                u[j] = proposal[j]
+                current_lp = prop_lp
+                if iter <= warmup
+                    accept_warmup[j] += 1
+                    accept_window[j] += 1
+                else
+                    accept_sample[j] += 1
+                end
+            end
+        end
+
+        if iter <= warmup && iter % adapt_every == 0
+            rates = accept_window ./ adapt_every
+            step .= clamp.(step .* exp.(clamp.(rates .- target_accept, -0.25, 0.25)), min_s, max_s)
+            fill!(accept_window, 0)
+        elseif iter > warmup && (iter - warmup) % thin == 0
+            saved += 1
+            @views draws[saved, :] .= u
+            lps[saved] = current_lp
+        end
+        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
+        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+    end
+    prog !== nothing && finish!(prog)
+
+    sample_iters = n_samples * thin
+    warmup_rate = warmup == 0 ? NaN : mean(accept_warmup ./ warmup)
+    sample_rate = sample_iters == 0 ? NaN : mean(accept_sample ./ sample_iters)
+    return MHSamples(draws, lps, names, sample_rate, warmup_rate, step)
+end

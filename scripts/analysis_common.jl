@@ -393,7 +393,7 @@ function fit_and_evaluate(
 )
     prior = prior_from_name(prior_name, X, time, event; p0 = p0, p0_alpha = p0_alpha, realdata = realdata)
     result =
-        if sampler == :nuts || sampler == :nuts_explicit
+        if sampler in (:nuts, :nuts_turing, :nuts_explicit, :nuts_explict)
             sample_bayes_cox(
                 X,
                 time,
@@ -488,7 +488,7 @@ function fit_and_evaluate(
                 progress = progress,
             )
         else
-            throw(ArgumentError("sampler must be :nuts, :nuts_explicit, :mh, :mala, :ula, or :gibbs."))
+            throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :nuts_explict, :mh, :mala, :ula, or :gibbs."))
     end
     draws = posterior_beta_draws(result)
     layout = posterior_draw_layout(result, size(draws, 1))

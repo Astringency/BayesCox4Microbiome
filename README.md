@@ -242,18 +242,23 @@ Supported sampler symbols are:
 - `:nuts`: NUTS with selectable backend. The default
   `nuts_backend = :turing` preserves the existing Turing.jl behavior. Use
   `nuts_backend = :explicit` for the AdvancedHMC explicit-gradient backend.
-  The explicit backend currently supports proximal Bayesian LASSO
-  (`prior = BayesianLassoPrior(), constraint = :prox`) and returns the same
-  `MHSamples` / `MultiMHSamples` shape used by the built-in samplers.
+  The explicit backend supports all built-in priors. Proximal Bayesian LASSO
+  uses its hand-coded proximal gradient target; other priors use the shared
+  posterior target with an explicit ForwardDiff gradient. Proximal SSLASSO uses
+  the existing NUTS/Gibbs block update for its continuous and discrete blocks.
 - `:nuts_explicit`: convenience alias for `sampler = :nuts,
   nuts_backend = :explicit`.
+- `:nuts_explict`: accepted misspelling of `:nuts_explicit`.
+- `:nuts_turing`: convenience alias for `sampler = :nuts,
+  nuts_backend = :turing`.
 - `:mh`: adaptive random-walk Metropolis fallback.
 - `:mala`: MALA for continuous states, including proximal LASSO and proximal
   SSLASSO modes when `constraint = :prox`.
 - `:ula`: unadjusted Langevin updates with fixed `--mala-step-size`; for
   hybrid priors, non-beta hyperparameters still use fixed random-walk MH steps.
-- `:gibbs`: SSLASSO-only Gibbs / Metropolis-within-Gibbs sampler. It currently
-  requires `SpikeSlabLassoPrior`, supports `chains = 1`, and does not support
+- `:gibbs`: Gibbs / Metropolis-within-Gibbs sampler. SSLASSO uses its
+  spike/slab Gibbs updates, prox-SSLASSO uses the proximal block Gibbs path, and
+  other priors use adaptive coordinate-wise Metropolis-within-Gibbs. It does not support
   CAR weights.
 
 Turing NUTS supports multiple threaded chains through `Turing.MCMCThreads()`
