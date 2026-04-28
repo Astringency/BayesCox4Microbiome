@@ -10,6 +10,7 @@ const PRIORS = ["hs", "rhs", "new-rhs", "est-rhs", "cox-hs", "cox-rhs", "lasso",
 const SAMPLERS = [:mh, :mala, :ula, :gibbs, :nuts_explict, :nuts_turing]
 
 _env_int(name::AbstractString, default::Integer) = parse(Int, get(ENV, name, string(default)))
+_env_symbol(name::AbstractString, default::Symbol) = Symbol(get(ENV, name, string(default)))
 _env_list(name::AbstractString, default) =
     haskey(ENV, name) ? split(ENV[name], ","; keepempty = false) : default
 
@@ -53,7 +54,13 @@ function main()
     mkpath(outdir)
     outfile = joinpath(outdir, "sampler_matrix_summary.csv")
 
-    sim = generate_simulation_data(200, 50, 6; baseline = :weibull, seed = 20260427)
+    n = _env_int("BC4M_N", 200)
+    p = _env_int("BC4M_P", 50)
+    nonzero = _env_int("BC4M_NONZERO", 6)
+    baseline = _env_symbol("BC4M_BASELINE", :weibull)
+    seed = _env_int("BC4M_SEED", 20260427)
+
+    sim = generate_simulation_data(n, p, nonzero; baseline = baseline, seed = seed)
     n_samples = _env_int("BC4M_SAMPLES", 500)
     warmup = _env_int("BC4M_WARMUP", 200)
     rows = DataFrame()
@@ -63,7 +70,7 @@ function main()
 
     for prior_name in priors, sampler in samplers
         @info "Running sampler matrix case" prior = prior_name sampler = sampler
-        prior = cox_paper_prior(prior_name; X = sim.X, time = sim.time, event = sim.event, p0 = 6)
+        prior = cox_paper_prior(prior_name; X = sim.X, time = sim.time, event = sim.event, p0 = nonzero)
         seconds = NaN
         row =
             try
@@ -73,7 +80,7 @@ function main()
                     n_samples = n_samples,
                     warmup = warmup,
                     chains = 1,
-                    seed = 20260427,
+                    seed = seed,
                     progress = false,
                     use_car = false,
                     constraint = :soft_center,

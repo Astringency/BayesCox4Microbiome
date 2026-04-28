@@ -40,6 +40,7 @@ julia --project=. -e "using Pkg; Pkg.instantiate()"
 julia --project=. -e "using Pkg; Pkg.test()"
 julia --project=. scripts\run_simulation.jl --samples 50 --warmup 20 --reps 1
 julia --project=. scripts\analyze_real_data.jl --samples 50 --warmup 20
+julia --project=. scripts\sampler_matrix_experiment.jl
 julia --project=. scripts\bench_cox_gradient.jl 400 50
 julia --project=. scripts\bench_samplers.jl 400 50 25 25
 ```
@@ -100,6 +101,7 @@ BayesCox4Micro/
     run_simulation.jl
     analyze_real_data.jl
     run_diagnose.jl
+    sampler_matrix_experiment.jl
     bench_cox_gradient.jl
     bench_samplers.jl
     run_simulation.{ps1,cmd,sh}
@@ -155,6 +157,8 @@ Key roles:
   `data/T1D.csv`.
 - `scripts/run_diagnose.jl` regenerates diagnostics from saved run outputs
   without rerunning MCMC.
+- `scripts/sampler_matrix_experiment.jl` runs a compact prior-by-sampler smoke
+  experiment and writes a status/timing summary.
 
 ## Implementation Details
 
@@ -359,6 +363,7 @@ julia --project=. scripts\run_simulation.jl --sampler mala --constraint prox --p
 | `--baseline` | `weibull` | Baseline event-time model. Supported values are `weibull`, `exponential`, and `gompertz`; comma-separated grids are supported. |
 | `--priors` | `hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso` | Comma-separated prior names to fit. |
 | `--sampler` | `nuts` | Sampler backend. Supported values are `nuts`, `mh`, `mala`, `ula`, and `gibbs`. `gibbs` is only implemented for SSLASSO. |
+| `--nuts-backend` | `turing` | Backend used when `--sampler nuts`. Supported values are `turing` and `explicit`. The aliases `--sampler nuts_turing`, `--sampler nuts_explicit`, and the accepted misspelling `nuts_explict` select the corresponding backend directly. |
 | `--samples` | `500` | Number of saved posterior samples per fit. |
 | `--warmup` | `200` | Number of warmup/adaptation iterations. |
 | `--chains` | `4` | Number of chains. NUTS uses Turing's multi-chain sampler; `mh`, `mala`, `ula`, and `gibbs` run independent chains and combine them for diagnostics. |
@@ -437,6 +442,7 @@ julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler ma
 | `--exclude-cols` | `Sex,Antibiotics` | Comma-separated non-taxa columns to exclude from the abundance matrix, in addition to the time and status columns. |
 | `--priors` | `hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso` | Comma-separated prior names to fit. |
 | `--sampler` | `nuts` | Sampler backend. Supported values are `nuts`, `mh`, `mala`, `ula`, and `gibbs`. `gibbs` is only implemented for SSLASSO. |
+| `--nuts-backend` | `turing` | Backend used when `--sampler nuts`. Supported values are `turing` and `explicit`. The aliases `--sampler nuts_turing`, `--sampler nuts_explicit`, and the accepted misspelling `nuts_explict` select the corresponding backend directly. |
 | `--samples` | `500` | Number of saved posterior samples per fit. |
 | `--warmup` | `200` | Number of warmup/adaptation iterations. |
 | `--chains` | `4` | Number of chains. NUTS uses Turing's multi-chain sampler; `mh`, `mala`, `ula`, and `gibbs` run independent chains and combine them for diagnostics. |
@@ -559,3 +565,45 @@ bash scripts/run_diagnose.sh results/runs/example
 If only one chain is available, R-hat is not computable. The diagnostic runner
 emits a warning, writes summaries with missing R-hat values when necessary, and
 skips R-hat plots instead of failing.
+
+## Sampler Matrix Experiment
+
+Run a compact compatibility/timing pass across the built-in paper priors and
+sampler aliases:
+
+```powershell
+julia --project=. scripts\sampler_matrix_experiment.jl
+```
+
+By default this script simulates `n = 200`, `p = 50`, and `nonzero = 6`, then
+fits the priors:
+
+```text
+hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso
+```
+
+against the samplers:
+
+```text
+mh,mala,ula,gibbs,nuts_explict,nuts_turing
+```
+
+The script writes an incremental CSV summary to:
+
+```text
+results/sampler_matrix_<timestamp>/sampler_matrix_summary.csv
+```
+
+Environment variables can narrow or shorten the run:
+
+```powershell
+$env:BC4M_N = "200"
+$env:BC4M_P = "50"
+$env:BC4M_NONZERO = "12"
+$env:BC4M_BASELINE = "weibull"
+$env:BC4M_SAMPLES = "50"
+$env:BC4M_WARMUP = "20"
+$env:BC4M_PRIORS = "hs,lasso,sslasso"
+$env:BC4M_SAMPLERS = "mh,mala,nuts_turing"
+julia --project=. scripts\sampler_matrix_experiment.jl
+```
