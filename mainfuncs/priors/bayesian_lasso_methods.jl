@@ -62,3 +62,44 @@ function _prior_logposterior(
     end
     return lp
 end
+
+function _prior_logposterior_and_gradient!(
+    grad::AbstractVector{Float64},
+    u::AbstractVector,
+    data::CoxPreparedData,
+    prior::BayesianLassoPrior;
+    car_weights = nothing,
+    car_precision::Real = 1.0,
+)
+    p = size(data.z, 2)
+    expected = prior.lambda === nothing ? 2p + 1 : 2p
+    length(u) == expected || throw(DimensionMismatch("wrong state length for BayesianLassoPrior."))
+    length(grad) == length(u) || throw(DimensionMismatch("gradient length does not match state."))
+    beta = view(u, 1:p)
+    log_tau2 = view(u, (p + 1):(2p))
+
+    if prior.lambda === nothing
+        log_lambda2 = Float64(u[2p + 1])
+        lambda2 = exp(log_lambda2)
+        lp = logpdf(Gamma(prior.lambda2_shape, 1 / prior.lambda2_rate), lambda2) + log_lambda2
+        grad[2p + 1] += prior.lambda2_shape - prior.lambda2_rate * lambda2
+    else
+        lambda2 = prior.lambda^2
+        lp = 0.0
+    end
+
+    @inbounds for j in 1:p
+        lt = Float64(log_tau2[j])
+        tau2 = exp(lt)
+        lp += logpdf(Gamma(1.0, 2 / lambda2), tau2) + lt
+        lp += logpdf(Normal(0, sqrt(tau2)), beta[j])
+        inv_tau2 = inv(tau2)
+        beta2_inv = Float64(beta[j])^2 * inv_tau2
+        grad[j] -= Float64(beta[j]) * inv_tau2
+        grad[p + j] += 0.5 - 0.5 * lambda2 * tau2 + 0.5 * beta2_inv
+        if prior.lambda === nothing
+            grad[2p + 1] += 1.0 - 0.5 * lambda2 * tau2
+        end
+    end
+    return lp
+end

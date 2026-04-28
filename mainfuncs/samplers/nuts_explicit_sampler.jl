@@ -30,10 +30,10 @@ function _sample_explicit_nuts_one(
     isfinite(logdensity(target, init)) ||
         throw(ArgumentError("initial state has non-finite log posterior."))
 
-    logπ = u -> logdensity(target, u)
-    gradπ = u -> LogDensityProblems.logdensity_and_gradient(target, u)
+    logp = u -> logdensity(target, u)
+    gradlogp = u -> LogDensityProblems.logdensity_and_gradient(target, u)
     metric = AdvancedHMC.DiagEuclideanMetric(d)
-    hamiltonian = AdvancedHMC.Hamiltonian(metric, logπ, gradπ)
+    hamiltonian = AdvancedHMC.Hamiltonian(metric, logp, gradlogp)
     initial_step = AdvancedHMC.find_good_stepsize(rng, hamiltonian, init)
     integrator = AdvancedHMC.Leapfrog(initial_step)
     kernel = AdvancedHMC.HMCKernel(
@@ -86,10 +86,36 @@ struct CoxPosteriorTarget <: AbstractCoxTarget
     use_car::Bool
     car_precision::Float64
     names::Vector{String}
+    work::CoxGradientWorkspace
 end
 
 dimension(target::CoxPosteriorTarget) = length(target.names)
 state_names(target::CoxPosteriorTarget) = target.names
+
+function CoxPosteriorTarget(
+    data::CoxPreparedData,
+    prior::AbstractCoxPrior;
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    car_weights = nothing,
+    use_car::Bool = car_weights !== nothing,
+    car_precision::Real = 1.0,
+)
+    p = size(data.z, 2)
+    return CoxPosteriorTarget(
+        data,
+        prior,
+        constraint,
+        Float64(soft_center_scale),
+        Float64(prox_sum0_lambda),
+        car_weights,
+        use_car,
+        Float64(car_precision),
+        _state_names(prior, p),
+        CoxGradientWorkspace(data),
+    )
+end
 
 function logdensity(target::CoxPosteriorTarget, u::AbstractVector)
     return logposterior(
@@ -106,12 +132,40 @@ function logdensity(target::CoxPosteriorTarget, u::AbstractVector)
 end
 
 function gradient!(grad::AbstractVector{Float64}, target::CoxPosteriorTarget, u::AbstractVector)
-    ForwardDiff.gradient!(
+    logposterior_and_gradient!(
         grad,
-        x -> logdensity(target, x),
         u,
+        target.data,
+        target.prior,
+        target.work;
+        constraint = target.constraint,
+        soft_center_scale = target.soft_center_scale,
+        prox_sum0_lambda = target.prox_sum0_lambda,
+        car_weights = target.car_weights,
+        use_car = target.use_car,
+        car_precision = target.car_precision,
     )
     return grad
+end
+
+function logdensity_and_gradient!(
+    grad::AbstractVector{Float64},
+    target::CoxPosteriorTarget,
+    u::AbstractVector,
+)
+    return logposterior_and_gradient!(
+        grad,
+        u,
+        target.data,
+        target.prior,
+        target.work;
+        constraint = target.constraint,
+        soft_center_scale = target.soft_center_scale,
+        prox_sum0_lambda = target.prox_sum0_lambda,
+        car_weights = target.car_weights,
+        use_car = target.use_car,
+        car_precision = target.car_precision,
+    )
 end
 
 function _generic_explicit_initial(prior::AbstractCoxPrior, data::CoxPreparedData, initial)
@@ -142,17 +196,15 @@ function _make_explicit_nuts_target(
     kwargs...,
 )
     if constraint != :prox
-        p = size(data.z, 2)
         return CoxPosteriorTarget(
             data,
-            prior,
-            constraint,
-            Float64(soft_center_scale),
-            Float64(prox_sum0_lambda),
-            car_weights,
-            use_car,
-            Float64(car_precision),
-            _state_names(prior, p),
+            prior;
+            constraint = constraint,
+            soft_center_scale = soft_center_scale,
+            prox_sum0_lambda = prox_sum0_lambda,
+            car_weights = car_weights,
+            use_car = use_car,
+            car_precision = car_precision,
         )
     end
     return CoxProxLassoTarget(
@@ -180,18 +232,231 @@ function _make_explicit_nuts_target(
     car_precision::Real = 1.0,
     kwargs...,
 )
-    p = size(data.z, 2)
     return CoxPosteriorTarget(
         data,
-        prior,
-        constraint,
-        Float64(soft_center_scale),
-        Float64(prox_sum0_lambda),
-        car_weights,
-        use_car,
-        Float64(car_precision),
-        _state_names(prior, p),
+        prior;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+        car_weights = car_weights,
+        use_car = use_car,
+        car_precision = car_precision,
     )
+end
+
+function _sample_ssl_prox_explicit_nuts_gibbs(
+    data::CoxPreparedData,
+    prior::SpikeSlabLassoPrior;
+    n_samples::Integer,
+    warmup::Integer,
+    thin::Integer,
+    chains::Integer,
+    target_accept::Real,
+    max_depth::Integer,
+    rng::AbstractRNG,
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape,
+    alpha_prior_rate,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+    progress::Bool,
+    parallel_chains::Bool,
+)
+    timed = @timed begin
+        if chains == 1
+            _sample_ssl_prox_explicit_nuts_gibbs_one(
+                data,
+                prior;
+                n_samples = n_samples,
+                warmup = warmup,
+                thin = thin,
+                rng = rng,
+                target_accept = target_accept,
+                max_depth = max_depth,
+                constraint = constraint,
+                soft_center_scale = soft_center_scale,
+                prox_sum0_lambda = prox_sum0_lambda,
+                prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = alpha_prior_shape,
+                alpha_prior_rate = alpha_prior_rate,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
+                progress = progress,
+            )
+        else
+            samples = Vector{MHSamples}(undef, chains)
+            rngs = [_independent_rng(rng) for _ in 1:chains]
+            if parallel_chains
+                Threads.@threads for c in 1:chains
+                    samples[c] = _sample_ssl_prox_explicit_nuts_gibbs_one(
+                        data,
+                        prior;
+                        n_samples = n_samples,
+                        warmup = warmup,
+                        thin = thin,
+                        rng = rngs[c],
+                        target_accept = target_accept,
+                        max_depth = max_depth,
+                        constraint = constraint,
+                        soft_center_scale = soft_center_scale,
+                        prox_sum0_lambda = prox_sum0_lambda,
+                        prox_l1_lambda = prox_l1_lambda,
+                        alpha_prior_shape = alpha_prior_shape,
+                        alpha_prior_rate = alpha_prior_rate,
+                        prox_root_tol = prox_root_tol,
+                        prox_root_maxiter = prox_root_maxiter,
+                        progress = false,
+                    )
+                end
+            else
+                for c in 1:chains
+                    @info "Running explicit SSLASSO prox NUTS-Gibbs chain $c/$chains"
+                    samples[c] = _sample_ssl_prox_explicit_nuts_gibbs_one(
+                        data,
+                        prior;
+                        n_samples = n_samples,
+                        warmup = warmup,
+                        thin = thin,
+                        rng = rngs[c],
+                        target_accept = target_accept,
+                        max_depth = max_depth,
+                        constraint = constraint,
+                        soft_center_scale = soft_center_scale,
+                        prox_sum0_lambda = prox_sum0_lambda,
+                        prox_l1_lambda = prox_l1_lambda,
+                        alpha_prior_shape = alpha_prior_shape,
+                        alpha_prior_rate = alpha_prior_rate,
+                        prox_root_tol = prox_root_tol,
+                        prox_root_maxiter = prox_root_maxiter,
+                        progress = progress,
+                    )
+                end
+            end
+            MultiMHSamples(samples)
+        end
+    end
+    gc_percent = timed.time > 0 ? 100 * timed.gctime / timed.time : NaN
+    diagnostics = SamplingDiagnostics(missing, missing, timed.time, Int64(timed.bytes), timed.gctime, gc_percent)
+    return (samples = timed.value, diagnostics = diagnostics)
+end
+
+function _sample_ssl_prox_explicit_nuts_gibbs_one(
+    data::CoxPreparedData,
+    prior::SpikeSlabLassoPrior;
+    n_samples::Integer,
+    warmup::Integer,
+    thin::Integer,
+    rng::AbstractRNG,
+    target_accept::Real,
+    max_depth::Integer,
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape,
+    alpha_prior_rate,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+    progress::Bool,
+)
+    p = size(data.z, 2)
+    a_shape, a_rate = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
+    gamma = trues(p)
+    theta = 0.5
+    theta_ref = Ref(theta)
+    weights = _ssl_weights(prior, gamma)
+    spike_weight = inv(prior.spike_scale)
+    slab_weight = inv(prior.slab_scale)
+    total_iter = warmup + n_samples * thin
+    names = vcat(["beta[$j]" for j in 1:p], ["eta"], ["gamma[$j]" for j in 1:p], ["theta"])
+    draws = Matrix{Float64}(undef, n_samples, length(names))
+    lps = Vector{Float64}(undef, n_samples)
+    u = vcat(zeros(Float64, p), [0.0])
+    saved = 0
+    accept_sum = 0.0
+    accept_count = 0
+    prog = progress ? Progress(total_iter; desc = "SSLASSO explicit prox NUTS-Gibbs", showspeed = true, dt = 0.0) : nothing
+    for iter in 1:total_iter
+        theta_ref[] = theta
+        target = CoxProxSSLassoTarget(
+            data,
+            prior,
+            gamma,
+            theta_ref;
+            constraint = constraint,
+            soft_center_scale = soft_center_scale,
+            prox_sum0_lambda = prox_sum0_lambda,
+            prox_l1_lambda = prox_l1_lambda,
+            alpha_prior_shape = a_shape,
+            alpha_prior_rate = a_rate,
+            prox_root_tol = prox_root_tol,
+            prox_root_maxiter = prox_root_maxiter,
+        )
+        block = _sample_explicit_nuts_one(
+            target;
+            n_samples = 1,
+            warmup = 0,
+            rng = rng,
+            target_accept = target_accept,
+            max_depth = max_depth,
+            progress = false,
+            initial = u,
+        )
+        @views u .= block.draws[1, :]
+        if isfinite(block.acceptance_rate)
+            accept_sum += block.acceptance_rate
+            accept_count += 1
+        end
+
+        beta = view(u, 1:p)
+        alpha = exp(clamp(u[p + 1], -700.0, 700.0))
+        theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
+        for j in 1:p
+            gamma[j] = false
+            weights[j] = spike_weight
+            h0 = weighted_l1_moreau(beta, alpha, weights, prox_l1_lambda;
+                prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
+            gamma[j] = true
+            weights[j] = slab_weight
+            h1 = weighted_l1_moreau(beta, alpha, weights, prox_l1_lambda;
+                prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
+            logit_p = log(theta_clamped) - log1p(-theta_clamped) - (h1 - h0)
+            gamma[j] = rand(rng) < _logistic(logit_p)
+            weights[j] = gamma[j] ? slab_weight : spike_weight
+        end
+        theta = rand(rng, Beta(prior.theta_a + count(gamma), prior.theta_b + p - count(gamma)))
+
+        if iter > warmup && (iter - warmup) % thin == 0
+            saved += 1
+            @views draws[saved, 1:p] .= beta
+            draws[saved, p + 1] = u[p + 1]
+            @views draws[saved, (p + 2):(2p + 1)] .= Float64.(gamma)
+            draws[saved, 2p + 2] = theta
+            lps[saved] = _ssl_prox_logposterior(
+                u,
+                data,
+                prior,
+                gamma,
+                theta;
+                constraint = constraint,
+                soft_center_scale = soft_center_scale,
+                prox_sum0_lambda = prox_sum0_lambda,
+                prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = a_shape,
+                alpha_prior_rate = a_rate,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
+            )
+        end
+        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
+        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+    end
+    prog !== nothing && finish!(prog)
+    acc = accept_count == 0 ? NaN : accept_sum / accept_count
+    return MHSamples(draws, lps, names, acc, NaN, fill(NaN, length(names)))
 end
 
 function _sample_nuts_explicit(
@@ -219,6 +484,7 @@ function _sample_nuts_explicit(
     car_precision::Real = 1.0,
     progress::Bool = true,
     multichains::Bool = false,
+    parallel_chains::Union{Nothing,Bool} = nothing,
     kwargs...,
 )
     thin == 1 ||
@@ -234,10 +500,11 @@ function _sample_nuts_explicit(
     prox_root_maxiter > 0 || throw(ArgumentError("prox_root_maxiter must be positive."))
     a_shape, a_rate = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
     generic_initial = _generic_explicit_initial(prior, data, initial)
+    run_parallel = chains > 1 && something(parallel_chains, multichains || chains > 1)
 
     timed = @timed begin
         if prior isa SpikeSlabLassoPrior && resolved_constraint == :prox
-            return _sample_ssl_prox_nuts_gibbs(
+            return _sample_ssl_prox_explicit_nuts_gibbs(
                 data,
                 prior;
                 n_samples = n_samples,
@@ -245,6 +512,7 @@ function _sample_nuts_explicit(
                 thin = thin,
                 chains = chains,
                 target_accept = target_accept,
+                max_depth = max_depth,
                 rng = rng,
                 constraint = resolved_constraint,
                 soft_center_scale = scale,
@@ -255,6 +523,7 @@ function _sample_nuts_explicit(
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
                 progress = progress,
+                parallel_chains = run_parallel,
             )
         end
         if chains == 1
@@ -286,7 +555,7 @@ function _sample_nuts_explicit(
         else
             samples = Vector{MHSamples}(undef, chains)
             rngs = [_independent_rng(rng) for _ in 1:chains]
-            if multichains
+            if run_parallel
                 Threads.@threads for c in 1:chains
                     target = _make_explicit_nuts_target(
                         data,

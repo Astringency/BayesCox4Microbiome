@@ -158,6 +158,16 @@ function _halfcauchy_logpdf(x, scale)
     return log(2) - log(pi) - log(scale) - log1p((x / scale)^2)
 end
 
+function _halfcauchy_logx_gradient(log_x::Real, scale::Real)
+    scale > 0 || return NaN
+    return 1.0 - 2.0 * _logistic(2.0 * (Float64(log_x) - log(Float64(scale))))
+end
+
+function _halfcauchy_logscale_gradient(log_x::Real, scale::Real)
+    scale > 0 || return NaN
+    return -1.0 + 2.0 * _logistic(2.0 * (Float64(log_x) - log(Float64(scale))))
+end
+
 function _laplace_logpdf(x, scale)
     scale > 0 || return -Inf
     return -log(2 * scale) - abs(x) / scale
@@ -194,6 +204,20 @@ function _logistic(x)
     end
 end
 
+function _clamped_exp_with_derivative(x::Real, lo::Real, hi::Real)
+    xc = clamp(Float64(x), Float64(lo), Float64(hi))
+    y = exp(xc)
+    dy = (Float64(lo) < Float64(x) < Float64(hi)) ? y : 0.0
+    return y, dy
+end
+
+function _positive_t_logpdf_derivative(x::Real, df::Real, scale::Real)
+    x > 0 || return NaN
+    ν = Float64(df)
+    s = Float64(scale)
+    return -(ν + 1.0) * Float64(x) / (ν * s^2 + Float64(x)^2)
+end
+
 function _car_logprior(loglambda::AbstractVector, weights, precision::Real)
     weights === nothing && return 0.0
     return _car_logprior(loglambda, _prepare_car_weights(weights, length(loglambda)), precision)
@@ -210,6 +234,42 @@ function _car_logprior(loglambda::AbstractVector, weights::CARWeightEdges, preci
         lp -= scale * weights.w[k] * d^2
     end
     return lp
+end
+
+function _car_logprior_gradient!(
+    grad::AbstractVector{Float64},
+    loglambda::AbstractVector,
+    weights,
+    precision::Real,
+)
+    weights === nothing && return grad
+    return _car_logprior_gradient!(
+        grad,
+        loglambda,
+        _prepare_car_weights(weights, length(loglambda)),
+        precision,
+    )
+end
+
+function _car_logprior_gradient!(
+    grad::AbstractVector{Float64},
+    loglambda::AbstractVector,
+    weights::CARWeightEdges,
+    precision::Real,
+)
+    p = length(loglambda)
+    length(grad) == p || throw(DimensionMismatch("CAR gradient length must match loglambda."))
+    weights.p == p || throw(DimensionMismatch("car_weights must have length p."))
+    prec = _check_positive(precision, "car_precision")
+    @inbounds for k in eachindex(weights.w)
+        i = weights.i[k]
+        j = weights.j[k]
+        d = Float64(loglambda[i]) - Float64(loglambda[j])
+        v = prec * weights.w[k] * d
+        grad[i] -= v
+        grad[j] += v
+    end
+    return grad
 end
 
 function _soft_center_logpdf(beta::AbstractVector, scale::Real)

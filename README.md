@@ -42,7 +42,7 @@ julia --project=. scripts\run_simulation.jl --samples 50 --warmup 20 --reps 1
 julia --project=. scripts\analyze_real_data.jl --samples 50 --warmup 20
 julia --project=. scripts\sampler_matrix_experiment.jl
 julia --project=. scripts\bench_cox_gradient.jl 400 50
-julia --project=. scripts\bench_samplers.jl 400 50 25 25
+julia --project=. scripts\bench_samplers.jl 400 50 25 25 2
 ```
 
 For threaded NUTS chains, start Julia with threads enabled:
@@ -109,11 +109,6 @@ BayesCox4Micro/
     run_diagnose.{ps1,cmd,sh}
   data/
     T1D.csv
-  docs/
-    cox4microbiome.pdf
-    cox4microbiome_detail.pdf
-    cox4microbiome_prox.pdf
-    ref_R_code/
   test/
     runtests.jl
   results/
@@ -246,13 +241,12 @@ Supported sampler symbols are:
 - `:nuts`: NUTS with selectable backend. The default
   `nuts_backend = :turing` preserves the existing Turing.jl behavior. Use
   `nuts_backend = :explicit` for the AdvancedHMC explicit-gradient backend.
-  The explicit backend supports all built-in priors. Proximal Bayesian LASSO
-  uses its hand-coded proximal gradient target; other priors use the shared
-  posterior target with an explicit ForwardDiff gradient. Proximal SSLASSO uses
-  the existing NUTS/Gibbs block update for its continuous and discrete blocks.
+  The explicit backend supports all built-in priors with hand-coded gradients.
+  Proximal Bayesian LASSO and proximal SSLASSO use explicit-gradient proximal
+  NUTS blocks.
 - `:nuts_explicit`: convenience alias for `sampler = :nuts,
-  nuts_backend = :explicit`.
-- `:nuts_explict`: accepted misspelling of `:nuts_explicit`.
+  nuts_backend = :explicit`. The historical typo `:nuts_explict` is also
+  accepted.
 - `:nuts_turing`: convenience alias for `sampler = :nuts,
   nuts_backend = :turing`.
 - `:mh`: adaptive random-walk Metropolis fallback.
@@ -266,10 +260,11 @@ Supported sampler symbols are:
   CAR weights.
 
 Turing NUTS supports multiple threaded chains through `Turing.MCMCThreads()`
-when `chains > 1`. Built-in MH/MALA/ULA/Gibbs and explicit NUTS parallelize at
-the chain level when `multichains = true`; each chain gets an independent RNG
-and private sampler workspaces. Progress bars are disabled inside threaded
-worker chains.
+when `chains > 1`. Explicit NUTS defaults to chain-level threading when
+`chains > 1`; pass `parallel_chains = false` to force serial chains. Built-in
+MH/MALA/ULA/Gibbs still use `multichains = true` for chain-level threading.
+Each threaded chain gets an independent RNG and private sampler workspaces.
+Progress bars are disabled inside threaded worker chains.
 
 All sampler outputs can be saved through `save_run_outputs`. Turing NUTS
 results keep the original Turing/MCMCChains chain dimension. Built-in `:mh`,
@@ -363,7 +358,7 @@ julia --project=. scripts\run_simulation.jl --sampler mala --constraint prox --p
 | `--baseline` | `weibull` | Baseline event-time model. Supported values are `weibull`, `exponential`, and `gompertz`; comma-separated grids are supported. |
 | `--priors` | `hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso` | Comma-separated prior names to fit. |
 | `--sampler` | `nuts` | Sampler backend. Supported values are `nuts`, `mh`, `mala`, `ula`, and `gibbs`. `gibbs` is only implemented for SSLASSO. |
-| `--nuts-backend` | `turing` | Backend used when `--sampler nuts`. Supported values are `turing` and `explicit`. The aliases `--sampler nuts_turing`, `--sampler nuts_explicit`, and the accepted misspelling `nuts_explict` select the corresponding backend directly. |
+| `--nuts-backend` | `turing` | Backend used when `--sampler nuts`. Supported values are `turing` and `explicit`. The aliases `--sampler nuts_turing` and `--sampler nuts_explicit` select the corresponding backend directly. |
 | `--samples` | `500` | Number of saved posterior samples per fit. |
 | `--warmup` | `200` | Number of warmup/adaptation iterations. |
 | `--chains` | `4` | Number of chains. NUTS uses Turing's multi-chain sampler; `mh`, `mala`, `ula`, and `gibbs` run independent chains and combine them for diagnostics. |
@@ -442,7 +437,7 @@ julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler ma
 | `--exclude-cols` | `Sex,Antibiotics` | Comma-separated non-taxa columns to exclude from the abundance matrix, in addition to the time and status columns. |
 | `--priors` | `hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso` | Comma-separated prior names to fit. |
 | `--sampler` | `nuts` | Sampler backend. Supported values are `nuts`, `mh`, `mala`, `ula`, and `gibbs`. `gibbs` is only implemented for SSLASSO. |
-| `--nuts-backend` | `turing` | Backend used when `--sampler nuts`. Supported values are `turing` and `explicit`. The aliases `--sampler nuts_turing`, `--sampler nuts_explicit`, and the accepted misspelling `nuts_explict` select the corresponding backend directly. |
+| `--nuts-backend` | `turing` | Backend used when `--sampler nuts`. Supported values are `turing` and `explicit`. The aliases `--sampler nuts_turing` and `--sampler nuts_explicit` select the corresponding backend directly. |
 | `--samples` | `500` | Number of saved posterior samples per fit. |
 | `--warmup` | `200` | Number of warmup/adaptation iterations. |
 | `--chains` | `4` | Number of chains. NUTS uses Turing's multi-chain sampler; `mh`, `mala`, `ula`, and `gibbs` run independent chains and combine them for diagnostics. |
@@ -585,7 +580,7 @@ hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso
 against the samplers:
 
 ```text
-mh,mala,ula,gibbs,nuts_explict,nuts_turing
+mh,mala,ula,gibbs,nuts_explicit,nuts_turing
 ```
 
 The script writes an incremental CSV summary to:

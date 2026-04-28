@@ -7,6 +7,8 @@ using ForwardDiff
 using JLD2
 using MCMCChains
 
+const B = BayesCox4Micro
+
 @testset "sum-to-zero Moreau helpers" begin
     beta = [1.0, -2.0, 4.0, 0.5]
     proj = project_sum0(beta)
@@ -69,6 +71,76 @@ end
         fd = (cox_logpartiallikelihood(data, beta .+ e) - cox_logpartiallikelihood(data, beta .- e)) / (2epsfd)
         @test grad[j] ≈ fd atol=1e-5 rtol=1e-5
     end
+end
+
+function _explicit_initial_for_test(prior, data)
+    p = size(data.z, 2)
+    n_events = count(!=(0), data.event)
+    return prior isa RegularizedHorseshoePrior ?
+        initial_state(prior, p, n_events; n_obs = size(data.z, 1)) :
+        initial_state(prior, p, n_events)
+end
+
+@testset "explicit NUTS posterior gradients" begin
+    Random.seed!(21)
+    X = rand(8, 3) .+ 0.2
+    time = collect(1.0:8.0)
+    event = [1, 0, 1, 1, 0, 1, 0, 1]
+    data = prepare_cox_data(X, time, event; transform = :none)
+    cases = [
+        ("hs", cox_paper_prior("hs"; p0 = 1.0)),
+        ("rhs", cox_paper_prior("rhs"; p0 = 1.0)),
+        ("new-rhs", cox_paper_prior("new-rhs"; p0 = 1.0)),
+        ("est-rhs", cox_paper_prior("est-rhs"; p0 = 1.0, X = X, time = time, event = event, transform = :none)),
+        ("cox-hs", cox_paper_prior("cox-hs"; p0 = 1.0)),
+        ("cox-rhs", cox_paper_prior("cox-rhs"; p0 = 1.0)),
+        ("lasso", cox_paper_prior("lasso"; p0 = 1.0)),
+        ("sslasso", cox_paper_prior("sslasso"; p0 = 1.0)),
+    ]
+    for (name, prior) in cases
+        target = B._make_explicit_nuts_target(
+            data,
+            prior;
+            constraint = :soft_center,
+            soft_center_scale = 0.5,
+            prox_sum0_lambda = 1e-3,
+            prox_l1_lambda = 1e-3,
+            alpha_prior_shape = 1.0,
+            alpha_prior_rate = 0.1,
+            prox_root_tol = 1e-10,
+            prox_root_maxiter = 100,
+        )
+        u = _explicit_initial_for_test(prior, data)
+        u .+= 0.05 .* randn(length(u))
+        grad = zeros(Float64, length(u))
+        gradient!(grad, target, u)
+        grad_ad = ForwardDiff.gradient(x -> logdensity(target, x), u)
+        @test maximum(abs.(grad .- grad_ad)) < 1e-7
+        @test logdensity_and_gradient!(similar(grad), target, u)[1] ≈ logdensity(target, u)
+    end
+
+    car_weights = B._prepare_car_weights([0.0 1.0 0.3; 1.0 0.0 0.2; 0.3 0.2 0.0], 3)
+    prior = HorseshoePrior(p0 = 1.0)
+    target = B._make_explicit_nuts_target(
+        data,
+        prior;
+        constraint = :none,
+        soft_center_scale = 0.5,
+        prox_sum0_lambda = 1e-3,
+        prox_l1_lambda = 1e-3,
+        alpha_prior_shape = 1.0,
+        alpha_prior_rate = 0.1,
+        prox_root_tol = 1e-10,
+        prox_root_maxiter = 100,
+        car_weights = car_weights,
+        use_car = true,
+        car_precision = 1.7,
+    )
+    u = _explicit_initial_for_test(prior, data) .+ 0.05 .* randn(length(state_names(target)))
+    grad = zeros(Float64, length(u))
+    gradient!(grad, target, u)
+    grad_ad = ForwardDiff.gradient(x -> logdensity(target, x), u)
+    @test maximum(abs.(grad .- grad_ad)) < 1e-7
 end
 
 @testset "MALA samplers short chains" begin
@@ -228,11 +300,62 @@ end
         chains = 2,
         progress = false,
         seed = 8,
+        parallel_chains = true,
     )
     @test nuts_explicit.samples isa MultiMHSamples
     @test size(result_to_chains(nuts_explicit), 3) == 2
     @test size(posterior_beta_draws(nuts_explicit)) == (4, 3)
     @test length(posterior_logposterior_draws(nuts_explicit)) == 4
+
+    hs_explicit = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = HorseshoePrior(p0 = 1.0),
+        sampler = :nuts_explict,
+        constraint = :soft_center,
+        n_samples = 1,
+        warmup = 1,
+        chains = 1,
+        max_depth = 2,
+        progress = false,
+        seed = 9,
+    )
+    @test size(posterior_beta_draws(hs_explicit)) == (1, 3)
+
+    hs_multi = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = HorseshoePrior(p0 = 1.0),
+        sampler = :nuts_explicit,
+        constraint = :soft_center,
+        n_samples = 1,
+        warmup = 1,
+        chains = 2,
+        max_depth = 2,
+        progress = false,
+        seed = 10,
+    )
+    @test hs_multi.samples isa MultiMHSamples
+    @test size(posterior_beta_draws(hs_multi)) == (2, 3)
+
+    sslasso_prox = sample_bayes_cox(
+        X[:, 1:2],
+        time,
+        event;
+        prior = SpikeSlabLassoPrior(),
+        sampler = :nuts_explicit,
+        constraint = :prox,
+        n_samples = 1,
+        warmup = 0,
+        chains = 1,
+        max_depth = 1,
+        progress = false,
+        seed = 13,
+    )
+    @test size(posterior_beta_draws(sslasso_prox)) == (1, 2)
+    @test length(sslasso_inclusion_probabilities(sslasso_prox)) == 2
 end
 
 function toy_result(samples)

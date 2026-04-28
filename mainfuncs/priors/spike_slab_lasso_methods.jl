@@ -49,3 +49,35 @@ function _prior_logposterior(
     end
     return lp
 end
+
+function _prior_logposterior_and_gradient!(
+    grad::AbstractVector{Float64},
+    u::AbstractVector,
+    data::CoxPreparedData,
+    prior::SpikeSlabLassoPrior;
+    car_weights = nothing,
+    car_precision::Real = 1.0,
+)
+    p = size(data.z, 2)
+    length(u) == p + 1 || throw(DimensionMismatch("wrong state length for SpikeSlabLassoPrior."))
+    length(grad) == length(u) || throw(DimensionMismatch("gradient length does not match state."))
+    beta = view(u, 1:p)
+    logit_theta = Float64(u[p + 1])
+    theta = _logistic(logit_theta)
+
+    lp = logpdf(Beta(prior.theta_a, prior.theta_b), theta) + log(theta) + log1p(-theta)
+    grad[p + 1] += prior.theta_a * (1.0 - theta) - prior.theta_b * theta
+    @inbounds for j in 1:p
+        b = Float64(beta[j])
+        log_spike = log1p(-theta) + _laplace_logpdf(b, prior.spike_scale)
+        log_slab = log(theta) + _laplace_logpdf(b, prior.slab_scale)
+        norm = _logsumexp2(log_spike, log_slab)
+        prob_spike = exp(log_spike - norm)
+        prob_slab = exp(log_slab - norm)
+        lp += norm
+        sgn = b > 0 ? 1.0 : b < 0 ? -1.0 : 0.0
+        grad[j] -= sgn * (prob_spike / prior.spike_scale + prob_slab / prior.slab_scale)
+        grad[p + 1] += prob_slab - theta
+    end
+    return lp
+end

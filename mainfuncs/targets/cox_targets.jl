@@ -168,6 +168,51 @@ end
 
 function logdensity_and_gradient!(
     grad::AbstractVector{Float64},
+    target::CoxProxLassoTarget,
+    u::AbstractVector,
+)
+    return _lasso_prox_logposterior_and_gradient!(
+        grad,
+        u,
+        target.data,
+        target.work;
+        constraint = target.constraint,
+        soft_center_scale = target.soft_center_scale,
+        prox_sum0_lambda = target.prox_sum0_lambda,
+        prox_l1_lambda = target.prox_l1_lambda,
+        alpha_prior_shape = target.alpha_prior_shape,
+        alpha_prior_rate = target.alpha_prior_rate,
+        prox_root_tol = target.prox_root_tol,
+        prox_root_maxiter = target.prox_root_maxiter,
+    )
+end
+
+function logdensity_and_gradient!(
+    grad::AbstractVector{Float64},
+    target::CoxProxSSLassoTarget,
+    u::AbstractVector,
+)
+    return _ssl_prox_logposterior_and_gradient!(
+        grad,
+        u,
+        target.data,
+        target.prior,
+        target.gamma,
+        target.theta[],
+        target.work;
+        constraint = target.constraint,
+        soft_center_scale = target.soft_center_scale,
+        prox_sum0_lambda = target.prox_sum0_lambda,
+        prox_l1_lambda = target.prox_l1_lambda,
+        alpha_prior_shape = target.alpha_prior_shape,
+        alpha_prior_rate = target.alpha_prior_rate,
+        prox_root_tol = target.prox_root_tol,
+        prox_root_maxiter = target.prox_root_maxiter,
+    )
+end
+
+function logdensity_and_gradient!(
+    grad::AbstractVector{Float64},
     target::AbstractCoxTarget,
     u::AbstractVector,
 )
@@ -188,5 +233,5 @@ function LogDensityProblems.logdensity_and_gradient(
 )
     grad = Vector{Float64}(undef, dimension(target))
     lp, grad = logdensity_and_gradient!(grad, target, u)
-    return lp, copy(grad)
+    return lp, grad
 end

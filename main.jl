@@ -7,7 +7,6 @@ using Distributions
 using Distances
 using Survival
 using ProgressMeter
-import ForwardDiff
 import AdvancedHMC
 import LogDensityProblems
 import Turing

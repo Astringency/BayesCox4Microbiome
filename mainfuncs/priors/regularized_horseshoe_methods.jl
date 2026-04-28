@@ -20,7 +20,7 @@ function _resolved_tau_scale(
     n_events::Integer;
     n_obs::Union{Nothing,Integer} = nothing,
 )
-    formula = prior.tau_formula == :auto ? (prior.use_cox_tau0 ? :cox : :fixed) : prior.tau_formula
+    formula = _resolved_tau_formula(prior)
     default_sigma = prior.sample_pseudo_sigma ? sqrt(prior.pseudo_sigma_scale) : 1.0
     n_linear = n_obs === nothing ? n_events : n_obs
     return formula == :cox ? cox_tau0(p, prior.p0, n_events) :
@@ -34,11 +34,14 @@ function _resolved_tau_scale(
     pseudo_sigma = prior.pseudo_sigma,
 )
     p = size(data.z, 2)
-    formula = prior.tau_formula == :auto ? (prior.use_cox_tau0 ? :cox : :fixed) : prior.tau_formula
+    formula = _resolved_tau_formula(prior)
     return formula == :cox ? cox_tau0(p, prior.p0, count(!=(0), data.event)) :
            formula == :linear ? linear_tau0(p, prior.p0, size(data.z, 1), something(pseudo_sigma, 1.0)) :
            prior.tau_scale
 end
+
+_resolved_tau_formula(prior::RegularizedHorseshoePrior) =
+    prior.tau_formula == :auto ? (prior.use_cox_tau0 ? :cox : :fixed) : prior.tau_formula
 
 function _state_names(prior::RegularizedHorseshoePrior, p::Integer)
     names = vcat(
@@ -109,5 +112,85 @@ function _prior_logposterior(
     end
     lp += logpdf(InverseGamma(prior.slab_df / 2, prior.slab_df * prior.slab_s2 / 2), c2) + log_c2
     lp += _car_logprior(log_lambda, car_weights, car_precision)
+    return lp
+end
+
+function _prior_logposterior_and_gradient!(
+    grad::AbstractVector{Float64},
+    u::AbstractVector,
+    data::CoxPreparedData,
+    prior::RegularizedHorseshoePrior;
+    car_weights = nothing,
+    car_precision::Real = 1.0,
+)
+    p = size(data.z, 2)
+    expected = prior.sample_pseudo_sigma ? 2p + 3 : 2p + 2
+    length(u) == expected ||
+        throw(DimensionMismatch("wrong state length for RegularizedHorseshoePrior."))
+    length(grad) == length(u) || throw(DimensionMismatch("gradient length does not match state."))
+    beta = view(u, 1:p)
+    log_tau = Float64(u[p + 1])
+    log_lambda = view(u, (p + 2):(2p + 1))
+    log_c2 = Float64(u[2p + 2])
+    log_pseudo_sigma2 = prior.sample_pseudo_sigma ? Float64(u[2p + 3]) : 0.0
+    tau = exp(log_tau)
+    c2 = exp(log_c2)
+    pseudo_sigma2 = nothing
+    pseudo_sigma = prior.pseudo_sigma
+    pseudo_sigma2_deriv = 0.0
+    if prior.sample_pseudo_sigma
+        pseudo_sigma2, pseudo_sigma2_deriv =
+            _clamped_exp_with_derivative(log_pseudo_sigma2, -20.0, 20.0)
+        pseudo_sigma = sqrt(pseudo_sigma2)
+    end
+    tau_scale = _resolved_tau_scale(prior, data; pseudo_sigma = pseudo_sigma)
+
+    lp = _halfcauchy_logpdf(tau, tau_scale) + log_tau
+    grad[p + 1] += _halfcauchy_logx_gradient(log_tau, tau_scale)
+
+    if prior.sample_pseudo_sigma
+        lp += _log_positive_t_pdf(
+            pseudo_sigma2,
+            prior.pseudo_sigma_df,
+            prior.pseudo_sigma_scale,
+        ) + log_pseudo_sigma2
+        grad[2p + 3] += 1.0 + pseudo_sigma2_deriv *
+            _positive_t_logpdf_derivative(
+                pseudo_sigma2,
+                prior.pseudo_sigma_df,
+                prior.pseudo_sigma_scale,
+            )
+        if _resolved_tau_formula(prior) == :linear
+            grad[2p + 3] += 0.5 * (pseudo_sigma2_deriv / pseudo_sigma2) *
+                _halfcauchy_logscale_gradient(log_tau, tau_scale)
+        end
+    end
+
+    @inbounds for j in 1:p
+        logλ = Float64(log_lambda[j])
+        λ = exp(logλ)
+        lp += _halfcauchy_logpdf(λ, prior.local_scale) + logλ
+        log_beta_scale = _regularized_horseshoe_beta_logscale(tau, λ, c2)
+        inv_scale2 = exp(-2.0 * log_beta_scale)
+        beta2_inv = Float64(beta[j])^2 * inv_scale2
+        lp += _normal_zero_logpdf_from_logscale(beta[j], log_beta_scale)
+        normal_logscale_grad = -1.0 + beta2_inv
+        a_over_sum = _logistic(2.0 * (log_tau + logλ) - log_c2)
+        c_over_sum = 1.0 - a_over_sum
+
+        grad[j] -= Float64(beta[j]) * inv_scale2
+        grad[p + 1] += normal_logscale_grad * c_over_sum
+        grad[p + 1 + j] += _halfcauchy_logx_gradient(logλ, prior.local_scale) +
+            normal_logscale_grad * c_over_sum
+        grad[2p + 2] += normal_logscale_grad * 0.5 * a_over_sum
+    end
+
+    slab_a = prior.slab_df / 2
+    slab_b = prior.slab_df * prior.slab_s2 / 2
+    lp += logpdf(InverseGamma(slab_a, slab_b), c2) + log_c2
+    grad[2p + 2] += -slab_a + slab_b / c2
+
+    lp += _car_logprior(log_lambda, car_weights, car_precision)
+    _car_logprior_gradient!(view(grad, (p + 2):(2p + 1)), log_lambda, car_weights, car_precision)
     return lp
 end

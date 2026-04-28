@@ -1,4 +1,6 @@
 using BayesCox4Micro
+using DataFrames
+using MCMCChains
 using Random
 using Statistics
 
@@ -27,8 +29,20 @@ function run_case(label, f)
         else
             NaN
         end
+    ess_bulk_min, rhat_max = try
+        stats = DataFrame(summarystats(result_to_chains(result)))
+        ess_col =
+            :ess_bulk in propertynames(stats) ? :ess_bulk :
+            :ess in propertynames(stats) ? :ess : nothing
+        rhat_col = :rhat in propertynames(stats) ? :rhat : nothing
+        ess = ess_col === nothing ? NaN : minimum(skipmissing(stats[!, ess_col]))
+        rhat = rhat_col === nothing ? NaN : maximum(skipmissing(stats[!, rhat_col]))
+        Float64(ess), Float64(rhat)
+    catch
+        NaN, NaN
+    end
     draws = size(posterior_beta_draws(result), 1)
-    println("$label,$(timed.time),$(timed.bytes / 2.0^20),$accept,$draws,$(diag.gc_percent)")
+    println("$label,$(diag.total_seconds),$(diag.allocated_bytes / 2.0^20),$(diag.gc_percent),$accept,$draws,$ess_bulk_min,$rhat_max,$(timed.time),$(timed.bytes / 2.0^20)")
     return result
 end
 
@@ -37,10 +51,11 @@ function main()
     p = length(ARGS) >= 2 ? parse(Int, ARGS[2]) : 50
     n_samples = length(ARGS) >= 3 ? parse(Int, ARGS[3]) : 25
     warmup = length(ARGS) >= 4 ? parse(Int, ARGS[4]) : 25
+    chains = length(ARGS) >= 5 ? parse(Int, ARGS[5]) : 2
     X, time, event = simulation_data(n, p)
     prior = BayesianLassoPrior()
 
-    println("sampler,time_seconds,allocated_mb,acceptance_rate,draws,gc_percent")
+    println("sampler,total_seconds,allocated_mb,gc_percent,acceptance_rate,draws,ess_bulk_min,rhat_max,outer_seconds,outer_allocated_mb")
 
     for (label, f) in (
         ("nuts_turing", () -> sample_bayes_cox(
@@ -53,7 +68,7 @@ function main()
             constraint = :prox,
             n_samples = n_samples,
             warmup = warmup,
-            chains = 1,
+            chains = chains,
             progress = false,
             seed = 11,
             transform = :none,
@@ -68,7 +83,8 @@ function main()
             constraint = :prox,
             n_samples = n_samples,
             warmup = warmup,
-            chains = 1,
+            chains = chains,
+            parallel_chains = true,
             progress = false,
             seed = 12,
             transform = :none,
@@ -82,6 +98,8 @@ function main()
             constraint = :prox,
             n_samples = n_samples,
             warmup = warmup,
+            chains = chains,
+            multichains = true,
             mala_step_size = 1e-6,
             progress = false,
             seed = 13,
@@ -96,6 +114,8 @@ function main()
             constraint = :prox,
             n_samples = n_samples,
             warmup = warmup,
+            chains = chains,
+            multichains = true,
             mala_step_size = 1e-6,
             progress = false,
             seed = 14,

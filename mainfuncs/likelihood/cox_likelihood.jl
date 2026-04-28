@@ -146,6 +146,34 @@ function cox_score_gradient!(
     beta::AbstractVector,
     work::CoxGradientWorkspace,
 )
+    cox_logpartiallikelihood_and_score_gradient!(grad, z, event, risk, beta, work)
+    return grad
+end
+
+function cox_logpartiallikelihood_and_score_gradient!(
+    grad::AbstractVector{Float64},
+    data::CoxPreparedData,
+    beta::AbstractVector,
+    work::CoxGradientWorkspace,
+)
+    return cox_logpartiallikelihood_and_score_gradient!(
+        grad,
+        data.z,
+        data.event,
+        data.risk,
+        beta,
+        work,
+    )
+end
+
+function cox_logpartiallikelihood_and_score_gradient!(
+    grad::AbstractVector{Float64},
+    z::AbstractMatrix,
+    event::AbstractVector{<:Integer},
+    risk::CoxRiskSet,
+    beta::AbstractVector,
+    work::CoxGradientWorkspace,
+)
     n, p = size(z)
     length(beta) == p || throw(DimensionMismatch("length(beta) must match size(z, 2)."))
     length(event) == n || throw(DimensionMismatch("length(event) must match size(z, 1)."))
@@ -160,6 +188,7 @@ function cox_score_gradient!(
     eta = work.eta
     fill!(grad, 0.0)
     fill!(work.s1, 0.0)
+    lp = 0.0
     @inbounds for i in 1:n
         s = 0.0
         for j in 1:p
@@ -188,17 +217,19 @@ function cox_score_gradient!(
             end
         end
         s0 > 0 || throw(ArgumentError("encountered an empty or degenerate Cox risk set."))
+        logden = max_eta + log(s0)
         for j in 1:p
             work.group_mean[k, j] = work.s1[j] / s0
         end
         for pos in risk.group_start[k]:risk.group_stop[k]
             i = risk.order[pos]
             if event[i] != 0
+                lp += eta[i] - logden
                 for j in 1:p
                     grad[j] += Float64(z[i, j]) - work.group_mean[k, j]
                 end
             end
         end
     end
-    return grad
+    return lp
 end

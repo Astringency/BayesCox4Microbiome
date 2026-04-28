@@ -561,7 +561,7 @@ function _lasso_prox_gradient!(
     length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox LASSO."))
     beta = view(u, 1:p)
     eta = u[p + 1]
-    alpha = exp(clamp(eta, -700.0, 700.0))
+    alpha, alpha_deriv = _clamped_exp_with_derivative(eta, -700.0, 700.0)
     lambda_l1 = _check_positive(prox_l1_lambda, "prox_l1_lambda")
     prox = project_l1_epigraph!(
         work.prox_beta,
@@ -582,8 +582,63 @@ function _lasso_prox_gradient!(
         grad[j] -= (Float64(beta[j]) - prox.beta[j]) / lambda_l1
     end
     grad[p + 1] = Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) -
-        alpha * (alpha - prox.alpha) / lambda_l1
+        alpha_deriv * (alpha - prox.alpha) / lambda_l1
     return grad
+end
+
+function _lasso_prox_logposterior_and_gradient!(
+    grad::AbstractVector{Float64},
+    u::AbstractVector,
+    data::CoxPreparedData,
+    work::ProxGradientWorkspace;
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape::Real,
+    alpha_prior_rate::Real,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+)
+    p = size(data.z, 2)
+    length(u) == p + 1 || throw(DimensionMismatch("u length must be p + 1 for prox LASSO."))
+    length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox LASSO."))
+    beta = view(u, 1:p)
+    eta = u[p + 1]
+    alpha, alpha_deriv = _clamped_exp_with_derivative(eta, -700.0, 700.0)
+    lambda_l1 = _check_positive(prox_l1_lambda, "prox_l1_lambda")
+    prox = project_l1_epigraph!(
+        work.prox_beta,
+        beta,
+        alpha;
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work.cox)
+    lp += _constraint_logpenalty(
+        beta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+    )
+    _constraint_gradient_penalty!(
+        view(grad, 1:p),
+        beta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+    )
+    dist2 = (Float64(alpha) - Float64(prox.alpha))^2
+    @inbounds for j in 1:p
+        residual = Float64(beta[j]) - Float64(prox.beta[j])
+        dist2 += residual^2
+        grad[j] -= residual / lambda_l1
+    end
+    lp -= 0.5 * dist2 / lambda_l1
+    lp += -Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) * eta
+    grad[p + 1] = Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) -
+        alpha_deriv * (Float64(alpha) - Float64(prox.alpha)) / lambda_l1
+    return lp, grad
 end
 
 function _sample_lasso_prox_mala(
@@ -881,7 +936,7 @@ function _ssl_prox_gradient!(
     length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox SSLASSO."))
     beta = view(u, 1:p)
     eta = u[p + 1]
-    alpha = exp(clamp(eta, -700.0, 700.0))
+    alpha, alpha_deriv = _clamped_exp_with_derivative(eta, -700.0, 700.0)
     weights = _ssl_weights!(work.weights, prior, gamma)
     lambda_l1 = _check_positive(prox_l1_lambda, "prox_l1_lambda")
     prox = project_weighted_l1_epigraph!(
@@ -904,8 +959,70 @@ function _ssl_prox_gradient!(
         grad[j] -= (Float64(beta[j]) - prox.beta[j]) / lambda_l1
     end
     grad[p + 1] = Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) -
-        alpha * (alpha - prox.alpha) / lambda_l1
+        alpha_deriv * (alpha - prox.alpha) / lambda_l1
     return grad
+end
+
+function _ssl_prox_logposterior_and_gradient!(
+    grad::AbstractVector{Float64},
+    u::AbstractVector,
+    data::CoxPreparedData,
+    prior::SpikeSlabLassoPrior,
+    gamma::AbstractVector{Bool},
+    theta::Real,
+    work::ProxGradientWorkspace;
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape::Real,
+    alpha_prior_rate::Real,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+)
+    p = size(data.z, 2)
+    length(u) == p + 1 || throw(DimensionMismatch("u length must be p + 1 for prox SSLASSO."))
+    length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox SSLASSO."))
+    beta = view(u, 1:p)
+    eta = u[p + 1]
+    alpha, alpha_deriv = _clamped_exp_with_derivative(eta, -700.0, 700.0)
+    weights = _ssl_weights!(work.weights, prior, gamma)
+    lambda_l1 = _check_positive(prox_l1_lambda, "prox_l1_lambda")
+    prox = project_weighted_l1_epigraph!(
+        work.prox_beta,
+        beta,
+        alpha,
+        weights;
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work.cox)
+    lp += _constraint_logpenalty(
+        beta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+    )
+    _constraint_gradient_penalty!(
+        view(grad, 1:p),
+        beta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+    )
+    dist2 = (Float64(alpha) - Float64(prox.alpha))^2
+    @inbounds for j in 1:p
+        residual = Float64(beta[j]) - Float64(prox.beta[j])
+        dist2 += residual^2
+        grad[j] -= residual / lambda_l1
+    end
+    lp -= 0.5 * dist2 / lambda_l1
+    lp += -Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) * eta
+    theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
+    lp += sum(gamma) * log(theta_clamped) + (length(gamma) - sum(gamma)) * log1p(-theta_clamped)
+    grad[p + 1] = Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) -
+        alpha_deriv * (Float64(alpha) - Float64(prox.alpha)) / lambda_l1
+    return lp, grad
 end
 
 function _sample_ssl_prox_mala(

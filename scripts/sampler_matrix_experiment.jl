@@ -7,7 +7,7 @@ using Dates
 using Statistics
 
 const PRIORS = ["hs", "rhs", "new-rhs", "est-rhs", "cox-hs", "cox-rhs", "lasso", "sslasso"]
-const SAMPLERS = [:mh, :mala, :ula, :gibbs, :nuts_explict, :nuts_turing]
+const SAMPLERS = [:mh, :mala, :ula, :gibbs, :nuts_explicit, :nuts_turing]
 
 _env_int(name::AbstractString, default::Integer) = parse(Int, get(ENV, name, string(default)))
 _env_symbol(name::AbstractString, default::Symbol) = Symbol(get(ENV, name, string(default)))
