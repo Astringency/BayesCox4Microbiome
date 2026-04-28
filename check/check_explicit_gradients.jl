@@ -1,6 +1,6 @@
 #!/usr/bin/env julia
 
-include(joinpath(@__DIR__, "analysis_common.jl"))
+include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
 
 using BayesCox4Micro
 using CSV

@@ -40,9 +40,9 @@ julia --project=. -e "using Pkg; Pkg.instantiate()"
 julia --project=. -e "using Pkg; Pkg.test()"
 julia --project=. scripts\run_simulation.jl --samples 50 --warmup 20 --reps 1
 julia --project=. scripts\analyze_real_data.jl --samples 50 --warmup 20
-julia --project=. scripts\sampler_matrix_experiment.jl
-julia --project=. scripts\bench_cox_gradient.jl 400 50
-julia --project=. scripts\bench_samplers.jl 400 50 25 25 2
+julia --project=. check\sampler_matrix_experiment.jl
+julia --project=. check\bench_cox_gradient.jl 400 50
+julia --project=. check\bench_samplers.jl 400 50 25 25 2
 ```
 
 For threaded NUTS chains, start Julia with threads enabled:
@@ -101,12 +101,17 @@ BayesCox4Micro/
     run_simulation.jl
     analyze_real_data.jl
     run_diagnose.jl
-    sampler_matrix_experiment.jl
-    bench_cox_gradient.jl
-    bench_samplers.jl
     run_simulation.{ps1,cmd,sh}
     analyze_real_data.{ps1,cmd,sh}
     run_diagnose.{ps1,cmd,sh}
+  check/
+    bench_cox_gradient.jl
+    bench_samplers.jl
+    check_explicit_gradients.jl
+    requested_sampler_matrix.jl
+    sampler_matrix_experiment.jl
+    test_samplers_cox_normal_prior.jl
+    test_samplers_normal.jl
   data/
     T1D.csv
   test/
@@ -152,7 +157,7 @@ Key roles:
   `data/T1D.csv`.
 - `scripts/run_diagnose.jl` regenerates diagnostics from saved run outputs
   without rerunning MCMC.
-- `scripts/sampler_matrix_experiment.jl` runs a compact prior-by-sampler smoke
+- `check/sampler_matrix_experiment.jl` runs a compact prior-by-sampler smoke
   experiment and writes a status/timing summary.
 
 ## Implementation Details
@@ -567,7 +572,7 @@ Run a compact compatibility/timing pass across the built-in paper priors and
 sampler aliases:
 
 ```powershell
-julia --project=. scripts\sampler_matrix_experiment.jl
+julia --project=. check\sampler_matrix_experiment.jl
 ```
 
 By default this script simulates `n = 200`, `p = 50`, and `nonzero = 6`, then
@@ -600,5 +605,5 @@ $env:BC4M_SAMPLES = "50"
 $env:BC4M_WARMUP = "20"
 $env:BC4M_PRIORS = "hs,lasso,sslasso"
 $env:BC4M_SAMPLERS = "mh,mala,nuts_turing"
-julia --project=. scripts\sampler_matrix_experiment.jl
+julia --project=. check\sampler_matrix_experiment.jl
 ```
