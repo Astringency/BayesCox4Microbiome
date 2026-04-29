@@ -68,6 +68,10 @@ function main()
     mala_adapt_every = arg(args, "mala-adapt-every", 50)
     mala_min_step = arg(args, "mala-min-step", 1e-8)
     mala_max_step = arg(args, "mala-max-step", 1.0)
+    diagnose = arg(args, "diagnose", true)
+    diagnose_formats = get(args, "diagnose-format", "png")
+    diagnose_top_k_beta = arg(args, "diagnose-top-k-beta", 10)
+    diagnose_max_lag = arg(args, "diagnose-max-lag", 50)
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
     figs_dir = ensure_dir(joinpath(outdir, "figures"))
@@ -123,9 +127,10 @@ function main()
         summary.selected = (summary.lower .* summary.upper) .> 0
         write_table(joinpath(tables_dir, "coef_$prior.csv"), summary)
         run_id = "realdata_$(prior)"
+        run_dir = joinpath(outdir, "runs", run_id)
         save_run_outputs(
             fit.result;
-            output_dir = joinpath(outdir, "runs", run_id),
+            output_dir = run_dir,
             run_id = run_id,
             metadata = Dict(
                 "dataset_name" => basename(input),
@@ -161,6 +166,15 @@ function main()
             ),
             posterior_summary = summary,
         )
+        if diagnose
+            diagnose_run(
+                run_dir;
+                output_dir = joinpath(run_dir, "diagnose"),
+                top_k_beta = diagnose_top_k_beta,
+                max_lag = diagnose_max_lag,
+                formats = diagnose_formats,
+            )
+        end
         coefficient_plot(
             summary,
             joinpath(figs_dir, "coef_$prior.pdf");

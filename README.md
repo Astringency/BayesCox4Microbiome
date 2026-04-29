@@ -386,6 +386,10 @@ julia --project=. scripts\run_simulation.jl --sampler mala --constraint prox --p
 | `--mala-adapt-every` | `50` | Number of warmup iterations between MALA step-size adaptation updates. |
 | `--mala-min-step` | `1e-8` | Lower bound for the adapted MALA step size. |
 | `--mala-max-step` | `1.0` | Upper bound for the adapted MALA step size. |
+| `--diagnose` | `true` | Run `diagnose_run` after each fit and save diagnostics under that run directory. |
+| `--diagnose-format` | `png` | Comma-separated diagnostic plot formats used by automatic diagnostics. |
+| `--diagnose-top-k-beta` | `10` | Number of beta parameters selected for automatic diagnostic plots. |
+| `--diagnose-max-lag` | `50` | Maximum lag for automatic ACF diagnostic plots. |
 
 Simulation data generation follows the paper-style setup in
 `scripts/analysis_common.jl`: true nonzero coefficients are inserted at fixed
@@ -395,9 +399,10 @@ selected baseline hazard with administrative censoring at `tmax = 100`.
 
 Outputs include coefficient summaries, coefficient plots for posterior mean,
 median, and MAP estimates, long-format metrics, summarized metrics, and false
-discovery summaries. Metrics include log partial likelihood, LPML, AIC, BIC,
-WAIC, DIC, PSIS-LOO/LOOIC, Pareto-k diagnostics, C-index, and sampler timing
-diagnostics.
+discovery summaries. Automatic diagnostic trace, density, and ACF plots are
+restricted to the true nonzero coefficients. Metrics include log partial
+likelihood, LPML, AIC, BIC, WAIC, DIC, PSIS-LOO/LOOIC, Pareto-k diagnostics,
+C-index, and sampler timing diagnostics.
 
 Each fitted simulation run is also saved under:
 
@@ -409,6 +414,7 @@ results/simulation/runs/<run_id>/
   metadata.json
   diagnostics.json
   posterior_summary.csv
+  diagnose/
 ```
 
 ## Real-Data Analysis Script
@@ -465,6 +471,10 @@ julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --sampler ma
 | `--mala-adapt-every` | `50` | Number of warmup iterations between MALA step-size adaptation updates. |
 | `--mala-min-step` | `1e-8` | Lower bound for the adapted MALA step size. |
 | `--mala-max-step` | `1.0` | Upper bound for the adapted MALA step size. |
+| `--diagnose` | `true` | Run `diagnose_run` after each fit and save diagnostics under that run directory. |
+| `--diagnose-format` | `png` | Comma-separated diagnostic plot formats used by automatic diagnostics. |
+| `--diagnose-top-k-beta` | `10` | Number of beta parameters selected for automatic diagnostic plots. |
+| `--diagnose-max-lag` | `50` | Maximum lag for automatic ACF diagnostic plots. |
 
 The script detects taxa columns as numeric columns not listed in
 `--time-col`, `--status-col`, or `--exclude-cols`. Missing abundance values are
@@ -486,6 +496,7 @@ results/realdata/T1D/runs/<run_id>/
   metadata.json
   diagnostics.json
   posterior_summary.csv
+  diagnose/
 ```
 
 ## Saving Samples and Diagnostics

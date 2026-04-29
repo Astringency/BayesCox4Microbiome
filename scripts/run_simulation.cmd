@@ -7,19 +7,20 @@ cd /d "%~dp0\.."
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "now=%%i"
 
 set "test_n=400"
-set "test_p=50"
+set "test_p=150"
 
-julia -t 4 --project=. scripts\run_simulation.jl ^
+julia +1.11.7 -t 4 --project=. scripts\run_simulation.jl ^
     --sampler nuts ^
+    nuts_backend = :explicit ^
     --samples 5000 ^
-    --warmup 4000 ^
+    --warmup 2000 ^
     --chains 4 ^
     --reps 1 ^
     --n %test_n% ^
     --p %test_p% ^
     --nonzero 12 ^
     --baseline weibull ^
-    --priors hs ^
+    --priors rhs ^
     --constraint prox ^
     --target-accept 0.8 ^
     --mala-target-accept 0.9 ^
