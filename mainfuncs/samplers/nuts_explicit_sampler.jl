@@ -17,7 +17,7 @@ function _sample_explicit_nuts_one(
     target_accept::Real,
     max_depth::Integer,
     progress::Bool,
-    progress_desc::AbstractString = "AdvancedHMC NUTS sampling",
+    progress_desc::AbstractString = "NUTS sampling",
     progress_offset::Integer = 0,
     initial = nothing,
 )
