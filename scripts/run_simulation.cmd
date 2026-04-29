@@ -10,7 +10,7 @@ set "test_n=400"
 set "test_p=150"
 set "test_nonzero=12"
 set "test_baseline=weibull"
-set "test_priors=lasso"
+set "test_priors=cox-rhs"
 
 REM MISC TASK: NUTS WITH EXPLICIT BACKEND.
 julia +1.11.7 -t 4 --project=. scripts\run_simulation.jl ^
