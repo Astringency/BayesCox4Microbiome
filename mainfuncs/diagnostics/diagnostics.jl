@@ -372,7 +372,7 @@ end
 function _selected_params(chains; params = nothing, top_k_beta::Integer = 10)
     all_names = string.(names(chains))
     if params !== nothing
-        raw = params isa AbstractString ? strip.(split(params, ",")) : string.(params)
+        raw = params isa AbstractString ? String.(strip.(split(params, ","))) : string.(params)
         return [p for p in raw if p in all_names]
     end
     selected = String[]
@@ -388,7 +388,7 @@ function _selected_params(chains; params = nothing, top_k_beta::Integer = 10)
     return unique(selected)
 end
 
-function _subset_chains(chains, params::Vector{String})
+function _subset_chains(chains, params::AbstractVector{<:AbstractString})
     isempty(params) && return chains
     return chains[:, Symbol.(params), :]
 end

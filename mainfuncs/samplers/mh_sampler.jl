@@ -14,6 +14,8 @@ function _adaptive_mh(
     center_first::Integer,
     sum_step::Real,
     progress::Bool,
+    progress_desc::AbstractString = "MH sampling",
+    progress_offset::Integer = 0,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -45,7 +47,7 @@ function _adaptive_mh(
     accept_sample = 0
     accept_window = 0
     saved = 0
-    prog = progress ? Progress(total_iter; desc = "MH sampling", showspeed = true, dt = 0.0) : nothing
+    prog = _progress_meter(progress, total_iter, "MH sampling"; progress_desc = progress_desc, progress_offset = progress_offset)
 
     for iter in 1:total_iter
         noise = step .* randn(rng, d)
@@ -89,9 +91,9 @@ function _adaptive_mh(
             lps[saved] = current_lp
         end
         phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
     end
-    prog !== nothing && finish!(prog)
+    _progress_finish!(prog)
 
     sample_iters = n_samples * thin
     warmup_rate = warmup == 0 ? NaN : accept_warmup / warmup
@@ -121,6 +123,8 @@ function _sample_mh(
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
     progress::Bool = true,
+    progress_desc::AbstractString = "MH sampling",
+    progress_offset::Integer = 0,
 )
     p = size(data.z, 2)
     n_events = count(!=(0), data.event)
@@ -162,5 +166,7 @@ function _sample_mh(
         center_first = center_beta_proposal ? p : 0,
         sum_step = resolved_constraint == :soft_center ? sc_scale : 0.0,
         progress = progress,
+        progress_desc = progress_desc,
+        progress_offset = progress_offset,
     )
 end

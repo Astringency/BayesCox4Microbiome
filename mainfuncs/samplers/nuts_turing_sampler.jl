@@ -410,6 +410,8 @@ function _sample_ssl_prox_nuts_gibbs(
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
+    progress_desc::AbstractString = "SSLASSO prox NUTS-Gibbs",
+    progress_offset::Integer = 0,
 )
     timed = @timed begin
         if chains == 1
@@ -430,10 +432,13 @@ function _sample_ssl_prox_nuts_gibbs(
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
                 progress = progress,
+                progress_desc = progress_desc,
+                progress_offset = progress_offset,
             )
         else
             samples = Vector{MHSamples}(undef, chains)
             rngs = [MersenneTwister(rand(rng, UInt64)) for _ in 1:chains]
+            _reserve_chain_progress_lines(chains, progress)
             Threads.@threads for c in 1:chains
                 samples[c] = _sample_ssl_prox_nuts_gibbs_one(
                     data,
@@ -451,7 +456,9 @@ function _sample_ssl_prox_nuts_gibbs(
                     alpha_prior_rate = alpha_prior_rate,
                     prox_root_tol = prox_root_tol,
                     prox_root_maxiter = prox_root_maxiter,
-                    progress = false,
+                    progress = progress,
+                    progress_desc = _chain_progress_desc("SSLASSO prox NUTS-Gibbs", c, chains),
+                    progress_offset = _chain_progress_offset(c, chains),
                 )
             end
             MultiMHSamples(samples)
@@ -479,6 +486,8 @@ function _sample_ssl_prox_nuts_gibbs_one(
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
+    progress_desc::AbstractString = "SSLASSO prox NUTS-Gibbs",
+    progress_offset::Integer = 0,
 )
     p = size(data.z, 2)
     a_shape, a_rate = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
@@ -489,7 +498,7 @@ function _sample_ssl_prox_nuts_gibbs_one(
     draws = Matrix{Float64}(undef, n_samples, length(names))
     lps = Vector{Float64}(undef, n_samples)
     saved = 0
-    prog = progress ? Progress(total_iter; desc = "SSLASSO prox NUTS-Gibbs", showspeed = true, dt = 0.0) : nothing
+    prog = _progress_meter(progress, total_iter, "SSLASSO prox NUTS-Gibbs"; progress_desc = progress_desc, progress_offset = progress_offset)
     u = vcat(zeros(Float64, p), [0.0])
     for iter in 1:total_iter
         model = _ssl_prox_turing_block_model(
@@ -547,8 +556,8 @@ function _sample_ssl_prox_nuts_gibbs_one(
             )
         end
         phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
     end
-    prog !== nothing && finish!(prog)
+    _progress_finish!(prog)
     return MHSamples(draws, lps, names, NaN, NaN, fill(NaN, length(names)))
 end

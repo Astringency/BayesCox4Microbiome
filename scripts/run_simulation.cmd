@@ -11,7 +11,7 @@ set "test_p=150"
 
 julia +1.11.7 -t 4 --project=. scripts\run_simulation.jl ^
     --sampler nuts ^
-    nuts_backend = :explicit ^
+    --nuts-backend explicit ^
     --samples 5000 ^
     --warmup 2000 ^
     --chains 4 ^
@@ -20,7 +20,7 @@ julia +1.11.7 -t 4 --project=. scripts\run_simulation.jl ^
     --p %test_p% ^
     --nonzero 12 ^
     --baseline weibull ^
-    --priors rhs ^
+    --priors lasso ^
     --constraint prox ^
     --target-accept 0.8 ^
     --mala-target-accept 0.9 ^

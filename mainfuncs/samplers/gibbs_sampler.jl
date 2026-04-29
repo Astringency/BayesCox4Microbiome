@@ -94,6 +94,8 @@ function _sample_ssl_gibbs(
     center_beta_proposal::Bool = true,
     chains::Integer = 1,
     progress::Bool = true,
+    progress_desc::AbstractString = "Gibbs sampling",
+    progress_offset::Integer = 0,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -145,7 +147,7 @@ function _sample_ssl_gibbs(
     accept_sample = 0
     accept_window = 0
     saved = 0
-    prog = progress ? Progress(total_iter; desc = "Gibbs sampling", showspeed = true, dt = 0.0) : nothing
+    prog = _progress_meter(progress, total_iter, "Gibbs sampling"; progress_desc = progress_desc, progress_offset = progress_offset)
 
     for iter in 1:total_iter
         noise = step .* randn(rng, p)
@@ -227,9 +229,9 @@ function _sample_ssl_gibbs(
             )
         end
         phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
     end
-    prog !== nothing && finish!(prog)
+    _progress_finish!(prog)
 
     sample_iters = n_samples * thin
     warmup_rate = warmup == 0 ? NaN : accept_warmup / warmup
@@ -259,6 +261,8 @@ function _sample_coordinate_gibbs(
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
     progress::Bool = true,
+    progress_desc::AbstractString = "Coordinate Gibbs sampling",
+    progress_offset::Integer = 0,
     kwargs...,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
@@ -312,7 +316,7 @@ function _sample_coordinate_gibbs(
     accept_sample = zeros(Int, d)
     saved = 0
     proposal = copy(u)
-    prog = progress ? Progress(total_iter; desc = "Coordinate Gibbs sampling", showspeed = true, dt = 0.0) : nothing
+    prog = _progress_meter(progress, total_iter, "Coordinate Gibbs sampling"; progress_desc = progress_desc, progress_offset = progress_offset)
 
     for iter in 1:total_iter
         for j in 1:d
@@ -342,9 +346,9 @@ function _sample_coordinate_gibbs(
             lps[saved] = current_lp
         end
         phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
     end
-    prog !== nothing && finish!(prog)
+    _progress_finish!(prog)
 
     sample_iters = n_samples * thin
     warmup_rate = warmup == 0 ? NaN : mean(accept_warmup ./ warmup)

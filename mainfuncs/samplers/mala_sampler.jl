@@ -205,6 +205,8 @@ function _hybrid_beta_mala(
     use_car::Bool,
     car_precision::Real,
     progress::Bool,
+    progress_desc::AbstractString = "MALA sampling",
+    progress_offset::Integer = 0,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -277,7 +279,7 @@ function _hybrid_beta_mala(
     hyper_accept_warmup = 0
     hyper_accept_sample = 0
     saved = 0
-    prog = progress ? Progress(total_iter; desc = "MALA sampling", showspeed = true, dt = 0.0) : nothing
+    prog = _progress_meter(progress, total_iter, "MALA sampling"; progress_desc = progress_desc, progress_offset = progress_offset)
 
     for iter in 1:total_iter
         beta_logpost_current = b -> begin
@@ -343,9 +345,9 @@ function _hybrid_beta_mala(
             lps[saved] = current_lp
         end
         phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
     end
-    prog !== nothing && finish!(prog)
+    _progress_finish!(prog)
 
     sample_iters = n_samples * thin
     warmup_rate = warmup == 0 ? NaN : accept_warmup / warmup
@@ -371,6 +373,8 @@ function _hybrid_beta_ula(
     use_car::Bool,
     car_precision::Real,
     progress::Bool,
+    progress_desc::AbstractString = "ULA sampling",
+    progress_offset::Integer = 0,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -423,7 +427,7 @@ function _hybrid_beta_ula(
     hyper_accept_warmup = 0
     hyper_accept_sample = 0
     saved = 0
-    prog = progress ? Progress(total_iter; desc = "ULA sampling", showspeed = true, dt = 0.0) : nothing
+    prog = _progress_meter(progress, total_iter, "ULA sampling"; progress_desc = progress_desc, progress_offset = progress_offset)
 
     for iter in 1:total_iter
         beta_gradient_current = b -> begin
@@ -462,9 +466,9 @@ function _hybrid_beta_ula(
             lps[saved] = current_lp
         end
         phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
     end
-    prog !== nothing && finish!(prog)
+    _progress_finish!(prog)
 
     sample_iters = n_samples * thin
     warmup_rate = hdim == 0 || warmup == 0 ? NaN : hyper_accept_warmup / warmup
@@ -663,6 +667,8 @@ function _sample_lasso_prox_mala(
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
+    progress_desc::AbstractString = "MALA sampling",
+    progress_offset::Integer = 0,
 )
     p = size(data.z, 2)
     init = initial === nothing ? vcat(zeros(Float64, p), [0.0]) : collect(Float64, initial)
@@ -710,7 +716,8 @@ function _sample_lasso_prox_mala(
     )
     return _run_full_mala(logpost, gradient, init, names; n_samples = n_samples, warmup = warmup, thin = thin, rng = rng,
         mala_step_size = mala_step_size, mala_target_accept = mala_target_accept, mala_adapt_every = mala_adapt_every,
-        mala_min_step = mala_min_step, mala_max_step = mala_max_step, progress = progress, gradient! = gradient!)
+        mala_min_step = mala_min_step, mala_max_step = mala_max_step, progress = progress,
+        progress_desc = progress_desc, progress_offset = progress_offset, gradient! = gradient!)
 end
 
 function _run_full_mala(
@@ -728,6 +735,8 @@ function _run_full_mala(
     mala_min_step::Real,
     mala_max_step::Real,
     progress::Bool,
+    progress_desc::AbstractString = "MALA sampling",
+    progress_offset::Integer = 0,
     gradient! = nothing,
 )
     gamma_L = _check_positive(mala_step_size, "mala_step_size")
@@ -746,7 +755,7 @@ function _run_full_mala(
     accept_sample = 0
     accept_window = 0
     saved = 0
-    prog = progress ? Progress(total_iter; desc = "MALA sampling", showspeed = true, dt = 0.0) : nothing
+    prog = _progress_meter(progress, total_iter, "MALA sampling"; progress_desc = progress_desc, progress_offset = progress_offset)
     for iter in 1:total_iter
         lp_new, accepted = _mala_step!(logpost, gradient_bang, u, current_lp, gamma_L, rng, work)
         if accepted
@@ -769,9 +778,9 @@ function _run_full_mala(
             lps[saved] = current_lp
         end
         phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
     end
-    prog !== nothing && finish!(prog)
+    _progress_finish!(prog)
     sample_iters = n_samples * thin
     return MHSamples(
         draws,
@@ -794,6 +803,8 @@ function _run_full_ula(
     rng::AbstractRNG,
     mala_step_size::Real,
     progress::Bool,
+    progress_desc::AbstractString = "ULA sampling",
+    progress_offset::Integer = 0,
     gradient! = nothing,
 )
     gamma_L = _check_positive(mala_step_size, "mala_step_size")
@@ -807,7 +818,7 @@ function _run_full_ula(
     work = MALAWorkspace(d)
     gradient_bang = gradient! === nothing ? ((dest, x) -> _copy_gradient!(dest, gradient, x)) : gradient!
     saved = 0
-    prog = progress ? Progress(total_iter; desc = "ULA sampling", showspeed = true, dt = 0.0) : nothing
+    prog = _progress_meter(progress, total_iter, "ULA sampling"; progress_desc = progress_desc, progress_offset = progress_offset)
     for iter in 1:total_iter
         prop = _ula_step!(work.proposal, gradient_bang, u, gamma_L, rng, work)
         prop_lp = logpost(prop)
@@ -821,9 +832,9 @@ function _run_full_ula(
             lps[saved] = current_lp
         end
         phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
     end
-    prog !== nothing && finish!(prog)
+    _progress_finish!(prog)
     return MHSamples(draws, lps, names, NaN, NaN, fill(gamma_L, d))
 end
 
@@ -1047,6 +1058,8 @@ function _sample_ssl_prox_mala(
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
+    progress_desc::AbstractString = "SSLASSO prox MALA",
+    progress_offset::Integer = 0,
 )
     # Conditional SSLASSO proximal epigraph sampler: gamma is discrete and is
     # updated by Bernoulli Gibbs, while MALA only targets continuous beta/eta.
@@ -1106,7 +1119,7 @@ function _sample_ssl_prox_mala(
     accept_sample = 0
     accept_window = 0
     saved = 0
-    prog = progress ? Progress(total_iter; desc = "SSLASSO prox MALA", showspeed = true, dt = 0.0) : nothing
+    prog = _progress_meter(progress, total_iter, "SSLASSO prox MALA"; progress_desc = progress_desc, progress_offset = progress_offset)
     for iter in 1:total_iter
         logpost_current = uu -> _ssl_prox_logposterior(
             uu,
@@ -1181,9 +1194,9 @@ function _sample_ssl_prox_mala(
             )
         end
         phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
     end
-    prog !== nothing && finish!(prog)
+    _progress_finish!(prog)
     sample_iters = n_samples * thin
     return MHSamples(draws, lps, names, sample_iters == 0 ? NaN : accept_sample / sample_iters,
         warmup == 0 ? NaN : accept_warmup / warmup, fill(gamma_L, d))
@@ -1221,6 +1234,8 @@ function _sample_mala(
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
     progress::Bool = true,
+    progress_desc::AbstractString = "MALA sampling",
+    progress_offset::Integer = 0,
 )
     mala_precondition &&
         throw(ArgumentError("mala_precondition=true is not implemented yet; the current MALA uses identity mass."))
@@ -1261,6 +1276,8 @@ function _sample_mala(
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
             progress = progress,
+            progress_desc = progress_desc,
+            progress_offset = progress_offset,
         )
     elseif prior isa SpikeSlabLassoPrior && resolved_constraint == :prox
         return _sample_ssl_prox_mala(
@@ -1285,6 +1302,8 @@ function _sample_mala(
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
             progress = progress,
+            progress_desc = progress_desc,
+            progress_offset = progress_offset,
         )
     end
 
@@ -1321,6 +1340,8 @@ function _sample_mala(
         use_car = use_car,
         car_precision = car_precision,
         progress = progress,
+        progress_desc = progress_desc,
+        progress_offset = progress_offset,
     )
 end
 
@@ -1347,6 +1368,8 @@ function _sample_ula(
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
     progress::Bool = true,
+    progress_desc::AbstractString = "ULA sampling",
+    progress_offset::Integer = 0,
     kwargs...,
 )
     _validate_prior(prior)
@@ -1405,7 +1428,8 @@ function _sample_ula(
             prox_root_maxiter = prox_root_maxiter,
         )
         return _run_full_ula(logpost, gradient, init, names; n_samples = n_samples, warmup = warmup, thin = thin,
-            rng = rng, mala_step_size = mala_step_size, progress = progress, gradient! = gradient!)
+            rng = rng, mala_step_size = mala_step_size, progress = progress,
+            progress_desc = progress_desc, progress_offset = progress_offset, gradient! = gradient!)
     elseif prior isa SpikeSlabLassoPrior && resolved_constraint == :prox
         return _sample_ssl_prox_ula(
             data,
@@ -1425,6 +1449,8 @@ function _sample_ula(
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
             progress = progress,
+            progress_desc = progress_desc,
+            progress_offset = progress_offset,
         )
     end
 
@@ -1453,6 +1479,8 @@ function _sample_ula(
         use_car = use_car,
         car_precision = car_precision,
         progress = progress,
+        progress_desc = progress_desc,
+        progress_offset = progress_offset,
     )
 end
 
@@ -1474,6 +1502,8 @@ function _sample_ssl_prox_ula(
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
+    progress_desc::AbstractString = "SSLASSO prox ULA",
+    progress_offset::Integer = 0,
 )
     p = size(data.z, 2)
     u = initial === nothing ? vcat(zeros(Float64, p), [0.0]) : collect(Float64, initial)
@@ -1523,7 +1553,7 @@ function _sample_ssl_prox_ula(
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
-    prog = progress ? Progress(total_iter; desc = "SSLASSO prox ULA", showspeed = true, dt = 0.0) : nothing
+    prog = _progress_meter(progress, total_iter, "SSLASSO prox ULA"; progress_desc = progress_desc, progress_offset = progress_offset)
     for iter in 1:total_iter
         prop = _ula_step!(mala_work.proposal, gradient_current!, u, gamma_L, rng, mala_work)
         prop_lp = _ssl_prox_logposterior(
@@ -1588,8 +1618,8 @@ function _sample_ssl_prox_ula(
             lps[saved] = current_lp
         end
         phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
     end
-    prog !== nothing && finish!(prog)
+    _progress_finish!(prog)
     return MHSamples(draws, lps, names, NaN, NaN, fill(gamma_L, d))
 end

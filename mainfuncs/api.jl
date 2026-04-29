@@ -515,9 +515,18 @@ function _sample_mh_chains(
     samples = Vector{MHSamples}(undef, chains)
     rngs = [_independent_rng(rng) for _ in 1:chains]
     if multichains
+        _reserve_chain_progress_lines(chains, progress)
         Threads.@threads for c in 1:chains
             @info "Running MH chain $c/$chains"
-            samples[c] = _sample_mh(data, prior; rng = rngs[c], progress = false, kwargs...)
+            samples[c] = _sample_mh(
+                data,
+                prior;
+                rng = rngs[c],
+                progress = progress,
+                progress_desc = _chain_progress_desc("MH sampling", c, chains),
+                progress_offset = _chain_progress_offset(c, chains),
+                kwargs...,
+            )
         end
     else
         for c in 1:chains
@@ -541,9 +550,18 @@ function _sample_mala_chains(
     samples = Vector{MHSamples}(undef, chains)
     rngs = [_independent_rng(rng) for _ in 1:chains]
     if multichains
+        _reserve_chain_progress_lines(chains, progress)
         Threads.@threads for c in 1:chains
             @info "Running MALA chain $c/$chains"
-            samples[c] = _sample_mala(data, prior; rng = rngs[c], progress = false, kwargs...)
+            samples[c] = _sample_mala(
+                data,
+                prior;
+                rng = rngs[c],
+                progress = progress,
+                progress_desc = _chain_progress_desc("MALA sampling", c, chains),
+                progress_offset = _chain_progress_offset(c, chains),
+                kwargs...,
+            )
         end
     else
         for c in 1:chains
@@ -567,9 +585,18 @@ function _sample_ula_chains(
     samples = Vector{MHSamples}(undef, chains)
     rngs = [_independent_rng(rng) for _ in 1:chains]
     if multichains
+        _reserve_chain_progress_lines(chains, progress)
         Threads.@threads for c in 1:chains
             @info "Running ULA chain $c/$chains"
-            samples[c] = _sample_ula(data, prior; rng = rngs[c], progress = false, kwargs...)
+            samples[c] = _sample_ula(
+                data,
+                prior;
+                rng = rngs[c],
+                progress = progress,
+                progress_desc = _chain_progress_desc("ULA sampling", c, chains),
+                progress_offset = _chain_progress_offset(c, chains),
+                kwargs...,
+            )
         end
     else
         for c in 1:chains
@@ -629,9 +656,26 @@ function _sample_gibbs_chains(
     samples = Vector{MHSamples}(undef, chains)
     rngs = [_independent_rng(rng) for _ in 1:chains]
     if multichains
+        _reserve_chain_progress_lines(chains, progress)
         Threads.@threads for c in 1:chains
             @info "Running Gibbs chain $c/$chains"
-            samples[c] = _sample_ssl_gibbs(data, prior; rng = rngs[c], chains = 1, progress = false, n_samples = n_samples, warmup = warmup, thin = thin, target_accept = target_accept, constraint = resolved_constraint, soft_center_scale = soft_center_scale, prox_sum0_lambda = prox_sum0_lambda, kwargs...)
+            samples[c] = _sample_ssl_gibbs(
+                data,
+                prior;
+                rng = rngs[c],
+                chains = 1,
+                progress = progress,
+                progress_desc = _chain_progress_desc("Gibbs sampling", c, chains),
+                progress_offset = _chain_progress_offset(c, chains),
+                n_samples = n_samples,
+                warmup = warmup,
+                thin = thin,
+                target_accept = target_accept,
+                constraint = resolved_constraint,
+                soft_center_scale = soft_center_scale,
+                prox_sum0_lambda = prox_sum0_lambda,
+                kwargs...,
+            )
         end
     else
         for c in 1:chains
@@ -655,9 +699,18 @@ function _sample_gibbs_chains(
     samples = Vector{MHSamples}(undef, chains)
     rngs = [_independent_rng(rng) for _ in 1:chains]
     if multichains
+        _reserve_chain_progress_lines(chains, progress)
         Threads.@threads for c in 1:chains
             @info "Running coordinate Gibbs chain $c/$chains"
-            samples[c] = _sample_coordinate_gibbs(data, prior; rng = rngs[c], progress = false, kwargs...)
+            samples[c] = _sample_coordinate_gibbs(
+                data,
+                prior;
+                rng = rngs[c],
+                progress = progress,
+                progress_desc = _chain_progress_desc("Coordinate Gibbs sampling", c, chains),
+                progress_offset = _chain_progress_offset(c, chains),
+                kwargs...,
+            )
         end
     else
         for c in 1:chains

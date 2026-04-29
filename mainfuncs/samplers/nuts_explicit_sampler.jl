@@ -17,6 +17,8 @@ function _sample_explicit_nuts_one(
     target_accept::Real,
     max_depth::Integer,
     progress::Bool,
+    progress_desc::AbstractString = "AdvancedHMC NUTS sampling",
+    progress_offset::Integer = 0,
     initial = nothing,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
@@ -48,6 +50,12 @@ function _sample_explicit_nuts_one(
     )
 
     total_iter = warmup + n_samples
+    progress_next! = (prog, stat) -> _progress_hmc_next!(
+        prog,
+        stat;
+        progress_desc = progress_desc,
+        progress_offset = progress_offset,
+    )
     samples, stats = AdvancedHMC.sample(
         rng,
         hamiltonian,
@@ -59,6 +67,7 @@ function _sample_explicit_nuts_one(
         drop_warmup = warmup > 0,
         progress = progress,
         verbose = false,
+        pm_next! = progress_next!,
     )
 
     draws = Matrix{Float64}(undef, n_samples, d)
@@ -285,11 +294,14 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
                 progress = progress,
+                progress_desc = "SSLASSO explicit prox NUTS-Gibbs",
+                progress_offset = 0,
             )
         else
             samples = Vector{MHSamples}(undef, chains)
             rngs = [_independent_rng(rng) for _ in 1:chains]
             if parallel_chains
+                _reserve_chain_progress_lines(chains, progress)
                 Threads.@threads for c in 1:chains
                     samples[c] = _sample_ssl_prox_explicit_nuts_gibbs_one(
                         data,
@@ -308,7 +320,9 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
                         alpha_prior_rate = alpha_prior_rate,
                         prox_root_tol = prox_root_tol,
                         prox_root_maxiter = prox_root_maxiter,
-                        progress = false,
+                        progress = progress,
+                        progress_desc = _chain_progress_desc("SSLASSO explicit prox NUTS-Gibbs", c, chains),
+                        progress_offset = _chain_progress_offset(c, chains),
                     )
                 end
             else
@@ -361,6 +375,8 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
+    progress_desc::AbstractString = "SSLASSO explicit prox NUTS-Gibbs",
+    progress_offset::Integer = 0,
 )
     p = size(data.z, 2)
     a_shape, a_rate = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
@@ -378,7 +394,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
     saved = 0
     accept_sum = 0.0
     accept_count = 0
-    prog = progress ? Progress(total_iter; desc = "SSLASSO explicit prox NUTS-Gibbs", showspeed = true, dt = 0.0) : nothing
+    prog = _progress_meter(progress, total_iter, "SSLASSO explicit prox NUTS-Gibbs"; progress_desc = progress_desc, progress_offset = progress_offset)
     for iter in 1:total_iter
         theta_ref[] = theta
         target = CoxProxSSLassoTarget(
@@ -452,9 +468,9 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
             )
         end
         phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        prog !== nothing && next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
     end
-    prog !== nothing && finish!(prog)
+    _progress_finish!(prog)
     acc = accept_count == 0 ? NaN : accept_sum / accept_count
     return MHSamples(draws, lps, names, acc, NaN, fill(NaN, length(names)))
 end
@@ -556,7 +572,9 @@ function _sample_nuts_explicit(
             samples = Vector{MHSamples}(undef, chains)
             rngs = [_independent_rng(rng) for _ in 1:chains]
             if run_parallel
+                _reserve_chain_progress_lines(chains, progress)
                 Threads.@threads for c in 1:chains
+                    @info "Running explicit NUTS chain $c/$chains"
                     target = _make_explicit_nuts_target(
                         data,
                         prior;
@@ -579,7 +597,9 @@ function _sample_nuts_explicit(
                         rng = rngs[c],
                         target_accept = target_accept,
                         max_depth = max_depth,
-                        progress = false,
+                        progress = progress,
+                        progress_desc = _chain_progress_desc("AdvancedHMC NUTS sampling", c, chains),
+                        progress_offset = _chain_progress_offset(c, chains),
                         initial = prior isa BayesianLassoPrior && resolved_constraint == :prox ? initial : generic_initial,
                     )
                 end

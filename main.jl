@@ -80,6 +80,7 @@ include("priors/bayesian_lasso.jl")
 include("priors/spike_slab_lasso.jl")
 
 include("mainfuncs/types.jl")
+include("mainfuncs/progress.jl")
 include("mainfuncs/priors/prior_common.jl")
 include("mainfuncs/data/data.jl")
 include("mainfuncs/likelihood/cox_likelihood.jl")

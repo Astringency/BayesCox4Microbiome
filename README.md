@@ -269,7 +269,7 @@ when `chains > 1`. Explicit NUTS defaults to chain-level threading when
 `chains > 1`; pass `parallel_chains = false` to force serial chains. Built-in
 MH/MALA/ULA/Gibbs still use `multichains = true` for chain-level threading.
 Each threaded chain gets an independent RNG and private sampler workspaces.
-Progress bars are disabled inside threaded worker chains.
+When `progress = true`, threaded built-in chains display per-chain progress bars.
 
 All sampler outputs can be saved through `save_run_outputs`. Turing NUTS
 results keep the original Turing/MCMCChains chain dimension. Built-in `:mh`,
