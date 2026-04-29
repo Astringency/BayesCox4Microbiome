@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if [[ $# -eq 0 ]]; then
-  julia --project="$REPO_DIR" "$SCRIPT_DIR/run_diagnose.jl"
+  julia "+1.11.7" --project="$REPO_DIR" "$SCRIPT_DIR/run_diagnose.jl"
 else
-  julia --project="$REPO_DIR" "$SCRIPT_DIR/run_diagnose.jl" "$@"
+  julia "+1.11.7" --project="$REPO_DIR" "$SCRIPT_DIR/run_diagnose.jl" "$@"
 fi

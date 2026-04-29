@@ -7,13 +7,14 @@ current_time=$(date "+%Y%m%d_%H%M%S")
 
 # TEST
 test_n=400
-test_p=50
+test_p=150
 pids=()
 julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
-    --sampler mala \
+    --sampler ula \
     --samples 5000 \
     --warmup 2000 \
     --chains 4 \
+    --multichains \
     --reps 1 \
     --n "$test_n" \
     --p "$test_p" \
@@ -22,7 +23,7 @@ julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
     --priors lasso \
     --constraint prox \
     --target-accept 0.8 \
-    --mala-step-size 1e-6 \
+    --mala-step-size 1e-2 \
     --mala-target-accept 0.7 \
     --seed 1 \
     --use-car true \
