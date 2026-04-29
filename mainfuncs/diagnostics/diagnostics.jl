@@ -15,6 +15,13 @@ function _require_pkg(name::Symbol)
     return Base.require(Base.PkgId(Base.UUID(uuid), String(name)))
 end
 
+function _configure_headless_gr!()
+    if !haskey(ENV, "GKSwstype") && !haskey(ENV, "DISPLAY")
+        ENV["GKSwstype"] = "100"
+    end
+    return nothing
+end
+
 _call_latest(f, args...; kwargs...) = Base.invokelatest(f, args...; kwargs...)
 
 function _is_chains_object(x)
@@ -394,6 +401,7 @@ function _subset_chains(chains, params::AbstractVector{<:AbstractString})
 end
 
 function _save_plot_all_formats(plot_obj, output_dir::AbstractString, stem::AbstractString, formats)
+    _configure_headless_gr!()
     Plots = _require_pkg(:Plots)
     mkpath(output_dir)
     fmt_list = formats isa AbstractString ? strip.(split(formats, ",")) : string.(formats)
@@ -413,6 +421,7 @@ function _save_plot_all_formats(plot_obj, output_dir::AbstractString, stem::Abst
 end
 
 function _plot_mcmc_chains(chains, output_dir::AbstractString, stem::AbstractString, seriestype::Symbol; formats, kwargs...)
+    _configure_headless_gr!()
     _require_pkg(:StatsPlots)
     Plots = _require_pkg(:Plots)
     try
@@ -441,6 +450,7 @@ function _beta_rhat_dataframe(summary::DataFrame)
 end
 
 function _save_rhat_plots(summary::DataFrame, output_dir::AbstractString; rhat_threshold::Real, formats)
+    _configure_headless_gr!()
     Plots = _require_pkg(:Plots)
     try
         _call_latest(getproperty(Plots, :gr))

@@ -3,6 +3,11 @@ using CSV
 using DataFrames
 using Distributions
 using LinearAlgebra
+
+if !haskey(ENV, "GKSwstype") && !haskey(ENV, "DISPLAY")
+    ENV["GKSwstype"] = "100"
+end
+
 import Plots
 using PosteriorStats
 using Random

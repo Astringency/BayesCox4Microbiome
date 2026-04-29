@@ -24,7 +24,7 @@ julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
     --constraint prox \
     --target-accept 0.8 \
     --mala-step-size 1e-2 \
-    --mala-target-accept 0.7 \
+    --mala-target-accept 0.564 \
     --seed 1 \
     --use-car true \
     --car-distance bray \
@@ -34,39 +34,46 @@ julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
 pids+=("$!")
 
 # MAIN LOOP
-
-# n_vals=(200 400)
+n_vals=(200 400)
+p_vals=(50 150)
+non_vals=(6 12)
 # p_vals=(50 150 300)
-# baseline_vals=("weibull" "exponential" "gompertz")
-#
-# for n in "${n_vals[@]}"; do
-#     for p in "${p_vals[@]}"; do
-#         for baseline in "${baseline_vals[@]}"; do
-#
-#             echo "[SIMULATION] n=${n}, p=${p} with ${baseline} baseline."
-#
-#             julia -t 4 --project=. scripts/run_simulation.jl \
-#                 --sampler nuts \
-#                 --samples 5000 \
-#                 --warmup 2000 \
-#                 --chains 4 \
-#                 --reps 100 \
-#                 --n $n \
-#                 --p $p \
-#                 --nonzero 6,12 \
-#                 --baseline $baseline \
-#                 --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso \
-#                 --target-accept 0.9 \
-#                 --seed 1 \
-#                 --use-car true \
-#                 --car-distance bray \
-#                 --p0 truth \
-#                 --p0-alpha 0.05 \
-#                 --outdir results/simulation/n${n}_p${p}_${baseline} &
-#
-#         done
-#     done
-# done
+baseline_vals=("weibull" "exponential" "gompertz")
+
+for n in "${n_vals[@]}"; do
+    for p in "${p_vals[@]}"; do
+        for baseline in "${baseline_vals[@]}"; do
+            for nonzero in "${non_vals[@]}"; do
+
+                echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coefs with ${baseline} baseline."
+
+                julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
+                    --sampler nuts \
+                    --nuts-backend explicit \
+                    --samples 5000 \
+                    --warmup 4000 \
+                    --chains 4 \
+                    --reps 50 \
+                    --n $n \
+                    --p $p \
+                    --nonzero $nonzero \
+                    --baseline $baseline \
+                    --constraint soft_center \
+                    --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso \
+                    --target-accept 0.9 \
+                    --seed 1 \
+                    --use-car true \
+                    --car-distance bray \
+                    --p0 truth \
+                    --p0-alpha 0.05 \
+                    --outdir results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline} &
+            done
+        done
+    done
+done
+
+wait
+
 
 status=0
 for pid in "${pids[@]}"; do
