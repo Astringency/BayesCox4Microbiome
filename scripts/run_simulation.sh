@@ -13,6 +13,8 @@ unset PKG_CONFIG_PATH
 export GKSwstype=100
 
 current_time=$(date "+%Y%m%d_%H%M%S")
+pids=()
+status=0
 
 # TEST
 # test_n=400
@@ -76,14 +78,12 @@ for n in "${n_vals[@]}"; do
                     --p0 truth \
                     --p0-alpha 0.05 \
                     --outdir results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline} &
+                pids+=("$!")
             done
         done
     done
 done
 
-wait
-
-status=0
 for pid in "${pids[@]}"; do
     if ! wait "$pid"; then
         status=1
