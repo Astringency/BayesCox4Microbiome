@@ -2,6 +2,7 @@ using BayesCox4Micro
 using CSV
 using DataFrames
 using Distributions
+using JSON
 using LinearAlgebra
 
 if !haskey(ENV, "GKSwstype") && !haskey(ENV, "DISPLAY")
@@ -709,4 +710,270 @@ function write_table(path::AbstractString, table)
     ensure_dir(dirname(path))
     CSV.write(path, table)
     return path
+end
+
+file_complete(path::AbstractString) = isfile(path) && filesize(path) > 0
+
+function simulation_samples_complete(run_dir::AbstractString)
+    return file_complete(joinpath(run_dir, "samples_wide.csv")) ||
+           file_complete(joinpath(run_dir, "result_bundle.jld2"))
+end
+
+function simulation_metric_outputs_complete(run_dir::AbstractString)
+    return file_complete(joinpath(run_dir, "posterior_summary.csv")) &&
+           file_complete(joinpath(run_dir, "metrics.csv")) &&
+           file_complete(joinpath(run_dir, "false_discovery.csv"))
+end
+
+simulation_run_complete(run_dir::AbstractString) =
+    simulation_samples_complete(run_dir) && simulation_metric_outputs_complete(run_dir)
+
+simulation_run_recoverable(run_dir::AbstractString) =
+    simulation_samples_complete(run_dir) && file_complete(joinpath(run_dir, "posterior_summary.csv"))
+
+function mark_simulation_run_complete(run_dir::AbstractString)
+    ensure_dir(run_dir)
+    open(joinpath(run_dir, "complete.txt"), "w") do io
+        write(io, "complete\n")
+    end
+    return joinpath(run_dir, "complete.txt")
+end
+
+function read_run_metadata(run_dir::AbstractString)
+    path = joinpath(run_dir, "metadata.json")
+    file_complete(path) || return Dict{String,Any}()
+    try
+        return Dict{String,Any}(JSON.parsefile(path))
+    catch err
+        @warn "Could not read metadata.json from $run_dir." exception=(err, catch_backtrace())
+        return Dict{String,Any}()
+    end
+end
+
+function _metadata_number(run_dir::AbstractString, key::AbstractString, default)
+    meta = read_run_metadata(run_dir)
+    haskey(meta, key) || return default
+    value = meta[key]
+    value isa Number && return value
+    value isa AbstractString || return default
+    try
+        return parse(Float64, value)
+    catch
+        return default
+    end
+end
+
+function _beta_index(name)
+    m = match(r"^beta\[(\d+)\]$", string(name))
+    m === nothing && return nothing
+    return parse(Int, m.captures[1])
+end
+
+function ensure_simulation_summary(summary::DataFrame, beta::AbstractVector)
+    out = copy(summary)
+    if !(:variable in propertynames(out))
+        if :parameters in propertynames(out)
+            rename!(out, :parameters => :variable)
+        else
+            out[!, :variable] = ["beta[$j]" for j in eachindex(beta)]
+        end
+    end
+    idx = [_beta_index(v) for v in out.variable]
+    if all(!isnothing, idx)
+        out[!, :_beta_index] = Int.(idx)
+        out = sort(out, :_beta_index)
+        select!(out, Not(:_beta_index))
+    end
+    if nrow(out) != length(beta)
+        keep = [_beta_index(v) !== nothing for v in out.variable]
+        if any(keep)
+            out = out[keep, :]
+            idx = [_beta_index(v) for v in out.variable]
+            out[!, :_beta_index] = Int.(idx)
+            out = sort(out, :_beta_index)
+            select!(out, Not(:_beta_index))
+        end
+    end
+    nrow(out) == length(beta) ||
+        throw(ArgumentError("posterior summary row count $(nrow(out)) does not match beta length $(length(beta))."))
+    if !(:lower in propertynames(out)) && :q025 in propertynames(out)
+        rename!(out, :q025 => :lower)
+    end
+    if !(:upper in propertynames(out)) && :q975 in propertynames(out)
+        rename!(out, :q975 => :upper)
+    end
+    if !(:median in propertynames(out)) && Symbol("50.0%") in propertynames(out)
+        rename!(out, Symbol("50.0%") => :median)
+    end
+    if !(:map in propertynames(out))
+        out[!, :map] = :median in propertynames(out) ? Float64.(out[!, :median]) : fill(NaN, nrow(out))
+    end
+    out[!, :variable] = ["beta[$j]" for j in eachindex(beta)]
+    out[!, :true_beta] = collect(Float64, beta)
+    out[!, :nonzero] = beta .!= 0
+    return out
+end
+
+function _saved_samples_wide(run_dir::AbstractString)
+    wide_path = joinpath(run_dir, "samples_wide.csv")
+    if file_complete(wide_path)
+        return CSV.read(wide_path, DataFrame)
+    end
+    if file_complete(joinpath(run_dir, "result_bundle.jld2"))
+        chains = BayesCox4Micro._load_chains_from_run(run_dir)
+        return chains_to_wide_dataframe(chains)
+    end
+    throw(ArgumentError("no saved samples found in $run_dir"))
+end
+
+function saved_beta_draws_and_layout(run_dir::AbstractString, p::Integer)
+    wide = _saved_samples_wide(run_dir)
+    if all(c -> c in propertynames(wide), (:chain, :iter))
+        wide = sort(wide, [:chain, :iter])
+    end
+    beta_cols = Symbol.("beta[$j]" for j in 1:p)
+    missing_cols = [c for c in beta_cols if !(c in propertynames(wide))]
+    isempty(missing_cols) ||
+        throw(ArgumentError("saved samples in $run_dir are missing beta columns: $(join(string.(missing_cols), ", "))"))
+    draws = Matrix{Float64}(wide[:, beta_cols])
+    if :chain in propertynames(wide)
+        chains = sort(unique(Int.(wide.chain)))
+        counts = [count(==(c), Int.(wide.chain)) for c in chains]
+        length(unique(counts)) == 1 ||
+            throw(ArgumentError("saved sample chains in $run_dir have unequal lengths."))
+        return draws, (chains = length(chains), draws = first(counts))
+    end
+    return draws, (chains = 1, draws = nrow(wide))
+end
+
+function _diagnostic_number(run_dir::AbstractString, key::AbstractString, default = NaN)
+    path = joinpath(run_dir, "diagnostics.json")
+    file_complete(path) || return default
+    try
+        diag = JSON.parsefile(path)
+        haskey(diag, key) || return default
+        value = diag[key]
+        value isa Number && return Float64(value)
+        value isa AbstractString && return parse(Float64, value)
+    catch
+    end
+    return default
+end
+
+function metrics_from_saved_samples(run_dir::AbstractString, sim, summary::DataFrame)
+    draws, layout = saved_beta_draws_and_layout(run_dir, length(sim.beta))
+    data = prepare_cox_data(sim.X, sim.time, sim.event; transform = :log, pseudocount = 1e-6)
+    loglik = posterior_event_loglik(data, draws)
+    event_rows = findall(!=(0), data.event)
+    ll_event = loglik[event_rows, :]
+    loo = psis_loo_metrics(ll_event, layout.chains, layout.draws)
+    beta_mean = Float64.(summary[!, :mean])
+    beta_median = Float64.(summary[!, :median])
+    beta_map = Float64.(summary[!, :map])
+    metrics_mean = fit_metrics(data, draws, beta_mean; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
+    metrics_median = fit_metrics(data, draws, beta_median; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
+    metrics_map = fit_metrics(data, draws, beta_map; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
+    return DataFrame(
+        estimate = ["mean", "median", "MAP"],
+        loglik = [metrics_mean.loglik, metrics_median.loglik, metrics_map.loglik],
+        LPML = [metrics_mean.LPML, metrics_median.LPML, metrics_map.LPML],
+        AIC = [metrics_mean.AIC, metrics_median.AIC, metrics_map.AIC],
+        BIC = [metrics_mean.BIC, metrics_median.BIC, metrics_map.BIC],
+        WAIC_pw1 = [metrics_mean.WAIC_pw1, metrics_median.WAIC_pw1, metrics_map.WAIC_pw1],
+        WAIC_pw2 = [metrics_mean.WAIC_pw2, metrics_median.WAIC_pw2, metrics_map.WAIC_pw2],
+        DIC = [metrics_mean.DIC, metrics_median.DIC, metrics_map.DIC],
+        ELPD_LOO = [metrics_mean.ELPD_LOO, metrics_median.ELPD_LOO, metrics_map.ELPD_LOO],
+        ELPD_LOO_SE = [metrics_mean.ELPD_LOO_SE, metrics_median.ELPD_LOO_SE, metrics_map.ELPD_LOO_SE],
+        PLOO = [metrics_mean.PLOO, metrics_median.PLOO, metrics_map.PLOO],
+        PLOO_SE = [metrics_mean.PLOO_SE, metrics_median.PLOO_SE, metrics_map.PLOO_SE],
+        LOOIC = [metrics_mean.LOOIC, metrics_median.LOOIC, metrics_map.LOOIC],
+        LOOIC_SE = [metrics_mean.LOOIC_SE, metrics_median.LOOIC_SE, metrics_map.LOOIC_SE],
+        ParetoK_max = [metrics_mean.ParetoK_max, metrics_median.ParetoK_max, metrics_map.ParetoK_max],
+        ParetoK_bad = [metrics_mean.ParetoK_bad, metrics_median.ParetoK_bad, metrics_map.ParetoK_bad],
+        PSIS_LOO = [metrics_mean.PSIS_LOO, metrics_median.PSIS_LOO, metrics_map.PSIS_LOO],
+        Cindex = [metrics_mean.Cindex, metrics_median.Cindex, metrics_map.Cindex],
+        warmup_seconds = fill(_diagnostic_number(run_dir, "warmup_seconds", NaN), 3),
+        sample_seconds = fill(_diagnostic_number(run_dir, "sample_seconds", NaN), 3),
+        total_seconds = fill(_diagnostic_number(run_dir, "total_seconds", NaN), 3),
+        allocated_mb = fill(_diagnostic_number(run_dir, "allocated_mb", NaN), 3),
+        gc_seconds = fill(_diagnostic_number(run_dir, "gc_seconds", NaN), 3),
+        gc_percent = fill(_diagnostic_number(run_dir, "gc_percent", NaN), 3),
+    )
+end
+
+function annotate_simulation_metrics(metrics::DataFrame, sim, summary::DataFrame; rep, n, p, nonzero, p0, baseline, prior)
+    out = copy(metrics)
+    mse = Dict(
+        "mean" => mean((Float64.(summary[!, :mean]) .- sim.beta) .^ 2),
+        "median" => mean((Float64.(summary[!, :median]) .- sim.beta) .^ 2),
+        "MAP" => mean((Float64.(summary[!, :map]) .- sim.beta) .^ 2),
+    )
+    out[!, :prior] = fill(prior, nrow(out))
+    out[!, :rep] = fill(rep, nrow(out))
+    out[!, :n] = fill(n, nrow(out))
+    out[!, :p] = fill(p, nrow(out))
+    out[!, :nonzero_count] = fill(nonzero, nrow(out))
+    out[!, :p0] = fill(p0, nrow(out))
+    out[!, :baseline] = fill(string(baseline), nrow(out))
+    out[!, :MSE] = [get(mse, string(e), NaN) for e in out.estimate]
+    return out
+end
+
+function simulation_false_discovery_table(sim, summary::DataFrame; rep, n, p, nonzero, p0, baseline, prior)
+    fd = false_discovery(sim.beta, summary)
+    return DataFrame(
+        rep = [rep],
+        n = [n],
+        p = [p],
+        nonzero_count = [nonzero],
+        p0 = [p0],
+        baseline = [string(baseline)],
+        prior = [prior],
+        FP = [fd.FP],
+        FN = [fd.FN],
+        TP = [fd.TP],
+        TN = [fd.TN],
+        FDR = [fd.FDR],
+    )
+end
+
+function load_or_recover_simulation_run(
+    run_dir::AbstractString,
+    sim;
+    rep,
+    n,
+    p,
+    nonzero,
+    baseline,
+    prior,
+    p0,
+)
+    summary = ensure_simulation_summary(CSV.read(joinpath(run_dir, "posterior_summary.csv"), DataFrame), sim.beta)
+    saved_p0 = _metadata_number(run_dir, "p0", p0)
+    metrics_path = joinpath(run_dir, "metrics.csv")
+    if file_complete(metrics_path) && !file_complete(joinpath(run_dir, "complete.txt"))
+        # Interrupted new runs may have metrics written before an incomplete
+        # sample file. Validate saved samples before reusing such a run.
+        saved_beta_draws_and_layout(run_dir, length(sim.beta))
+    end
+    metrics =
+        if file_complete(metrics_path)
+            loaded = CSV.read(metrics_path, DataFrame)
+            p0_value = :p0 in propertynames(loaded) && nrow(loaded) > 0 ? loaded.p0[1] : saved_p0
+            annotate_simulation_metrics(loaded, sim, summary; rep = rep, n = n, p = p, nonzero = nonzero, p0 = p0_value, baseline = baseline, prior = prior)
+        else
+            recovered = metrics_from_saved_samples(run_dir, sim, summary)
+            annotated = annotate_simulation_metrics(recovered, sim, summary; rep = rep, n = n, p = p, nonzero = nonzero, p0 = saved_p0, baseline = baseline, prior = prior)
+            write_table(metrics_path, annotated)
+            annotated
+        end
+
+    fd_path = joinpath(run_dir, "false_discovery.csv")
+    p0_value = :p0 in propertynames(metrics) && nrow(metrics) > 0 ? metrics.p0[1] : saved_p0
+    fd = simulation_false_discovery_table(sim, summary; rep = rep, n = n, p = p, nonzero = nonzero, p0 = p0_value, baseline = baseline, prior = prior)
+    if !file_complete(fd_path)
+        write_table(fd_path, fd)
+    end
+    mark_simulation_run_complete(run_dir)
+    return (summary = summary, metrics = metrics, false_discovery = fd)
 end

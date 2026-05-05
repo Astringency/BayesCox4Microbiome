@@ -386,10 +386,17 @@ julia --project=. scripts\run_simulation.jl --sampler mala --constraint prox --p
 | `--mala-adapt-every` | `50` | Number of warmup iterations between MALA step-size adaptation updates. |
 | `--mala-min-step` | `1e-8` | Lower bound for the adapted MALA step size. |
 | `--mala-max-step` | `1.0` | Upper bound for the adapted MALA step size. |
-| `--diagnose` | `true` | Run `diagnose_run` after each fit and save diagnostics under that run directory. |
+| `--diagnose` | `true` | Run `diagnose_run` for plotted repetitions and save diagnostics under that run directory. With the default `--plot-first-rep-only true`, diagnostics are generated only for `rep == 1`. |
 | `--diagnose-format` | `png` | Comma-separated diagnostic plot formats used by automatic diagnostics. |
 | `--diagnose-top-k-beta` | `10` | Number of beta parameters selected for automatic diagnostic plots. |
 | `--diagnose-max-lag` | `50` | Maximum lag for automatic ACF diagnostic plots. |
+| `--resume` | `true` | Reuse an existing run directory when saved samples and posterior summaries are available. Missing per-run metrics are recovered from the saved samples. |
+| `--plot-first-rep-only` | `true` | Save coefficient and diagnostic plots only for the first repetition of each setting. Set to `false` to plot every repetition. |
+| `--sample-thin` | `10` | Save every kth posterior draw for repetitions after the first one. Metrics and coefficient summaries are still computed from the full in-memory draw set. |
+| `--first-rep-sample-thin` | `1` | Saved-sample thinning for `rep == 1`. |
+| `--save-wide-csv` | `true` | Save the compact wide posterior sample table. |
+| `--save-long-csv` | `false` | Save the much larger long posterior sample table. |
+| `--save-jld2` | `false` | Save the JLD2 result bundle. Disabled by default in simulations to reduce disk usage. |
 
 Simulation data generation follows the paper-style setup in
 `scripts/analysis_common.jl`: true nonzero coefficients are inserted at fixed
@@ -397,25 +404,30 @@ taxon indices, abundance rows are generated through a softmax transformation of
 multivariate normal latent variables, and event times are generated from the
 selected baseline hazard with administrative censoring at `tmax = 100`.
 
-Outputs include coefficient summaries, coefficient plots for posterior mean,
-median, and MAP estimates, long-format metrics, summarized metrics, and false
-discovery summaries. Automatic diagnostic trace, density, and ACF plots are
-restricted to the true nonzero coefficients. Metrics include log partial
-likelihood, LPML, AIC, BIC, WAIC, DIC, PSIS-LOO/LOOIC, Pareto-k diagnostics,
-C-index, and sampler timing diagnostics.
+Outputs include coefficient summaries, per-run metrics, long-format metrics,
+summarized metrics, and false discovery summaries. By default coefficient and
+diagnostic plots are written only for the first repetition of each setting.
+Automatic diagnostic trace, density, and ACF plots are restricted to the true
+nonzero coefficients. Metrics include log partial likelihood, LPML, AIC, BIC,
+WAIC, DIC, PSIS-LOO/LOOIC, Pareto-k diagnostics, C-index, and sampler timing
+diagnostics.
 
 Each fitted simulation run is also saved under:
 
 ```text
 results/simulation/runs/<run_id>/
   samples_wide.csv
-  samples_long.csv
-  result_bundle.jld2
   metadata.json
   diagnostics.json
   posterior_summary.csv
+  metrics.csv
+  false_discovery.csv
+  complete.txt
   diagnose/
 ```
+
+`samples_long.csv` and `result_bundle.jld2` are optional in simulation runs and
+are written only when `--save-long-csv true` or `--save-jld2 true` is passed.
 
 ## Real-Data Analysis Script
 

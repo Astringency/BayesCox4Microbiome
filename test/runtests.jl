@@ -416,6 +416,24 @@ end
         @test isfile(joinpath(diag.output_dir, "acf.png"))
         @test !isfile(joinpath(diag.output_dir, "rhat_scatter.png"))
     end
+
+    mktempdir() do dir
+        save_run_outputs(
+            result;
+            output_dir = dir,
+            run_id = "toy_compact",
+            save_long_csv = false,
+            save_jld2 = false,
+            sample_thin = 2,
+        )
+        @test isfile(joinpath(dir, "samples_wide.csv"))
+        @test !isfile(joinpath(dir, "samples_long.csv"))
+        @test !isfile(joinpath(dir, "result_bundle.jld2"))
+        @test nrow(CSV.read(joinpath(dir, "samples_wide.csv"), DataFrame)) == 3
+
+        diag = diagnose_run(dir; formats = "png", top_k_beta = 2, max_lag = 1)
+        @test isfile(joinpath(diag.output_dir, "diagnostics_summary.csv"))
+    end
 end
 
 @testset "Turing-style Chains saving and multi-chain R-hat plots" begin

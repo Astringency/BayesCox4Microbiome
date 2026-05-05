@@ -76,7 +76,13 @@ function diagnosis_complete(run_dir::AbstractString)
     return file_complete(joinpath(run_dir, "diagnose", "diagnostics_summary.csv"))
 end
 
-complete_run(run_dir::AbstractString) = sampling_complete(run_dir) && diagnosis_complete(run_dir)
+function metrics_complete(run_dir::AbstractString)
+    return file_complete(joinpath(run_dir, "posterior_summary.csv")) &&
+           file_complete(joinpath(run_dir, "metrics.csv")) &&
+           file_complete(joinpath(run_dir, "false_discovery.csv"))
+end
+
+complete_run(run_dir::AbstractString) = sampling_complete(run_dir) && metrics_complete(run_dir)
 
 function collect_status(root::AbstractString, priors::Vector{String})
     rows = NamedTuple[]
@@ -152,7 +158,7 @@ function table_lines(rows, priors::Vector{String}; root::AbstractString)
     push!(lines, join(["-" ^ w for w in widths], "  "))
     append!(lines, fmt_row.(data))
     push!(lines, "")
-    push!(lines, "A repeat is counted only when sampling output exists and diagnose/diagnostics_summary.csv exists.")
+    push!(lines, "A repeat is counted only when sampling output, posterior_summary.csv, metrics.csv, and false_discovery.csv exist.")
     return lines
 end
 

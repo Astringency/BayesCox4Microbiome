@@ -219,6 +219,17 @@ end
 
 samples_long_dataframe(result::CoxSamplerResult) = samples_long_dataframe(samples_wide_dataframe(result))
 
+function _thin_wide_samples(wide::DataFrame, sample_thin::Integer)
+    sample_thin >= 1 || throw(ArgumentError("sample_thin must be at least 1."))
+    sample_thin == 1 && return wide
+    if :iter in propertynames(wide)
+        keep = mod.(Int.(wide.iter) .- 1, sample_thin) .== 0
+    else
+        keep = mod.(collect(0:(nrow(wide) - 1)), sample_thin) .== 0
+    end
+    return wide[keep, :]
+end
+
 function dataframe_to_chains(wide::DataFrame)
     MCMCChains = _require_pkg(:MCMCChains)
     Chains = getproperty(MCMCChains, :Chains)
@@ -290,22 +301,31 @@ function save_run_outputs(
     output_dir::AbstractString,
     run_id::AbstractString = basename(normpath(output_dir)),
     save_csv::Bool = true,
+    save_wide_csv::Bool = save_csv,
+    save_long_csv::Bool = save_csv,
     save_jld2::Bool = true,
+    jld2_include_long::Bool = save_long_csv,
+    sample_thin::Integer = 1,
     metadata = Dict(),
     settings = Dict(),
     posterior_summary = nothing,
 )
     mkpath(output_dir)
     chains = result_to_chains(result)
-    wide = chains_to_wide_dataframe(chains)
-    long = samples_long_dataframe(wide)
+    wide = _thin_wide_samples(chains_to_wide_dataframe(chains), sample_thin)
+    long = (save_long_csv || (save_jld2 && jld2_include_long)) ? samples_long_dataframe(wide) : nothing
     meta = _base_metadata(result; run_id = run_id, metadata = metadata, settings = settings)
+    meta["saved_sample_thin"] = sample_thin
     diagnostics = sampling_diagnostics_dict(result.diagnostics)
     summary_df = posterior_summary === nothing ? _posterior_summary_dataframe(chains) : DataFrame(posterior_summary)
 
-    if save_csv
+    if save_wide_csv
         _write_csv(joinpath(output_dir, "samples_wide.csv"), wide)
+    end
+    if save_long_csv
         _write_csv(joinpath(output_dir, "samples_long.csv"), long)
+    end
+    if save_csv
         _write_csv(joinpath(output_dir, "posterior_summary.csv"), summary_df)
     end
     _write_json(joinpath(output_dir, "metadata.json"), meta)
@@ -313,10 +333,10 @@ function save_run_outputs(
 
     if save_jld2
         JLD2 = _require_pkg(:JLD2)
+        saved_chains = sample_thin == 1 ? chains : dataframe_to_chains(wide)
         bundle = Dict(
             "samples" => wide,
-            "samples_long" => long,
-            "samples_chain" => chains,
+            "samples_chain" => saved_chains,
             "diagnostics" => diagnostics,
             "metadata" => meta,
             "settings" => Dict(String(k) => _jsonable(v) for (k, v) in pairs(settings)),
@@ -331,6 +351,9 @@ function save_run_outputs(
             ),
             "posterior_summary" => summary_df,
         )
+        if long !== nothing
+            bundle["samples_long"] = long
+        end
         _call_latest(getproperty(JLD2, :jldsave), joinpath(output_dir, "result_bundle.jld2"), IOStream; result_bundle = bundle)
     end
 

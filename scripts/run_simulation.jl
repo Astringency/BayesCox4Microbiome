@@ -24,6 +24,68 @@ end
 
 _include_script(joinpath(@__DIR__, "analysis_common.jl"))
 
+function write_simulation_plots(
+    run_dir::AbstractString,
+    figs_dir::AbstractString,
+    summary::DataFrame,
+    sim;
+    label::AbstractString,
+    prior::AbstractString,
+    baseline,
+    n::Integer,
+    p::Integer,
+    nonzero::Integer,
+    diagnose::Bool,
+    diagnose_formats,
+    diagnose_top_k_beta::Integer,
+    diagnose_max_lag::Integer,
+)
+    coef_paths = [
+        joinpath(figs_dir, "coef_$label.pdf"),
+        joinpath(figs_dir, "coef_median_$label.pdf"),
+        joinpath(figs_dir, "coef_map_$label.pdf"),
+    ]
+    if !all(file_complete, coef_paths)
+        coefficient_plot(
+            summary,
+            coef_paths[1];
+            truth = sim.beta,
+            title = "Simulation $prior $baseline n=$n p=$p nonzero=$nonzero",
+            estimate = :mean,
+        )
+        coefficient_plot(
+            summary,
+            coef_paths[2];
+            truth = sim.beta,
+            title = "Simulation $prior median $baseline n=$n p=$p nonzero=$nonzero",
+            estimate = :median,
+        )
+        coefficient_plot(
+            summary,
+            coef_paths[3];
+            truth = sim.beta,
+            title = "Simulation $prior MAP $baseline n=$n p=$p nonzero=$nonzero",
+            estimate = :map,
+        )
+    end
+    if diagnose && !file_complete(joinpath(run_dir, "diagnose", "diagnostics_summary.csv"))
+        nonzero_diagnostic_params = join(("beta[$j]" for j in findall(!iszero, sim.beta)), ",")
+        try
+            diagnose_run(
+                run_dir;
+                output_dir = joinpath(run_dir, "diagnose"),
+                params = nonzero_diagnostic_params,
+                top_k_beta = diagnose_top_k_beta,
+                max_lag = diagnose_max_lag,
+                formats = diagnose_formats,
+            )
+        catch err
+            @warn "Diagnostics failed for $label; metrics and samples were kept." exception=(err, catch_backtrace())
+        end
+    end
+    return nothing
+end
+
 function main()
     args = parse_cli_args()
     outdir = arg(args, "outdir", joinpath("results", "simulation"))
@@ -61,6 +123,13 @@ function main()
     diagnose_formats = get(args, "diagnose-format", "png")
     diagnose_top_k_beta = arg(args, "diagnose-top-k-beta", 10)
     diagnose_max_lag = arg(args, "diagnose-max-lag", 50)
+    resume = arg(args, "resume", true)
+    plot_first_rep_only = arg(args, "plot-first-rep-only", true)
+    sample_thin = max(1, arg(args, "sample-thin", 10))
+    first_rep_sample_thin = max(1, arg(args, "first-rep-sample-thin", 1))
+    save_wide_csv = arg(args, "save-wide-csv", true)
+    save_long_csv = arg(args, "save-long-csv", false)
+    save_jld2 = arg(args, "save-jld2", false)
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
     figs_dir = ensure_dir(joinpath(outdir, "figures"))
@@ -73,6 +142,49 @@ function main()
         p0_value = p0_arg === :truth ? nonzero : p0_arg
         for prior in priors
             label = "rep$(rep)_$(prior)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)"
+            run_dir = joinpath(outdir, "runs", label)
+            coef_path = joinpath(tables_dir, "coef_$label.csv")
+            should_plot = !plot_first_rep_only || rep == 1
+            if resume && simulation_run_recoverable(run_dir)
+                try
+                    recovered = load_or_recover_simulation_run(
+                        run_dir,
+                        sim;
+                        rep = rep,
+                        n = n,
+                        p = p,
+                        nonzero = nonzero,
+                        baseline = baseline,
+                        prior = prior,
+                        p0 = p0_value,
+                    )
+                    write_table(coef_path, recovered.summary)
+                    append!(all_metrics, recovered.metrics; cols = :union)
+                    append!(all_fd, recovered.false_discovery; cols = :union)
+                    if should_plot
+                        write_simulation_plots(
+                            run_dir,
+                            figs_dir,
+                            recovered.summary,
+                            sim;
+                            label = label,
+                            prior = prior,
+                            baseline = baseline,
+                            n = n,
+                            p = p,
+                            nonzero = nonzero,
+                            diagnose = diagnose,
+                            diagnose_formats = diagnose_formats,
+                            diagnose_top_k_beta = diagnose_top_k_beta,
+                            diagnose_max_lag = diagnose_max_lag,
+                        )
+                    end
+                    println("[SKIP] $label already has reusable outputs.")
+                    continue
+                catch err
+                    @warn "Could not reuse existing outputs for $label; rerunning this loop." exception=(err, catch_backtrace())
+                end
+            end
             fit = fit_and_evaluate(
                 sim.X,
                 sim.time,
@@ -107,8 +219,36 @@ function main()
             summary.variable .= ["beta[$j]" for j in 1:p]
             summary.true_beta = sim.beta
             summary.nonzero = sim.beta .!= 0
-            write_table(joinpath(tables_dir, "coef_$label.csv"), summary)
-            run_dir = joinpath(outdir, "runs", label)
+            summary = ensure_simulation_summary(summary, sim.beta)
+            metrics = annotate_simulation_metrics(
+                fit.metrics,
+                sim,
+                summary;
+                rep = rep,
+                n = n,
+                p = p,
+                nonzero = nonzero,
+                p0 = fit.p0,
+                baseline = baseline,
+                prior = prior,
+            )
+            fd_table = simulation_false_discovery_table(
+                sim,
+                summary;
+                rep = rep,
+                n = n,
+                p = p,
+                nonzero = nonzero,
+                p0 = fit.p0,
+                baseline = baseline,
+                prior = prior,
+            )
+            ensure_dir(run_dir)
+            write_table(coef_path, summary)
+            write_table(joinpath(run_dir, "posterior_summary.csv"), summary)
+            write_table(joinpath(run_dir, "metrics.csv"), metrics)
+            write_table(joinpath(run_dir, "false_discovery.csv"), fd_table)
+            saved_sample_thin = should_plot ? first_rep_sample_thin : sample_thin
             save_run_outputs(
                 fit.result;
                 output_dir = run_dir,
@@ -133,7 +273,8 @@ function main()
                     "multichains" => multichains,
                     "target_accept" => target_accept,
                     "seed" => sim_seed,
-                    "thin" => 1,
+                    "thin" => saved_sample_thin,
+                    "saved_sample_thin" => saved_sample_thin,
                     "constraint" => string(constraint),
                     "soft_center_scale" => soft_center_scale,
                     "prox_sum0_lambda" => prox_sum0_lambda,
@@ -150,68 +291,32 @@ function main()
                     "p0_alpha" => p0_alpha,
                 ),
                 posterior_summary = summary,
+                save_wide_csv = save_wide_csv,
+                save_long_csv = save_long_csv,
+                save_jld2 = save_jld2,
+                sample_thin = saved_sample_thin,
             )
-            nonzero_diagnostic_params = join(("beta[$j]" for j in findall(!iszero, sim.beta)), ",")
-            if diagnose
-                diagnose_run(
-                    run_dir;
-                    output_dir = joinpath(run_dir, "diagnose"),
-                    params = nonzero_diagnostic_params,
-                    top_k_beta = diagnose_top_k_beta,
-                    max_lag = diagnose_max_lag,
-                    formats = diagnose_formats,
+            mark_simulation_run_complete(run_dir)
+            if should_plot
+                write_simulation_plots(
+                    run_dir,
+                    figs_dir,
+                    summary,
+                    sim;
+                    label = label,
+                    prior = prior,
+                    baseline = baseline,
+                    n = n,
+                    p = p,
+                    nonzero = nonzero,
+                    diagnose = diagnose,
+                    diagnose_formats = diagnose_formats,
+                    diagnose_top_k_beta = diagnose_top_k_beta,
+                    diagnose_max_lag = diagnose_max_lag,
                 )
             end
-            coefficient_plot(
-                summary,
-                joinpath(figs_dir, "coef_$label.pdf");
-                truth = sim.beta,
-                title = "Simulation $prior $baseline n=$n p=$p nonzero=$nonzero",
-                estimate = :mean,
-            )
-            coefficient_plot(
-                summary,
-                joinpath(figs_dir, "coef_median_$label.pdf");
-                truth = sim.beta,
-                title = "Simulation $prior median $baseline n=$n p=$p nonzero=$nonzero",
-                estimate = :median,
-            )
-            coefficient_plot(
-                summary,
-                joinpath(figs_dir, "coef_map_$label.pdf");
-                truth = sim.beta,
-                title = "Simulation $prior MAP $baseline n=$n p=$p nonzero=$nonzero",
-                estimate = :map,
-            )
-
-            fd = false_discovery(sim.beta, summary)
-            mse_mean = mean((summary.mean .- sim.beta) .^ 2)
-            mse_median = mean((summary.median .- sim.beta) .^ 2)
-            mse_map = mean((summary.map .- sim.beta) .^ 2)
-            metrics = copy(fit.metrics)
-            metrics.prior .= prior
-            metrics.rep .= rep
-            metrics.n .= n
-            metrics.p .= p
-            metrics.nonzero_count .= nonzero
-            metrics.p0 .= fit.p0
-            metrics.baseline .= string(baseline)
-            metrics.MSE = [mse_mean, mse_median, mse_map]
             append!(all_metrics, metrics; cols = :union)
-            push!(all_fd, (
-                rep = rep,
-                n = n,
-                p = p,
-                nonzero_count = nonzero,
-                p0 = fit.p0,
-                baseline = string(baseline),
-                prior = prior,
-                FP = fd.FP,
-                FN = fd.FN,
-                TP = fd.TP,
-                TN = fd.TN,
-                FDR = fd.FDR,
-            ); cols = :union)
+            append!(all_fd, fd_table; cols = :union)
         end
     end
 
