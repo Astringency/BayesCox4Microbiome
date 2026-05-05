@@ -3,35 +3,44 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+unset LD_LIBRARY_PATH
+unset LIBRARY_PATH
+unset CPATH
+unset C_INCLUDE_PATH
+unset CPLUS_INCLUDE_PATH
+unset PKG_CONFIG_PATH
+
+export GKSwstype=100
+
 current_time=$(date "+%Y%m%d_%H%M%S")
 
 # TEST
-test_n=400
-test_p=150
-pids=()
-julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
-    --sampler ula \
-    --samples 5000 \
-    --warmup 2000 \
-    --chains 4 \
-    --multichains \
-    --reps 1 \
-    --n "$test_n" \
-    --p "$test_p" \
-    --nonzero 12 \
-    --baseline weibull \
-    --priors lasso \
-    --constraint prox \
-    --target-accept 0.8 \
-    --mala-step-size 1e-2 \
-    --mala-target-accept 0.564 \
-    --seed 1 \
-    --use-car true \
-    --car-distance bray \
-    --p0 truth \
-    --p0-alpha 0.05 \
-    --outdir "results/simulation/test_n${test_n}_p${test_p}_non12_weibull_${current_time}" &
-pids+=("$!")
+# test_n=400
+# test_p=150
+# pids=()
+# julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
+#     --sampler ula \
+#     --samples 5000 \
+#     --warmup 2000 \
+#     --chains 4 \
+#     --multichains \
+#     --reps 1 \
+#     --n "$test_n" \
+#     --p "$test_p" \
+#     --nonzero 12 \
+#     --baseline weibull \
+#     --priors lasso \
+#     --constraint prox \
+#     --target-accept 0.8 \
+#     --mala-step-size 1e-3 \
+#     --mala-target-accept 0.7 \
+#     --seed 1 \
+#     --use-car true \
+#     --car-distance bray \
+#     --p0 truth \
+#     --p0-alpha 0.05 \
+#     --outdir "results/simulation/test_n${test_n}_p${test_p}_non12_weibull_${current_time}" &
+# pids+=("$!")
 
 # MAIN LOOP
 n_vals=(200 400)
@@ -73,7 +82,6 @@ for n in "${n_vals[@]}"; do
 done
 
 wait
-
 
 status=0
 for pid in "${pids[@]}"; do
