@@ -7,8 +7,6 @@ REM set "GKSwstype=100"
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "current_time=%%i"
 
 REM TEST
-set "test_n=400"
-set "test_p=150"
 
 julia +1.11.7 -t 4 --project=. scripts\run_simulation.jl ^
     --sampler ula ^
@@ -17,8 +15,8 @@ julia +1.11.7 -t 4 --project=. scripts\run_simulation.jl ^
     --chains 4 ^
     --multichains ^
     --reps 1 ^
-    --n %test_n% ^
-    --p %test_p% ^
+    --n 400 ^
+    --p 150 ^
     --nonzero 12 ^
     --baseline weibull ^
     --priors lasso ^
