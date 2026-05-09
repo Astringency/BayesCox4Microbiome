@@ -208,8 +208,8 @@ The repository implements the following priors through concrete subtypes of
 | `cox-rhs` | `cox_paper_prior("cox-rhs"; ...)` | Regularized horseshoe with Cox-specific `tau0` and the regularized slab. |
 | `lasso` | `cox_paper_prior("lasso")` | Bayesian LASSO. If `lambda` is not fixed, `lambda2 ~ Gamma(lambda2_shape, 1 / lambda2_rate)` with defaults `lambda2_shape = 1`, `lambda2_rate = 0.1`; local variances use the normal-exponential mixture representation. |
 | `sslasso` | `cox_paper_prior("sslasso"; realdata = false/true)` | Spike-and-slab LASSO. The marginal API uses a mixture of Laplace components with `theta ~ Beta(theta_a, theta_b)`. Simulation defaults are `spike_scale = 0.04`, `slab_scale = 0.5`; real-data script defaults are `spike_scale = 1`, `slab_scale = 10`. |
-| `prox-lasso` | `cox_paper_prior("prox-lasso")` plus `constraint = :prox` | Proximal LASSO implementation using an L1 epigraph variable and Moreau smoothing. Supported by `mala`, `ula`, and the prox-specialized `nuts` path. |
-| `prox-sslasso` | `cox_paper_prior("prox-sslasso")` plus `constraint = :prox` | Conditional proximal SSLASSO implementation. Discrete `gamma` indicators are updated by Gibbs steps, while continuous `beta` and the L1 epigraph variable are updated by MALA, ULA, or NUTS block updates with weighted L1 Moreau smoothing. |
+| `prox-lasso` | `cox_paper_prior("prox-lasso")` plus `prox_l1_prior = true` | Proximal LASSO implementation using an L1 epigraph variable and Moreau smoothing. Supported by `mala`, `ula`, and the prox-specialized `nuts` path with any zero-sum `constraint` mode. |
+| `prox-sslasso` | `cox_paper_prior("prox-sslasso")` plus `prox_l1_prior = true` | Conditional proximal SSLASSO implementation. Discrete `gamma` indicators are updated by Gibbs steps, while continuous `beta` and the L1 epigraph variable are updated by MALA, ULA, or NUTS block updates with weighted L1 Moreau smoothing. |
 
 For HS/RHS-style priors, `p0` controls the expected number of nonzero
 coefficients in the tau0 formulas. If `p0` is omitted, `cox_paper_prior`
@@ -220,7 +220,7 @@ estimates it by fitting one univariate Cox model per covariate with
 The script-level prior names are:
 
 ```text
-hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso
+hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso,prox-lasso,prox-sslasso
 ```
 
 ### CAR Smoothing
@@ -256,7 +256,7 @@ Supported sampler symbols are:
   nuts_backend = :turing`.
 - `:mh`: adaptive random-walk Metropolis fallback.
 - `:mala`: MALA for continuous states, including proximal LASSO and proximal
-  SSLASSO modes when `constraint = :prox`.
+  SSLASSO modes when `prox_l1_prior = true` or `constraint = :prox`.
 - `:ula`: unadjusted Langevin updates with fixed `--mala-step-size`; for
   hybrid priors, non-beta hyperparameters still use fixed random-walk MH steps.
 - `:gibbs`: Gibbs / Metropolis-within-Gibbs sampler. SSLASSO uses its
@@ -320,16 +320,18 @@ coefficient constraint, plus an opt-out mode:
    to this mode.
 
 The proximal LASSO machinery is separate from the zero-sum proximal penalty.
-For `BayesianLassoPrior` with `sampler = :mala` and `constraint = :prox`, the
-sampler also applies L1 epigraph Moreau smoothing through `project_l1_epigraph`
-and `l1_moreau`. For `SpikeSlabLassoPrior`, it uses
-`project_weighted_l1_epigraph` and `weighted_l1_moreau`.
+For `BayesianLassoPrior` with `prox_l1_prior = true`, or the backward-compatible
+case `constraint = :prox`, the sampler applies L1 epigraph Moreau smoothing
+through `project_l1_epigraph` and `l1_moreau`. For `SpikeSlabLassoPrior`, it
+uses `project_weighted_l1_epigraph` and `weighted_l1_moreau`.
 
 The simulation and real-data scripts expose the same zero-sum constraint
 controls through `--constraint`, `--soft-center-scale`, and
 `--prox-sum0-lambda`. The L1 epigraph proximal controls
 `--prox-l1-lambda`, `--prox-root-tol`, and `--prox-root-maxiter` are relevant
-only for `--sampler mala` with `lasso` or `sslasso` and `--constraint prox`.
+for `--sampler mala` / `--sampler ula` / proximal NUTS runs when the script prior
+name is `prox-lasso` or `prox-sslasso`; `lasso` or `sslasso` with
+`--constraint prox` remains supported for backward compatibility.
 
 ## Simulation Script
 

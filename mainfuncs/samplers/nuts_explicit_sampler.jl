@@ -199,12 +199,13 @@ function _make_explicit_nuts_target(
     alpha_prior_rate::Real,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    prox_l1_prior::Bool = false,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
     kwargs...,
 )
-    if constraint != :prox
+    if !prox_l1_prior && constraint != :prox
         return CoxPosteriorTarget(
             data,
             prior;
@@ -490,6 +491,7 @@ function _sample_nuts_explicit(
     soft_center = nothing,
     soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
+    prox_l1_prior::Bool = false,
     prox_l1_lambda::Real = 1e-3,
     alpha_prior_shape = nothing,
     alpha_prior_rate = nothing,
@@ -517,9 +519,10 @@ function _sample_nuts_explicit(
     a_shape, a_rate = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
     generic_initial = _generic_explicit_initial(prior, data, initial)
     run_parallel = chains > 1 && something(parallel_chains, multichains || chains > 1)
+    use_prox_l1_prior = prox_l1_prior || resolved_constraint == :prox
 
     timed = @timed begin
-        if prior isa SpikeSlabLassoPrior && resolved_constraint == :prox
+        if prior isa SpikeSlabLassoPrior && use_prox_l1_prior
             return _sample_ssl_prox_explicit_nuts_gibbs(
                 data,
                 prior;
@@ -554,6 +557,7 @@ function _sample_nuts_explicit(
                 alpha_prior_rate = a_rate,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
+                prox_l1_prior = use_prox_l1_prior,
                 car_weights = car_weights,
                 use_car = use_car,
                 car_precision = car_precision,
@@ -566,7 +570,7 @@ function _sample_nuts_explicit(
                 target_accept = target_accept,
                 max_depth = max_depth,
                 progress = progress,
-                initial = prior isa BayesianLassoPrior && resolved_constraint == :prox ? initial : generic_initial,
+                initial = prior isa BayesianLassoPrior && use_prox_l1_prior ? initial : generic_initial,
             )
         else
             samples = Vector{MHSamples}(undef, chains)
@@ -586,6 +590,7 @@ function _sample_nuts_explicit(
                         alpha_prior_rate = a_rate,
                         prox_root_tol = prox_root_tol,
                         prox_root_maxiter = prox_root_maxiter,
+                        prox_l1_prior = use_prox_l1_prior,
                         car_weights = car_weights,
                         use_car = use_car,
                         car_precision = car_precision,
@@ -600,7 +605,7 @@ function _sample_nuts_explicit(
                         progress = progress,
                         progress_desc = _chain_progress_desc("AdvancedHMC NUTS sampling", c, chains),
                         progress_offset = _chain_progress_offset(c, chains),
-                        initial = prior isa BayesianLassoPrior && resolved_constraint == :prox ? initial : generic_initial,
+                        initial = prior isa BayesianLassoPrior && use_prox_l1_prior ? initial : generic_initial,
                     )
                 end
             else
@@ -617,6 +622,7 @@ function _sample_nuts_explicit(
                         alpha_prior_rate = a_rate,
                         prox_root_tol = prox_root_tol,
                         prox_root_maxiter = prox_root_maxiter,
+                        prox_l1_prior = use_prox_l1_prior,
                         car_weights = car_weights,
                         use_car = use_car,
                         car_precision = car_precision,
@@ -629,7 +635,7 @@ function _sample_nuts_explicit(
                         target_accept = target_accept,
                         max_depth = max_depth,
                         progress = progress,
-                        initial = prior isa BayesianLassoPrior && resolved_constraint == :prox ? initial : generic_initial,
+                        initial = prior isa BayesianLassoPrior && use_prox_l1_prior ? initial : generic_initial,
                     )
                 end
             end

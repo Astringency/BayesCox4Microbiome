@@ -7,31 +7,58 @@ REM set "GKSwstype=100"
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "current_time=%%i"
 
 REM TEST
+if not defined test_sampler set "test_sampler=ula"
+if not defined test_samples set "test_samples=5000"
+if not defined test_warmup set "test_warmup=2000"
+if not defined test_thin set "test_thin=1"
+if not defined test_chains set "test_chains=4"
+if not defined test_reps set "test_reps=1"
+if not defined test_n set "test_n=400"
+if not defined test_p set "test_p=150"
+if not defined test_nonzero set "test_nonzero=12"
+if not defined test_baseline set "test_baseline=weibull"
+if not defined test_priors set "test_priors=prox-lasso"
+if not defined test_constraint set "test_constraint=prox"
+if not defined test_target_accept set "test_target_accept=0.8"
+if not defined test_mala_step_size set "test_mala_step_size=1e-4"
+if not defined test_prox_sum0_lambda set "test_prox_sum0_lambda=1e-2"
+if not defined test_prox_l1_lambda set "test_prox_l1_lambda=1e-2"
+if not defined test_mala_target_accept set "test_mala_target_accept=0.574"
+if not defined test_seed set "test_seed=1"
+if not defined test_use_car set "test_use_car=true"
+if not defined test_car_distance set "test_car_distance=bray"
+if not defined test_p0 set "test_p0=truth"
+if not defined test_p0_alpha set "test_p0_alpha=0.05"
+if not defined test_progress set "test_progress=true"
+if not defined test_diagnose set "test_diagnose=true"
 
 julia +1.11.7 -t 4 --project=. scripts\run_simulation.jl ^
-    --sampler ula ^
-    --samples 5000 ^
-    --warmup 2000 ^
-    --chains 4 ^
+    --sampler %test_sampler% ^
+    --samples %test_samples% ^
+    --warmup %test_warmup% ^
+    --thin %test_thin% ^
+    --chains %test_chains% ^
     --multichains ^
-    --reps 1 ^
-    --n 400 ^
-    --p 150 ^
-    --nonzero 12 ^
-    --baseline weibull ^
-    --priors lasso ^
-    --constraint soft_center ^
-    --target-accept 0.8 ^
-    --mala-step-size 1e-3 ^
-    --prox-sum0-lambda 1e-2 ^
-    --prox-l1-lambda 1e-2 ^
-    --mala-target-accept 0.564 ^
-    --seed 1 ^
-    --use-car true ^
-    --car-distance bray ^
-    --p0 truth ^
-    --p0-alpha 0.05 ^
-    --outdir "results\simulation\test_n%test_n%_p%test_p%_non12_weibull_%current_time%"
+    --reps %test_reps% ^
+    --n %test_n% ^
+    --p %test_p% ^
+    --nonzero %test_nonzero% ^
+    --baseline %test_baseline% ^
+    --priors %test_priors% ^
+    --constraint %test_constraint% ^
+    --target-accept %test_target_accept% ^
+    --mala-step-size %test_mala_step_size% ^
+    --prox-sum0-lambda %test_prox_sum0_lambda% ^
+    --prox-l1-lambda %test_prox_l1_lambda% ^
+    --mala-target-accept %test_mala_target_accept% ^
+    --seed %test_seed% ^
+    --use-car %test_use_car% ^
+    --car-distance %test_car_distance% ^
+    --p0 %test_p0% ^
+    --p0-alpha %test_p0_alpha% ^
+    --progress %test_progress% ^
+    --diagnose %test_diagnose% ^
+    --outdir "results\simulation\test_n%test_n%_p%test_p%_non%test_nonzero%_%test_baseline%_%current_time%"
 
 if errorlevel 1 (
     echo SIMULATION FAILED! 1>&2

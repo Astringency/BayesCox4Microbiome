@@ -171,6 +171,7 @@ function _sample_nuts(
     soft_center = nothing,
     soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
+    prox_l1_prior::Bool = false,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
@@ -192,7 +193,8 @@ function _sample_nuts(
     resolved_constraint = _resolve_constraint(constraint, soft_center)
     scale = soft_center_scale === nothing ? _default_soft_center_scale(p) : Float64(soft_center_scale)
     resolved_car_weights = use_car ? _prepare_car_weights(car_weights, p) : nothing
-    if resolved_constraint == :prox && prior isa BayesianLassoPrior
+    use_prox_l1_prior = prox_l1_prior || resolved_constraint == :prox
+    if use_prox_l1_prior && prior isa BayesianLassoPrior
         return _sample_lasso_prox_nuts(
             data,
             prior;
@@ -212,7 +214,7 @@ function _sample_nuts(
             progress = progress,
             callback = callback,
         )
-    elseif resolved_constraint == :prox && prior isa SpikeSlabLassoPrior
+    elseif use_prox_l1_prior && prior isa SpikeSlabLassoPrior
         return _sample_ssl_prox_nuts_gibbs(
             data,
             prior;

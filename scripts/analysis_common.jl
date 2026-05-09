@@ -159,6 +159,11 @@ function prior_from_name(
     )
 end
 
+function prox_l1_prior_from_name(name::AbstractString)
+    key = lowercase(replace(string(name), "_" => "-", " " => "-"))
+    return key in ("prox-lasso", "prox-sslasso")
+end
+
 prior_p0(prior) = hasproperty(prior, :p0) ? getproperty(prior, :p0) : missing
 
 function univariate_screen_table(X, time, event; names = nothing, alpha::Real = 0.05)
@@ -375,6 +380,7 @@ function fit_and_evaluate(
     nuts_backend::Symbol = :turing,
     n_samples::Integer = 1000,
     warmup::Integer = 500,
+    thin::Integer = 1,
     chains::Integer = 4,
     multichains::Bool = false,
     target_accept::Real = 0.8,
@@ -383,6 +389,7 @@ function fit_and_evaluate(
     car_distance = :bray,
     p0 = nothing,
     p0_alpha::Real = 0.05,
+    prox_l1_prior::Bool = false,
     constraint::Symbol = :soft_center,
     soft_center_scale = nothing,
     prox_sum0_lambda::Real = 1e-3,
@@ -409,12 +416,14 @@ function fit_and_evaluate(
                 nuts_backend = nuts_backend,
                 n_samples = n_samples,
                 warmup = warmup,
+                thin = thin,
                 chains = chains,
                 multichains = multichains,
                 target_accept = target_accept,
                 seed = seed,
                 use_car = use_car,
                 car_distance = car_distance,
+                prox_l1_prior = prox_l1_prior,
                 constraint = constraint,
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
@@ -433,12 +442,14 @@ function fit_and_evaluate(
                     sampler = sampler,
                     n_samples = n_samples,
                     warmup = warmup,
+                    thin = thin,
                     chains = chains,
                     multichains = multichains,
                     target_accept = target_accept,
                     seed = seed,
                     use_car = use_car,
                     car_distance = car_distance,
+                    prox_l1_prior = prox_l1_prior,
                     constraint = constraint,
                     soft_center_scale = soft_center_scale,
                     prox_sum0_lambda = prox_sum0_lambda,
@@ -461,6 +472,7 @@ function fit_and_evaluate(
                     sampler = sampler,
                     n_samples = n_samples,
                     warmup = warmup,
+                    thin = thin,
                     chains = chains,
                     multichains = multichains,
                     target_accept = target_accept,
@@ -482,15 +494,20 @@ function fit_and_evaluate(
                 sampler = sampler,
                 n_samples = n_samples,
                 warmup = warmup,
+                thin = thin,
                 chains = chains,
                 multichains = multichains,
                 target_accept = target_accept,
                 seed = seed,
                 use_car = use_car,
                 car_distance = car_distance,
+                prox_l1_prior = prox_l1_prior,
                 constraint = constraint,
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
+                prox_l1_lambda = prox_l1_lambda,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
                 progress = progress,
             )
         else

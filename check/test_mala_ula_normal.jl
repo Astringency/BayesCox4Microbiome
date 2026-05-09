@@ -13,6 +13,8 @@ using MCMCChains
 using Random
 using Statistics
 using LinearAlgebra
+using CSV
+using Plots
 
 function simulation_data(n::Int, p::Int; seed::Int = 2027)
     rng = MersenneTwister(seed)
@@ -104,12 +106,116 @@ function summarize_result(label::String, result, beta_true)
     )
 end
 
+function safe_filename(label::String)
+    return replace(label, r"[^A-Za-z0-9_.-]" => "_")
+end
+
+function plot_sampler_result(label::String, result, beta_true, outdir::String)
+    mkpath(outdir)
+
+    draws = posterior_beta_draws(result)
+    beta_mean = vec(mean(draws; dims = 1))
+    beta_sd = vec(std(draws; dims = 1))
+    p = length(beta_true)
+
+    file_label = safe_filename(label)
+
+    plt_beta = plot(
+        1:p,
+        beta_true;
+        label = "true beta",
+        marker = :circle,
+        linewidth = 2,
+        xlabel = "coefficient index",
+        ylabel = "beta",
+        title = "$label: true beta vs posterior mean",
+        size = (900, 500),
+    )
+
+    plot!(
+        plt_beta,
+        1:p,
+        beta_mean;
+        ribbon = beta_sd,
+        label = "posterior mean ± sd",
+        marker = :diamond,
+        linewidth = 2,
+    )
+
+    savefig(plt_beta, joinpath(outdir, "$(file_label)_beta.png"))
+
+    logp = posterior_logposterior_draws(result)
+
+    plt_logp = plot(
+        eachindex(logp),
+        logp;
+        label = "",
+        xlabel = "draw",
+        ylabel = "log posterior",
+        title = "$label: log posterior trace",
+        size = (900, 500),
+    )
+
+    savefig(plt_logp, joinpath(outdir, "$(file_label)_logposterior.png"))
+end
+
+function plot_summary_metrics(rows::DataFrame, outdir::String)
+    mkpath(outdir)
+
+    metrics = [
+        :acceptance_rate,
+        :ess_min,
+        :rhat_max,
+        :mean_abs_beta_error,
+        :mean_beta_mean,
+        :max_abs_beta_mean,
+        :logpost_last,
+    ]
+
+    labels = String.(rows.sampler)
+
+    for metric in metrics
+        metric_name = String(metric)
+
+        if !(metric_name in names(rows))
+            continue
+        end
+
+        vals = Float64[]
+
+        for x in rows[!, metric]
+            try
+                push!(vals, Float64(x))
+            catch
+                push!(vals, NaN)
+            end
+        end
+
+        if !any(isfinite.(vals))
+            continue
+        end
+
+        plt = bar(
+            labels,
+            vals;
+            legend = false,
+            xlabel = "sampler",
+            ylabel = metric_name,
+            title = "Sampler comparison: $metric_name",
+            xrotation = 45,
+            size = (1000, 500),
+        )
+
+        savefig(plt, joinpath(outdir, "$(metric_name).png"))
+    end
+end
+
 function run_one_sampler(sampler::Symbol, X, time, event; seed::Int, step::Float64)
     common = (
         prior = BayesianLassoPrior(),
         constraint = :prox,
-        n_samples = 1000,
-        warmup = 1000,
+        n_samples = 5000,
+        warmup = 5000,
         chains = 4,
         progress = false,
         seed = seed,
@@ -152,25 +258,48 @@ function main()
     println("n = ", size(X, 1), ", p = ", size(X, 2), ", events = ", sum(event))
     println("beta_true = ", beta_true)
 
-    rows = DataFrame()
-
-    nuts = run_one_sampler(:nuts_explicit, X, time, event; seed = 101, step = 1e-6)
-    push!(rows, summarize_result("nuts_explicit", nuts, beta_true); cols = :union)
-
-    for step in (1e-7, 1e-6, 1e-5)
-        mala = run_one_sampler(:mala, X, time, event; seed = 200 + round(Int, -log10(step)), step = step)
-        push!(rows, summarize_result("mala_step_$step", mala, beta_true); cols = :union)
-
-        ula = run_one_sampler(:ula, X, time, event; seed = 300 + round(Int, -log10(step)), step = step)
-        push!(rows, summarize_result("ula_step_$step", ula, beta_true); cols = :union)
-    end
-
     outdir = joinpath("results", "current_mala_ula_test")
     mkpath(outdir)
+
+    rows = DataFrame()
+
+    nuts_label = "nuts_explicit"
+    nuts = run_one_sampler(:nuts_explicit, X, time, event; seed = 101, step = 1e-6)
+    push!(rows, summarize_result(nuts_label, nuts, beta_true); cols = :union)
+    plot_sampler_result(nuts_label, nuts, beta_true, outdir)
+
+    for step in (1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2)
+        mala_label = "mala_step_$step"
+        mala = run_one_sampler(
+            :mala,
+            X,
+            time,
+            event;
+            seed = 200 + round(Int, -log10(step)),
+            step = step,
+        )
+        push!(rows, summarize_result(mala_label, mala, beta_true); cols = :union)
+        plot_sampler_result(mala_label, mala, beta_true, outdir)
+
+        ula_label = "ula_step_$step"
+        ula = run_one_sampler(
+            :ula,
+            X,
+            time,
+            event;
+            seed = 300 + round(Int, -log10(step)),
+            step = step,
+        )
+        push!(rows, summarize_result(ula_label, ula, beta_true); cols = :union)
+        plot_sampler_result(ula_label, ula, beta_true, outdir)
+    end
+
     CSV.write(joinpath(outdir, "summary.csv"), rows)
+    plot_summary_metrics(rows, outdir)
 
     println()
     println("Wrote summary to ", abspath(joinpath(outdir, "summary.csv")))
+    println("Wrote plots to   ", abspath(outdir))
     println(rows)
 end
 

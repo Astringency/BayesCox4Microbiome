@@ -622,6 +622,7 @@ function _sample_gibbs_chains(
     soft_center = nothing,
     soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
+    prox_l1_prior::Bool = false,
     prox_l1_lambda::Real = 1e-3,
     alpha_prior_shape = nothing,
     alpha_prior_rate = nothing,
@@ -630,7 +631,8 @@ function _sample_gibbs_chains(
     kwargs...,
 )
     resolved_constraint = _resolve_constraint(constraint, soft_center)
-    if resolved_constraint == :prox
+    use_prox_l1_prior = prox_l1_prior || resolved_constraint == :prox
+    if use_prox_l1_prior
         return _sample_ssl_prox_nuts_gibbs(
             data,
             prior;

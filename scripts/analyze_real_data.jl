@@ -91,6 +91,7 @@ function main()
 
     all_metrics = DataFrame()
     for prior in priors
+        prox_l1_prior = prox_l1_prior_from_name(prior)
         fit = fit_and_evaluate(
             X,
             time,
@@ -108,6 +109,7 @@ function main()
             car_distance = car_distance,
             p0 = p0_arg,
             p0_alpha = p0_alpha,
+            prox_l1_prior = prox_l1_prior,
             constraint = constraint,
             soft_center_scale = soft_center_scale,
             prox_sum0_lambda = prox_sum0_lambda,
@@ -136,6 +138,7 @@ function main()
                 "dataset_name" => basename(input),
                 "method_name" => prior,
                 "prior_name" => prior,
+                "prox_l1_prior" => prox_l1_prior,
                 "sampler" => string(sampler),
                 "nuts_backend" => string(nuts_backend),
                 "p0" => fit.p0,
@@ -149,6 +152,7 @@ function main()
                 "target_accept" => target_accept,
                 "seed" => seed,
                 "thin" => 1,
+                "prox_l1_prior" => prox_l1_prior,
                 "constraint" => string(constraint),
                 "soft_center_scale" => soft_center_scale,
                 "prox_sum0_lambda" => prox_sum0_lambda,

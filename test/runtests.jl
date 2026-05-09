@@ -263,6 +263,40 @@ end
     @test ula_multi.samples isa MultiMHSamples
     @test size(result_to_chains(ula_multi), 3) == 2
     @test size(posterior_beta_draws(ula_multi)) == (4, 4)
+
+    mala_prox_soft_center = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = BayesianLassoPrior(),
+        sampler = :mala,
+        prox_l1_prior = true,
+        constraint = :soft_center,
+        n_samples = 2,
+        warmup = 1,
+        mala_step_size = 1e-6,
+        progress = false,
+        seed = 14,
+    )
+    @test size(posterior_beta_draws(mala_prox_soft_center)) == (2, 4)
+    @test mala_prox_soft_center.samples.names[end] == "eta"
+
+    ula_prox_soft_center = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = BayesianLassoPrior(),
+        sampler = :ula,
+        prox_l1_prior = true,
+        constraint = :soft_center,
+        n_samples = 2,
+        warmup = 1,
+        mala_step_size = 1e-6,
+        progress = false,
+        seed = 15,
+    )
+    @test size(posterior_beta_draws(ula_prox_soft_center)) == (2, 4)
+    @test ula_prox_soft_center.samples.names[end] == "eta"
 end
 
 @testset "NUTS backend smoke tests" begin

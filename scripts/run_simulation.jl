@@ -99,6 +99,7 @@ function main()
     nuts_backend = Symbol(arg(args, "nuts-backend", "turing"))
     n_samples = arg(args, "samples", 500)
     warmup = arg(args, "warmup", 200)
+    thin = arg(args, "thin", 1)
     chains = arg(args, "chains", 4)
     multichains = arg(args, "multichains", false)
     target_accept = arg(args, "target-accept", 0.8)
@@ -141,6 +142,7 @@ function main()
         sim = generate_simulation_data(n, p, nonzero; baseline = baseline, seed = sim_seed)
         p0_value = p0_arg === :truth ? nonzero : p0_arg
         for prior in priors
+            prox_l1_prior = prox_l1_prior_from_name(prior)
             label = "rep$(rep)_$(prior)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)"
             run_dir = joinpath(outdir, "runs", label)
             coef_path = joinpath(tables_dir, "coef_$label.csv")
@@ -194,6 +196,7 @@ function main()
                 nuts_backend = nuts_backend,
                 n_samples = n_samples,
                 warmup = warmup,
+                thin = thin,
                 chains = chains,
                 multichains = multichains,
                 target_accept = target_accept,
@@ -202,6 +205,7 @@ function main()
                 car_distance = car_distance,
                 p0 = p0_value,
                 p0_alpha = p0_alpha,
+                prox_l1_prior = prox_l1_prior,
                 constraint = constraint,
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
@@ -258,6 +262,7 @@ function main()
                     "replicate_id" => rep,
                     "method_name" => prior,
                     "prior_name" => prior,
+                    "prox_l1_prior" => prox_l1_prior,
                     "sampler" => string(sampler),
                     "nuts_backend" => string(nuts_backend),
                     "baseline" => string(baseline),
@@ -273,8 +278,9 @@ function main()
                     "multichains" => multichains,
                     "target_accept" => target_accept,
                     "seed" => sim_seed,
-                    "thin" => saved_sample_thin,
+                    "thin" => thin,
                     "saved_sample_thin" => saved_sample_thin,
+                    "prox_l1_prior" => prox_l1_prior,
                     "constraint" => string(constraint),
                     "soft_center_scale" => soft_center_scale,
                     "prox_sum0_lambda" => prox_sum0_lambda,
