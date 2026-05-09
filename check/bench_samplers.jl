@@ -53,7 +53,7 @@ function main()
     warmup = length(ARGS) >= 4 ? parse(Int, ARGS[4]) : 25
     chains = length(ARGS) >= 5 ? parse(Int, ARGS[5]) : 2
     X, time, event = simulation_data(n, p)
-    prior = BayesianLassoPrior()
+    prior = BayesianLassoPrior(proximal = true)
 
     println("sampler,total_seconds,allocated_mb,gc_percent,acceptance_rate,draws,ess_bulk_min,rhat_max,outer_seconds,outer_allocated_mb")
 

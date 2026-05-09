@@ -68,7 +68,6 @@ export AbstractCoxPrior,
     as_mcmc_chains,
     chains_to_wide_dataframe,
     samples_wide_dataframe,
-    samples_long_dataframe,
     dataframe_to_chains,
     save_run_outputs,
     diagnose_run

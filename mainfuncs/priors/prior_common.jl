@@ -12,6 +12,10 @@ function _validate_prior(prior::AbstractCoxPrior)
     throw(ArgumentError("unsupported prior type: $(typeof(prior))"))
 end
 
+_is_proximal_l1_prior(::AbstractCoxPrior) = false
+_is_proximal_l1_prior(prior::BayesianLassoPrior) = prior.proximal
+_is_proximal_l1_prior(prior::SpikeSlabLassoPrior) = prior.proximal
+
 function cox_tau0(p::Integer, p0::Real, n_events::Integer)
     p > 1 || throw(ArgumentError("p must be larger than one."))
     p0f = Float64(p0)

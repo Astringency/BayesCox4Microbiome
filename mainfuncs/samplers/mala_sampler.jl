@@ -1225,7 +1225,6 @@ function _sample_mala(
     soft_center = nothing,
     soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
-    prox_l1_prior::Bool = false,
     prox_l1_lambda::Real = 1e-3,
     alpha_prior_shape = nothing,
     alpha_prior_rate = nothing,
@@ -1253,9 +1252,9 @@ function _sample_mala(
     a_rate = Float64(something(alpha_prior_rate, prior isa BayesianLassoPrior ? prior.lambda2_rate : 1.0))
     _check_positive(a_shape, "alpha_prior_shape")
     _check_positive(a_rate, "alpha_prior_rate")
-    use_prox_l1_prior = prox_l1_prior || resolved_constraint == :prox
+    use_proximal_prior = _is_proximal_l1_prior(prior)
 
-    if prior isa BayesianLassoPrior && use_prox_l1_prior
+    if prior isa BayesianLassoPrior && use_proximal_prior
         return _sample_lasso_prox_mala(
             data,
             prior;
@@ -1281,7 +1280,7 @@ function _sample_mala(
             progress_desc = progress_desc,
             progress_offset = progress_offset,
         )
-    elseif prior isa SpikeSlabLassoPrior && use_prox_l1_prior
+    elseif prior isa SpikeSlabLassoPrior && use_proximal_prior
         return _sample_ssl_prox_mala(
             data,
             prior;
@@ -1361,7 +1360,6 @@ function _sample_ula(
     soft_center = nothing,
     soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
-    prox_l1_prior::Bool = false,
     prox_l1_lambda::Real = 1e-3,
     alpha_prior_shape = nothing,
     alpha_prior_rate = nothing,
@@ -1386,9 +1384,9 @@ function _sample_ula(
     prox_root_maxiter > 0 || throw(ArgumentError("prox_root_maxiter must be positive."))
     a_shape = Float64(something(alpha_prior_shape, prior isa BayesianLassoPrior ? prior.lambda2_shape : 1.0))
     a_rate = Float64(something(alpha_prior_rate, prior isa BayesianLassoPrior ? prior.lambda2_rate : 1.0))
-    use_prox_l1_prior = prox_l1_prior || resolved_constraint == :prox
+    use_proximal_prior = _is_proximal_l1_prior(prior)
 
-    if prior isa BayesianLassoPrior && use_prox_l1_prior
+    if prior isa BayesianLassoPrior && use_proximal_prior
         init = initial === nothing ? vcat(zeros(Float64, p), [0.0]) : collect(Float64, initial)
         names = vcat(["beta[$j]" for j in 1:p], ["eta"])
         logpost = u -> _lasso_prox_logposterior(
@@ -1434,7 +1432,7 @@ function _sample_ula(
         return _run_full_ula(logpost, gradient, init, names; n_samples = n_samples, warmup = warmup, thin = thin,
             rng = rng, mala_step_size = mala_step_size, progress = progress,
             progress_desc = progress_desc, progress_offset = progress_offset, gradient! = gradient!)
-    elseif prior isa SpikeSlabLassoPrior && use_prox_l1_prior
+    elseif prior isa SpikeSlabLassoPrior && use_proximal_prior
         return _sample_ssl_prox_ula(
             data,
             prior;

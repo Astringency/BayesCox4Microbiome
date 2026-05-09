@@ -43,7 +43,7 @@ function _target_for(prior_name::AbstractString, prior, data)
             prior,
             trues(p),
             Ref(0.5);
-            constraint = :prox,
+            constraint = :soft_center,
             soft_center_scale = B._default_soft_center_scale(p),
             prox_sum0_lambda = 1e-3,
             prox_l1_lambda = 1e-3,
@@ -53,11 +53,10 @@ function _target_for(prior_name::AbstractString, prior, data)
             prox_root_maxiter = 100,
         )
     end
-    constraint = prior_name == "prox-lasso" ? :prox : :soft_center
     return B._make_explicit_nuts_target(
         data,
         prior;
-        constraint = constraint,
+        constraint = :soft_center,
         soft_center_scale = B._default_soft_center_scale(size(data.z, 2)),
         prox_sum0_lambda = 1e-3,
         prox_l1_lambda = 1e-3,

@@ -31,7 +31,7 @@ status=0
 #     --p "$test_p" \
 #     --nonzero 12 \
 #     --baseline weibull \
-#     --priors lasso \
+#     --priors prox-lasso \
 #     --constraint prox \
 #     --target-accept 0.8 \
 #     --mala-step-size 1e-3 \

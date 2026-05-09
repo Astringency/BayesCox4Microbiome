@@ -557,6 +557,7 @@ function run_lasso_scan(args, outdir::AbstractString)
     lambdas = split_floats(arg(args, "lasso-lambdas", "0.25,1.0"))
     priors = split_strings(arg(args, "lasso-priors", "gaussian-lasso,prox-lasso"))
     samplers = split_symbols(arg(args, "lasso-samplers", "mala,ula"))
+    constraint = Symbol(arg(args, "constraint", "soft_center"))
     prox_l1_lambda = arg(args, "prox-l1-lambda", 0.01)
     prox_sum0_lambda = arg(args, "prox-sum0-lambda", 0.01)
     max_lag = arg(args, "max-lag", 50)
@@ -569,8 +570,7 @@ function run_lasso_scan(args, outdir::AbstractString)
     CSV.write(joinpath(lasso_dir, "truth.csv"), DataFrame(parameter = ["beta[$j]" for j in 1:p], value = beta_true))
     rows = DataFrame()
     for prior_name in priors, lambda in lambdas, sampler in samplers, step in steps
-        constraint = prior_name == "prox-lasso" ? :prox : :soft_center
-        prior = BayesianLassoPrior(lambda = lambda)
+        prior = BayesianLassoPrior(lambda = lambda, proximal = prior_name == "prox-lasso")
         label = "$(prior_name)_lambda_$(lambda)_$(sampler)_step_$(step)"
         row = try
             case_seed = seed + Int(mod(hash(label), UInt(100000)))

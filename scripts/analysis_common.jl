@@ -159,11 +159,6 @@ function prior_from_name(
     )
 end
 
-function prox_l1_prior_from_name(name::AbstractString)
-    key = lowercase(replace(string(name), "_" => "-", " " => "-"))
-    return key in ("prox-lasso", "prox-sslasso")
-end
-
 prior_p0(prior) = hasproperty(prior, :p0) ? getproperty(prior, :p0) : missing
 
 function univariate_screen_table(X, time, event; names = nothing, alpha::Real = 0.05)
@@ -389,7 +384,6 @@ function fit_and_evaluate(
     car_distance = :bray,
     p0 = nothing,
     p0_alpha::Real = 0.05,
-    prox_l1_prior::Bool = false,
     constraint::Symbol = :soft_center,
     soft_center_scale = nothing,
     prox_sum0_lambda::Real = 1e-3,
@@ -423,7 +417,6 @@ function fit_and_evaluate(
                 seed = seed,
                 use_car = use_car,
                 car_distance = car_distance,
-                prox_l1_prior = prox_l1_prior,
                 constraint = constraint,
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
@@ -449,7 +442,6 @@ function fit_and_evaluate(
                     seed = seed,
                     use_car = use_car,
                     car_distance = car_distance,
-                    prox_l1_prior = prox_l1_prior,
                     constraint = constraint,
                     soft_center_scale = soft_center_scale,
                     prox_sum0_lambda = prox_sum0_lambda,
@@ -501,7 +493,6 @@ function fit_and_evaluate(
                 seed = seed,
                 use_car = use_car,
                 car_distance = car_distance,
-                prox_l1_prior = prox_l1_prior,
                 constraint = constraint,
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,

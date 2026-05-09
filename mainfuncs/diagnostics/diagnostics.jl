@@ -211,14 +211,6 @@ end
 
 samples_wide_dataframe(result::CoxSamplerResult) = chains_to_wide_dataframe(result_to_chains(result))
 
-function samples_long_dataframe(wide::DataFrame)
-    idcols = [:chain, :iter, :draw]
-    valuecols = [c for c in propertynames(wide) if !(c in idcols)]
-    return stack(wide, valuecols; variable_name = :parameter, value_name = :value)
-end
-
-samples_long_dataframe(result::CoxSamplerResult) = samples_long_dataframe(samples_wide_dataframe(result))
-
 function _thin_wide_samples(wide::DataFrame, sample_thin::Integer)
     sample_thin >= 1 || throw(ArgumentError("sample_thin must be at least 1."))
     sample_thin == 1 && return wide
@@ -302,9 +294,7 @@ function save_run_outputs(
     run_id::AbstractString = basename(normpath(output_dir)),
     save_csv::Bool = true,
     save_wide_csv::Bool = save_csv,
-    save_long_csv::Bool = save_csv,
     save_jld2::Bool = true,
-    jld2_include_long::Bool = save_long_csv,
     sample_thin::Integer = 1,
     metadata = Dict(),
     settings = Dict(),
@@ -313,7 +303,6 @@ function save_run_outputs(
     mkpath(output_dir)
     chains = result_to_chains(result)
     wide = _thin_wide_samples(chains_to_wide_dataframe(chains), sample_thin)
-    long = (save_long_csv || (save_jld2 && jld2_include_long)) ? samples_long_dataframe(wide) : nothing
     meta = _base_metadata(result; run_id = run_id, metadata = metadata, settings = settings)
     meta["saved_sample_thin"] = sample_thin
     diagnostics = sampling_diagnostics_dict(result.diagnostics)
@@ -321,9 +310,6 @@ function save_run_outputs(
 
     if save_wide_csv
         _write_csv(joinpath(output_dir, "samples_wide.csv"), wide)
-    end
-    if save_long_csv
-        _write_csv(joinpath(output_dir, "samples_long.csv"), long)
     end
     if save_csv
         _write_csv(joinpath(output_dir, "posterior_summary.csv"), summary_df)
@@ -351,16 +337,12 @@ function save_run_outputs(
             ),
             "posterior_summary" => summary_df,
         )
-        if long !== nothing
-            bundle["samples_long"] = long
-        end
         _call_latest(getproperty(JLD2, :jldsave), joinpath(output_dir, "result_bundle.jld2"), IOStream; result_bundle = bundle)
     end
 
     return (
         output_dir = output_dir,
         samples_wide = joinpath(output_dir, "samples_wide.csv"),
-        samples_long = joinpath(output_dir, "samples_long.csv"),
         result_bundle = joinpath(output_dir, "result_bundle.jld2"),
         metadata = joinpath(output_dir, "metadata.json"),
         diagnostics = joinpath(output_dir, "diagnostics.json"),

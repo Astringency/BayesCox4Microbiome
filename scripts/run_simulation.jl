@@ -88,6 +88,8 @@ end
 
 function main()
     args = parse_cli_args()
+    haskey(args, "save-long-csv") &&
+        throw(ArgumentError("--save-long-csv was removed; long posterior sample CSV files are no longer written."))
     outdir = arg(args, "outdir", joinpath("results", "simulation"))
     reps = arg(args, "reps", 1)
     ns = split_ints(arg(args, "n", "200"))
@@ -129,7 +131,6 @@ function main()
     sample_thin = max(1, arg(args, "sample-thin", 10))
     first_rep_sample_thin = max(1, arg(args, "first-rep-sample-thin", 1))
     save_wide_csv = arg(args, "save-wide-csv", true)
-    save_long_csv = arg(args, "save-long-csv", false)
     save_jld2 = arg(args, "save-jld2", false)
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
@@ -142,7 +143,6 @@ function main()
         sim = generate_simulation_data(n, p, nonzero; baseline = baseline, seed = sim_seed)
         p0_value = p0_arg === :truth ? nonzero : p0_arg
         for prior in priors
-            prox_l1_prior = prox_l1_prior_from_name(prior)
             label = "rep$(rep)_$(prior)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)"
             run_dir = joinpath(outdir, "runs", label)
             coef_path = joinpath(tables_dir, "coef_$label.csv")
@@ -205,7 +205,6 @@ function main()
                 car_distance = car_distance,
                 p0 = p0_value,
                 p0_alpha = p0_alpha,
-                prox_l1_prior = prox_l1_prior,
                 constraint = constraint,
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
@@ -262,7 +261,6 @@ function main()
                     "replicate_id" => rep,
                     "method_name" => prior,
                     "prior_name" => prior,
-                    "prox_l1_prior" => prox_l1_prior,
                     "sampler" => string(sampler),
                     "nuts_backend" => string(nuts_backend),
                     "baseline" => string(baseline),
@@ -280,7 +278,6 @@ function main()
                     "seed" => sim_seed,
                     "thin" => thin,
                     "saved_sample_thin" => saved_sample_thin,
-                    "prox_l1_prior" => prox_l1_prior,
                     "constraint" => string(constraint),
                     "soft_center_scale" => soft_center_scale,
                     "prox_sum0_lambda" => prox_sum0_lambda,
@@ -298,7 +295,6 @@ function main()
                 ),
                 posterior_summary = summary,
                 save_wide_csv = save_wide_csv,
-                save_long_csv = save_long_csv,
                 save_jld2 = save_jld2,
                 sample_thin = saved_sample_thin,
             )

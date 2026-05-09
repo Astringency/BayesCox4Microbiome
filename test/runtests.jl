@@ -97,6 +97,10 @@ end
         ("lasso", cox_paper_prior("lasso"; p0 = 1.0)),
         ("sslasso", cox_paper_prior("sslasso"; p0 = 1.0)),
     ]
+    @test !cox_paper_prior("lasso").proximal
+    @test cox_paper_prior("prox-lasso").proximal
+    @test !cox_paper_prior("sslasso").proximal
+    @test cox_paper_prior("prox-sslasso").proximal
     for (name, prior) in cases
         target = B._make_explicit_nuts_target(
             data,
@@ -180,6 +184,7 @@ end
     )
     @test size(posterior_beta_draws(lasso)) == (4, 4)
     @test length(posterior_logposterior_draws(lasso)) == 4
+    @test !("eta" in lasso.samples.names)
 
     lasso_multi = sample_bayes_cox(
         X,
@@ -268,9 +273,8 @@ end
         X,
         time,
         event;
-        prior = BayesianLassoPrior(),
+        prior = cox_paper_prior("prox-lasso"),
         sampler = :mala,
-        prox_l1_prior = true,
         constraint = :soft_center,
         n_samples = 2,
         warmup = 1,
@@ -285,9 +289,8 @@ end
         X,
         time,
         event;
-        prior = BayesianLassoPrior(),
+        prior = cox_paper_prior("prox-lasso"),
         sampler = :ula,
-        prox_l1_prior = true,
         constraint = :soft_center,
         n_samples = 2,
         warmup = 1,
@@ -325,7 +328,7 @@ end
         X,
         time,
         event;
-        prior = BayesianLassoPrior(),
+        prior = cox_paper_prior("prox-lasso"),
         sampler = :nuts,
         nuts_backend = :explicit,
         constraint = :prox,
@@ -378,7 +381,7 @@ end
         X[:, 1:2],
         time,
         event;
-        prior = SpikeSlabLassoPrior(),
+        prior = cox_paper_prior("prox-sslasso"),
         sampler = :nuts_explicit,
         constraint = :prox,
         n_samples = 1,
@@ -433,7 +436,7 @@ end
             settings = Dict("n_samples" => 6, "warmup" => 2, "thin" => 1, "seed" => 11),
         )
         @test isfile(joinpath(dir, "samples_wide.csv"))
-        @test isfile(joinpath(dir, "samples_long.csv"))
+        @test !isfile(joinpath(dir, "samples_long.csv"))
         @test isfile(joinpath(dir, "metadata.json"))
         @test isfile(joinpath(dir, "diagnostics.json"))
         @test isfile(joinpath(dir, "result_bundle.jld2"))
@@ -441,6 +444,7 @@ end
         bundle = JLD2.load(joinpath(dir, "result_bundle.jld2"), "result_bundle")
         @test haskey(bundle, "samples")
         @test haskey(bundle, "samples_chain")
+        @test !haskey(bundle, "samples_long")
         @test nrow(CSV.read(joinpath(dir, "samples_wide.csv"), DataFrame)) == 6
 
         diag = diagnose_run(dir; formats = "png", top_k_beta = 2, max_lag = 3)
@@ -456,7 +460,6 @@ end
             result;
             output_dir = dir,
             run_id = "toy_compact",
-            save_long_csv = false,
             save_jld2 = false,
             sample_thin = 2,
         )

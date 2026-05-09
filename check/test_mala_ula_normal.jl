@@ -212,7 +212,7 @@ end
 
 function run_one_sampler(sampler::Symbol, X, time, event; seed::Int, step::Float64)
     common = (
-        prior = BayesianLassoPrior(),
+        prior = BayesianLassoPrior(proximal = true),
         constraint = :prox,
         n_samples = 5000,
         warmup = 5000,

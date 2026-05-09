@@ -20,7 +20,7 @@ julia +1.11.7 -t 4 --project=. scripts\run_simulation.jl `
     --p $testP `
     --nonzero 12 `
     --baseline weibull `
-    --priors lasso `
+    --priors prox-lasso `
     --constraint prox `
     --target-accept 0.8 `
     --mala-step-size 1e-2 `

@@ -163,9 +163,10 @@ end
 """
     cox_paper_prior(name; p0=nothing, X=nothing, time=nothing, event=nothing, realdata=false)
 
-Construct one of the eight prior specifications used in the simulation section
+Construct one of the prior specifications used in the simulation section
 of `docs/cox4microbiome_detail.pdf`: `hs`, `rhs`, `new-rhs`, `est-rhs`,
-`cox-hs`, `cox-rhs`, `lasso`, and `sslasso`.
+`cox-hs`, `cox-rhs`, `lasso`, and `sslasso`. The additional names
+`prox-lasso` and `prox-sslasso` select the proximal L1 implementations.
 
 When `p0` is `nothing`, HS/RHS-style priors estimate `p0` by univariate Cox
 screening and use the number of covariates significant at `p0_alpha`.
@@ -258,13 +259,41 @@ function cox_paper_prior(
             slab_df = 4.0,
             slab_s2 = 2.0,
         )
-    elseif key in ("lasso", "bayesian-lasso", "prox-lasso")
+    elseif key in ("lasso", "bayesian-lasso")
         return BayesianLassoPrior(lambda = nothing, lambda2_shape = 1.0, lambda2_rate = 0.1)
-    elseif key in ("sslasso", "spike-slab", "spike-and-slab", "prox-sslasso")
+    elseif key == "prox-lasso"
+        return BayesianLassoPrior(lambda = nothing, lambda2_shape = 1.0, lambda2_rate = 0.1, proximal = true)
+    elseif key in ("sslasso", "spike-slab", "spike-and-slab")
         return realdata ? SpikeSlabLassoPrior(spike_scale = 1.0, slab_scale = 10.0) :
                           SpikeSlabLassoPrior(spike_scale = 0.04, slab_scale = 0.5)
+    elseif key == "prox-sslasso"
+        return realdata ? SpikeSlabLassoPrior(spike_scale = 1.0, slab_scale = 10.0, proximal = true) :
+                          SpikeSlabLassoPrior(spike_scale = 0.04, slab_scale = 0.5, proximal = true)
     end
     throw(ArgumentError("unsupported paper prior name: $name"))
+end
+
+function _reject_removed_sample_keywords(kwargs)
+    if :prox_l1_prior in keys(kwargs)
+        throw(ArgumentError(
+            "prox_l1_prior was removed. Use cox_paper_prior(\"prox-lasso\") or " *
+            "cox_paper_prior(\"prox-sslasso\") to select the proximal L1 prior.",
+        ))
+    end
+    return nothing
+end
+
+function _validate_prox_prior_sampler(prior::AbstractCoxPrior, sampler::Symbol)
+    _is_proximal_l1_prior(prior) || return nothing
+    if sampler == :mh
+        throw(ArgumentError(
+            "proximal L1 priors are not implemented for sampler=:mh; use :nuts, :mala, :ula, " *
+            "or :gibbs for prox-sslasso.",
+        ))
+    elseif sampler == :gibbs && !(prior isa SpikeSlabLassoPrior)
+        throw(ArgumentError("sampler=:gibbs only supports the proximal L1 path for prox-sslasso."))
+    end
+    return nothing
 end
 
 function sample_bayes_cox(
@@ -284,6 +313,7 @@ function sample_bayes_cox(
     car_weight_quantile::Real = 0.75,
     kwargs...,
 )
+    _reject_removed_sample_keywords(kwargs)
     car_weights !== nothing && car_distance !== nothing && use_car &&
         throw(ArgumentError("pass either car_weights or car_distance, not both."))
     resolved_car_weights =
@@ -332,6 +362,7 @@ function sample_bayes_cox(
     car_weight_quantile::Real = 0.75,
     kwargs...,
 )
+    _reject_removed_sample_keywords(kwargs)
     car_weights !== nothing && car_distance !== nothing && use_car &&
         throw(ArgumentError("pass either car_weights or car_distance, not both."))
     resolved_car_weights =
@@ -359,6 +390,7 @@ function sample_bayes_cox(
         sampler == :nuts_turing ? :turing : nuts_backend
     effective_nuts_backend in (:turing, :explicit) ||
         throw(ArgumentError("nuts_backend must be :turing or :explicit."))
+    _validate_prox_prior_sampler(prior, effective_sampler)
     chain_count = chains === nothing ? (effective_sampler == :nuts ? nothing : 1) : Int(chains)
     chain_count !== nothing && chain_count <= 0 && throw(ArgumentError("chains must be positive."))
     if effective_sampler == :nuts
@@ -622,7 +654,6 @@ function _sample_gibbs_chains(
     soft_center = nothing,
     soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
-    prox_l1_prior::Bool = false,
     prox_l1_lambda::Real = 1e-3,
     alpha_prior_shape = nothing,
     alpha_prior_rate = nothing,
@@ -631,8 +662,7 @@ function _sample_gibbs_chains(
     kwargs...,
 )
     resolved_constraint = _resolve_constraint(constraint, soft_center)
-    use_prox_l1_prior = prox_l1_prior || resolved_constraint == :prox
-    if use_prox_l1_prior
+    if _is_proximal_l1_prior(prior)
         return _sample_ssl_prox_nuts_gibbs(
             data,
             prior;

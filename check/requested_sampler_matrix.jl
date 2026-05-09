@@ -198,6 +198,7 @@ function main()
     seed = _env_int("BC4M_SEED", 20260428)
     mala_step_size = _env_float("BC4M_MALA_STEP_SIZE", 1e-4)
     target_accept = _env_float("BC4M_TARGET_ACCEPT", 0.8)
+    constraint = _env_symbol("BC4M_CONSTRAINT", :soft_center)
     outdir = get(ENV, "BC4M_OUTDIR", joinpath("results", "requested_sampler_matrix_$(Dates.format(now(), "yyyymmdd_HHMMSS"))"))
     priors = haskey(ENV, "BC4M_PRIORS") ? _csv_list(ENV["BC4M_PRIORS"]) : REQUESTED_PRIORS
     samplers = haskey(ENV, "BC4M_SAMPLERS") ? Symbol.(_csv_list(ENV["BC4M_SAMPLERS"])) : REQUESTED_SAMPLERS
@@ -207,9 +208,8 @@ function main()
     sim = generate_simulation_data(n, p, nonzero; baseline = baseline, seed = seed)
     rows = DataFrame()
 
-    @info "Starting requested sampler matrix" n p nonzero baseline n_samples warmup chains outdir threads = Threads.nthreads()
+    @info "Starting requested sampler matrix" n p nonzero baseline n_samples warmup chains constraint outdir threads = Threads.nthreads()
     for prior_name in priors, sampler in samplers
-        constraint = startswith(lowercase(prior_name), "prox-") ? :prox : :soft_center
         prior = cox_paper_prior(prior_name; X = sim.X, time = sim.time, event = sim.event, p0 = nonzero)
         case_seed = seed + 1000 * findfirst(==(prior_name), priors) + findfirst(==(sampler), samplers)
         @info "Running case" prior = prior_name sampler constraint seed = case_seed
