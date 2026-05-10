@@ -13,6 +13,8 @@ const DEFAULT_PRIORS = [
     "cox-rhs",
     "lasso",
     "sslasso",
+    "prox-lasso",
+    "prox-sslasso"
 ]
 
 function parse_cli_args(args = ARGS)
