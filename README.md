@@ -219,7 +219,7 @@ Common options:
 | `--mala-step-size` | `1e-4` | MALA/ULA step size. |
 | `--mala-target-accept` | `0.574` | MALA step-size adaptation target. |
 | `--mala-adapt-every` | `50` | MALA adaptation interval. |
-| `--diagnose` | `true` | Generate diagnostics for plotted repetitions. |
+| `--diagnose` | `true` | Write diagnostic tables for every repetition; diagnostic plots are generated only for plotted repetitions. |
 | `--resume` | `true` | Reuse complete existing run directories. |
 | `--sample-thin` | `10` | Saved-sample thinning after the first repetition. |
 | `--first-rep-sample-thin` | `1` | Saved-sample thinning for first repetitions. |

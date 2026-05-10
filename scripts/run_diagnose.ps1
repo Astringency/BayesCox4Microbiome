@@ -1,10 +1,10 @@
-param(
-    [string]$Input = "results/runs/example",
-    [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$RemainingArgs
-)
+$ErrorActionPreference = "Stop"
+Set-Location (Join-Path $PSScriptRoot "..")
 
-$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RepoDir = Split-Path -Parent $ScriptDir
+$juliaArgs = @(
+    "--project=.",
+    "scripts\run_diagnose.jl"
+) + $args
 
-julia --project="$RepoDir" (Join-Path $ScriptDir "run_diagnose.jl") --input "$Input" @RemainingArgs
+& julia @juliaArgs
+exit $LASTEXITCODE

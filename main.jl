@@ -70,6 +70,7 @@ export AbstractCoxPrior,
     samples_wide_dataframe,
     dataframe_to_chains,
     save_run_outputs,
+    save_diagnostic_outputs,
     diagnose_run
 
 include("priors/abstract.jl")

@@ -35,10 +35,6 @@ function write_simulation_plots(
     n::Integer,
     p::Integer,
     nonzero::Integer,
-    diagnose::Bool,
-    diagnose_formats,
-    diagnose_top_k_beta::Integer,
-    diagnose_max_lag::Integer,
 )
     coef_paths = [
         joinpath(figs_dir, "coef_$label.pdf"),
@@ -68,6 +64,50 @@ function write_simulation_plots(
             estimate = :map,
         )
     end
+    return nothing
+end
+
+function write_simulation_diagnostics_from_result(
+    run_dir::AbstractString,
+    result::CoxSamplerResult,
+    sim;
+    label::AbstractString,
+    diagnose::Bool,
+    make_plots::Bool,
+    diagnose_formats,
+    diagnose_top_k_beta::Integer,
+    diagnose_max_lag::Integer,
+)
+    if diagnose && !file_complete(joinpath(run_dir, "diagnose", "diagnostics_summary.csv"))
+        nonzero_diagnostic_params = join(("beta[$j]" for j in findall(!iszero, sim.beta)), ",")
+        try
+            save_diagnostic_outputs(
+                result;
+                output_dir = joinpath(run_dir, "diagnose"),
+                metadata = read_run_metadata(run_dir),
+                params = nonzero_diagnostic_params,
+                top_k_beta = diagnose_top_k_beta,
+                max_lag = diagnose_max_lag,
+                formats = diagnose_formats,
+                plots = make_plots,
+            )
+        catch err
+            @warn "Diagnostics failed for $label; metrics and samples were kept." exception=(err, catch_backtrace())
+        end
+    end
+    return nothing
+end
+
+function write_simulation_diagnostics_from_saved_run(
+    run_dir::AbstractString,
+    sim;
+    label::AbstractString,
+    diagnose::Bool,
+    make_plots::Bool,
+    diagnose_formats,
+    diagnose_top_k_beta::Integer,
+    diagnose_max_lag::Integer,
+)
     if diagnose && !file_complete(joinpath(run_dir, "diagnose", "diagnostics_summary.csv"))
         nonzero_diagnostic_params = join(("beta[$j]" for j in findall(!iszero, sim.beta)), ",")
         try
@@ -78,6 +118,7 @@ function write_simulation_plots(
                 top_k_beta = diagnose_top_k_beta,
                 max_lag = diagnose_max_lag,
                 formats = diagnose_formats,
+                plots = make_plots,
             )
         catch err
             @warn "Diagnostics failed for $label; metrics and samples were kept." exception=(err, catch_backtrace())
@@ -163,6 +204,16 @@ function main()
                     write_table(coef_path, recovered.summary)
                     append!(all_metrics, recovered.metrics; cols = :union)
                     append!(all_fd, recovered.false_discovery; cols = :union)
+                    write_simulation_diagnostics_from_saved_run(
+                        run_dir,
+                        sim;
+                        label = label,
+                        diagnose = diagnose,
+                        make_plots = should_plot,
+                        diagnose_formats = diagnose_formats,
+                        diagnose_top_k_beta = diagnose_top_k_beta,
+                        diagnose_max_lag = diagnose_max_lag,
+                    )
                     if should_plot
                         write_simulation_plots(
                             run_dir,
@@ -175,10 +226,6 @@ function main()
                             n = n,
                             p = p,
                             nonzero = nonzero,
-                            diagnose = diagnose,
-                            diagnose_formats = diagnose_formats,
-                            diagnose_top_k_beta = diagnose_top_k_beta,
-                            diagnose_max_lag = diagnose_max_lag,
                         )
                     end
                     println("[SKIP] $label already has reusable outputs.")
@@ -299,6 +346,17 @@ function main()
                 sample_thin = saved_sample_thin,
             )
             mark_simulation_run_complete(run_dir)
+            write_simulation_diagnostics_from_result(
+                run_dir,
+                fit.result,
+                sim;
+                label = label,
+                diagnose = diagnose,
+                make_plots = should_plot,
+                diagnose_formats = diagnose_formats,
+                diagnose_top_k_beta = diagnose_top_k_beta,
+                diagnose_max_lag = diagnose_max_lag,
+            )
             if should_plot
                 write_simulation_plots(
                     run_dir,
@@ -311,10 +369,6 @@ function main()
                     n = n,
                     p = p,
                     nonzero = nonzero,
-                    diagnose = diagnose,
-                    diagnose_formats = diagnose_formats,
-                    diagnose_top_k_beta = diagnose_top_k_beta,
-                    diagnose_max_lag = diagnose_max_lag,
                 )
             end
             append!(all_metrics, metrics; cols = :union)

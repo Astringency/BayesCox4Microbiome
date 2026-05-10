@@ -500,20 +500,19 @@ function _gamma_inclusion_dataframe(chains)
     )
 end
 
-function diagnose_run(
-    input_dir::AbstractString;
-    output_dir::AbstractString = joinpath(input_dir, "diagnose"),
+function save_diagnostic_outputs(
+    chains,
+    output_dir::AbstractString;
+    metadata = Dict(),
     params = nothing,
     top_k_beta::Integer = 10,
     max_lag::Integer = 50,
     rhat_threshold::Real = 1.01,
     formats = "png,pdf",
+    plots::Bool = true,
 )
     mkpath(output_dir)
-    chains = _load_chains_from_run(input_dir)
-    metadata = _read_metadata(input_dir)
     selected = _selected_params(chains; params = params, top_k_beta = top_k_beta)
-    plot_chains = _subset_chains(chains, selected)
 
     summary = _diagnostics_summary_dataframe(
         chains;
@@ -527,16 +526,19 @@ function diagnose_run(
     !isempty(gamma_df) && _write_csv(joinpath(output_dir, "gamma_inclusion_probabilities.csv"), gamma_df)
 
     plot_paths = String[]
-    if !isempty(selected)
-        append!(plot_paths, _plot_mcmc_chains(plot_chains, output_dir, "traceplot", :traceplot; formats = formats))
-        append!(plot_paths, _plot_mcmc_chains(plot_chains, output_dir, "density", :mixeddensity; formats = formats))
-        append!(plot_paths, _plot_mcmc_chains(plot_chains, output_dir, "acf", :autocorplot; formats = formats, maxlag = max_lag))
-    end
+    if plots
+        plot_chains = _subset_chains(chains, selected)
+        if !isempty(selected)
+            append!(plot_paths, _plot_mcmc_chains(plot_chains, output_dir, "traceplot", :traceplot; formats = formats))
+            append!(plot_paths, _plot_mcmc_chains(plot_chains, output_dir, "density", :mixeddensity; formats = formats))
+            append!(plot_paths, _plot_mcmc_chains(plot_chains, output_dir, "acf", :autocorplot; formats = formats, maxlag = max_lag))
+        end
 
-    if size(chains, 3) <= 1
-        @warn "R-hat requires multiple chains; R-hat plots were skipped."
-    else
-        append!(plot_paths, _save_rhat_plots(summary, output_dir; rhat_threshold = rhat_threshold, formats = formats))
+        if size(chains, 3) <= 1
+            @warn "R-hat requires multiple chains; R-hat plots were skipped."
+        else
+            append!(plot_paths, _save_rhat_plots(summary, output_dir; rhat_threshold = rhat_threshold, formats = formats))
+        end
     end
 
     return (
@@ -544,5 +546,55 @@ function diagnose_run(
         selected_params = selected,
         diagnostics_summary = joinpath(output_dir, "diagnostics_summary.csv"),
         plot_paths = plot_paths,
+    )
+end
+
+function save_diagnostic_outputs(
+    result::CoxSamplerResult;
+    output_dir::AbstractString,
+    metadata = Dict(),
+    params = nothing,
+    top_k_beta::Integer = 10,
+    max_lag::Integer = 50,
+    rhat_threshold::Real = 1.01,
+    formats = "png,pdf",
+    plots::Bool = true,
+)
+    return save_diagnostic_outputs(
+        result_to_chains(result),
+        output_dir;
+        metadata = metadata,
+        params = params,
+        top_k_beta = top_k_beta,
+        max_lag = max_lag,
+        rhat_threshold = rhat_threshold,
+        formats = formats,
+        plots = plots,
+    )
+end
+
+function diagnose_run(
+    input_dir::AbstractString;
+    output_dir::AbstractString = joinpath(input_dir, "diagnose"),
+    params = nothing,
+    top_k_beta::Integer = 10,
+    max_lag::Integer = 50,
+    rhat_threshold::Real = 1.01,
+    formats = "png,pdf",
+    plots::Bool = true,
+)
+    mkpath(output_dir)
+    chains = _load_chains_from_run(input_dir)
+    metadata = _read_metadata(input_dir)
+    return save_diagnostic_outputs(
+        chains,
+        output_dir;
+        metadata = metadata,
+        params = params,
+        top_k_beta = top_k_beta,
+        max_lag = max_lag,
+        rhat_threshold = rhat_threshold,
+        formats = formats,
+        plots = plots,
     )
 end

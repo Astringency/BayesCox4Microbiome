@@ -468,8 +468,10 @@ end
         @test !isfile(joinpath(dir, "result_bundle.jld2"))
         @test nrow(CSV.read(joinpath(dir, "samples_wide.csv"), DataFrame)) == 3
 
-        diag = diagnose_run(dir; formats = "png", top_k_beta = 2, max_lag = 1)
+        diag = diagnose_run(dir; formats = "png", top_k_beta = 2, max_lag = 1, plots = false)
         @test isfile(joinpath(diag.output_dir, "diagnostics_summary.csv"))
+        @test isempty(diag.plot_paths)
+        @test !isfile(joinpath(diag.output_dir, "traceplot.png"))
     end
 end
 
