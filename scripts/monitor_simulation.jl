@@ -3,7 +3,7 @@
 using Dates
 using Printf
 
-const DEFAULT_ROOT = joinpath("results", "simulation", "softcenter")
+const DEFAULT_ROOT = joinpath("large_storage", "zhangxf", "BayesCox", results", "simulation", "softcenter")
 const DEFAULT_PRIORS = [
     "hs",
     "rhs",
