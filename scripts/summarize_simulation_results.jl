@@ -448,6 +448,18 @@ function build_overview(model_summary::DataFrame, sampling_summary::DataFrame, p
     return overview
 end
 
+function remove_long_outputs(root::AbstractString)
+    for name in (
+        "sampling_diagnostics_long.csv",
+        "model_metrics_long.csv",
+        "parameter_mcmc_diagnostics_long.csv",
+    )
+        path = joinpath(root, name)
+        isfile(path) && rm(path)
+    end
+    return nothing
+end
+
 function summarize_root(root::AbstractString)
     run_dirs = find_run_dirs(root)
     sampling_long = collect_sampling_diagnostics(root, run_dirs)
@@ -459,12 +471,11 @@ function summarize_root(root::AbstractString)
     parameter_summary = summarize_parameter_diagnostics(parameter_long)
     overview = build_overview(model_summary, sampling_summary, parameter_summary)
 
+    remove_long_outputs(root)
+
     outputs = Dict(
-        "sampling_diagnostics_long" => write_table(joinpath(root, "sampling_diagnostics_long.csv"), sampling_long),
         "sampling_diagnostics_summary" => write_table(joinpath(root, "sampling_diagnostics_summary.csv"), sampling_summary),
-        "model_metrics_long" => write_table(joinpath(root, "model_metrics_long.csv"), model_long),
         "model_metrics_summary" => write_table(joinpath(root, "model_metrics_summary.csv"), model_summary),
-        "parameter_mcmc_diagnostics_long" => write_table(joinpath(root, "parameter_mcmc_diagnostics_long.csv"), parameter_long),
         "parameter_mcmc_diagnostics_summary" => write_table(joinpath(root, "parameter_mcmc_diagnostics_summary.csv"), parameter_summary),
         "simulation_results_summary" => write_table(joinpath(root, "simulation_results_summary.csv"), overview),
     )

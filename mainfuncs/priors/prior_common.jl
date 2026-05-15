@@ -33,6 +33,11 @@ function linear_tau0(p::Integer, p0::Real, n::Integer, pseudo_sigma::Real)
     return (p0f / (p - p0f)) * pseudo_sigma / sqrt(float(n))
 end
 
+function _global_tau_cauchy_scale(tau0::Real)
+    tau0 > 0 || throw(ArgumentError("tau0 must be positive."))
+    return tau0^2
+end
+
 function _positive_t_distribution(df::Real, scale::Real)
     _check_positive(df, "pseudo_sigma_df")
     sc = _check_positive(scale, "pseudo_sigma_scale")

@@ -66,7 +66,7 @@ function initial_state(
     _validate_prior(prior)
     length(beta0) == p || throw(DimensionMismatch("length(beta0) must be p."))
     tau0 = _resolved_tau_scale(prior, p, n_events; n_obs = n_obs)
-    init = vcat(collect(Float64, beta0), [log(tau0)], zeros(p), [log(prior.slab_s2)])
+    init = vcat(collect(Float64, beta0), [log(_global_tau_cauchy_scale(tau0))], zeros(p), [log(prior.slab_s2)])
     if prior.sample_pseudo_sigma
         pseudo_sigma2_init = prior.pseudo_sigma === nothing ? prior.pseudo_sigma_scale : prior.pseudo_sigma^2
         push!(init, log(pseudo_sigma2_init))
@@ -95,9 +95,9 @@ function _prior_logposterior(
     c2 = exp(log_c2)
     pseudo_sigma2 = prior.sample_pseudo_sigma ? exp(clamp(log_pseudo_sigma2, -20, 20)) : nothing
     pseudo_sigma = prior.sample_pseudo_sigma ? sqrt(pseudo_sigma2) : prior.pseudo_sigma
-    tau_scale = _resolved_tau_scale(prior, data; pseudo_sigma = pseudo_sigma)
+    tau_cauchy_scale = _global_tau_cauchy_scale(_resolved_tau_scale(prior, data; pseudo_sigma = pseudo_sigma))
 
-    lp = _halfcauchy_logpdf(tau, tau_scale) + log_tau
+    lp = _halfcauchy_logpdf(tau, tau_cauchy_scale) + log_tau
     if prior.sample_pseudo_sigma
         lp += _log_positive_t_pdf(
             pseudo_sigma2,
@@ -143,10 +143,10 @@ function _prior_logposterior_and_gradient!(
             _clamped_exp_with_derivative(log_pseudo_sigma2, -20.0, 20.0)
         pseudo_sigma = sqrt(pseudo_sigma2)
     end
-    tau_scale = _resolved_tau_scale(prior, data; pseudo_sigma = pseudo_sigma)
+    tau_cauchy_scale = _global_tau_cauchy_scale(_resolved_tau_scale(prior, data; pseudo_sigma = pseudo_sigma))
 
-    lp = _halfcauchy_logpdf(tau, tau_scale) + log_tau
-    grad[p + 1] += _halfcauchy_logx_gradient(log_tau, tau_scale)
+    lp = _halfcauchy_logpdf(tau, tau_cauchy_scale) + log_tau
+    grad[p + 1] += _halfcauchy_logx_gradient(log_tau, tau_cauchy_scale)
 
     if prior.sample_pseudo_sigma
         lp += _log_positive_t_pdf(
@@ -161,8 +161,8 @@ function _prior_logposterior_and_gradient!(
                 prior.pseudo_sigma_scale,
             )
         if _resolved_tau_formula(prior) == :linear
-            grad[2p + 3] += 0.5 * (pseudo_sigma2_deriv / pseudo_sigma2) *
-                _halfcauchy_logscale_gradient(log_tau, tau_scale)
+            grad[2p + 3] += (pseudo_sigma2_deriv / pseudo_sigma2) *
+                _halfcauchy_logscale_gradient(log_tau, tau_cauchy_scale)
         end
     end
 

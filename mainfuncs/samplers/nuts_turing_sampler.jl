@@ -12,8 +12,8 @@ Turing.@model function _bayes_cox_turing_model(
     n_events = count(!=(0), data.event)
 
     if prior isa HorseshoePrior
-        tau_scale = _resolved_tau_scale(prior, p, n_events)
-        tau ~ truncated(Cauchy(0, tau_scale), 0.0, Inf)
+        tau_cauchy_scale = _global_tau_cauchy_scale(_resolved_tau_scale(prior, p, n_events))
+        tau ~ truncated(Cauchy(0, tau_cauchy_scale), 0.0, Inf)
         lambda ~ Turing.filldist(truncated(Cauchy(0, prior.local_scale), 0.0, Inf), p)
         beta ~ Turing.product_distribution(Normal.(0, tau .* lambda))
         if use_car && car_weights !== nothing
@@ -29,9 +29,9 @@ Turing.@model function _bayes_cox_turing_model(
         else
             pseudo_sigma = prior.pseudo_sigma
         end
-        tau_scale = _resolved_tau_scale(prior, data; pseudo_sigma = pseudo_sigma)
+        tau_cauchy_scale = _global_tau_cauchy_scale(_resolved_tau_scale(prior, data; pseudo_sigma = pseudo_sigma))
         tau_raw ~ truncated(Cauchy(0, 1.0), 0.0, Inf)
-        tau = tau_scale * tau_raw
+        tau = tau_cauchy_scale * tau_raw
         c2 ~ InverseGamma(prior.slab_df / 2, prior.slab_df * prior.slab_s2 / 2)
         lambda ~ Turing.filldist(truncated(Cauchy(0, prior.local_scale), 0.0, Inf), p)
         beta ~ Turing.filldist(Normal(0, 1), p)
