@@ -246,6 +246,32 @@ results/simulation/
 The long posterior sample CSV is not written. Diagnostics and recovery use
 `result_bundle.jld2` when present, otherwise `samples_wide.csv`.
 
+## Simulation Data and Censoring Summary
+
+Generate simulation datasets without fitting MCMC models, and report event and
+censoring summaries:
+
+```powershell
+julia --project=. scripts\generate_simulation_data.jl --n 200,400 --p 50,150 --nonzero 6,12 --baseline weibull,exponential,gompertz
+```
+
+Common options:
+
+| Option | Default | Description |
+|---|---:|---|
+| `--outdir` | `results/simulation_data` | Output directory. |
+| `--reps` | `1` | Number of generated repetitions per setting. |
+| `--n` | `200` | Sample size. Comma-separated grids are supported. |
+| `--p` | `50` | Number of taxa/covariates. Comma-separated grids are supported. |
+| `--nonzero` | `6` | Number of true nonzero coefficients. Supported values are `6` and `12`. |
+| `--baseline` | `weibull` | `weibull`, `exponential`, or `gompertz`. |
+| `--seed` | `1` | Base random seed. |
+| `--tmax` | `100.0` | Administrative censoring time. |
+| `--save-data` | `false` | Also save generated `X`, `time`, `event`, and true beta CSV files. |
+
+The censoring summary is written to
+`results/simulation_data/tables/censoring_summary.csv`.
+
 ## Real-Data Script
 
 Run:
