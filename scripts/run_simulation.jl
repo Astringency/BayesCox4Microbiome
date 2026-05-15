@@ -127,6 +127,33 @@ function write_simulation_diagnostics_from_saved_run(
     return nothing
 end
 
+function metadata_value_matches(actual, expected)
+    actual === missing && return expected === missing
+    actual === nothing && return expected === nothing
+    if expected isa Number
+        actual_number =
+            if actual isa Number
+                Float64(actual)
+            elseif actual isa AbstractString
+                try
+                    parse(Float64, actual)
+                catch
+                    return false
+                end
+            else
+                return false
+            end
+        return isapprox(actual_number, Float64(expected); rtol = 1e-10, atol = 1e-10)
+    end
+    return string(actual) == string(expected)
+end
+
+function simulation_metadata_matches(run_dir::AbstractString, expected::AbstractDict)
+    meta = read_run_metadata(run_dir)
+    isempty(meta) && return false
+    return all(haskey(meta, string(k)) && metadata_value_matches(meta[string(k)], v) for (k, v) in pairs(expected))
+end
+
 function main()
     args = parse_cli_args()
     haskey(args, "save-long-csv") &&
@@ -173,6 +200,20 @@ function main()
     first_rep_sample_thin = max(1, arg(args, "first-rep-sample-thin", 1))
     save_wide_csv = arg(args, "save-wide-csv", true)
     save_jld2 = arg(args, "save-jld2", false)
+    reject_removed_args!(
+        args,
+        (
+            "tmax",
+            "censoring-distribution",
+            "censoring-upper",
+            "censoring-ratio",
+            "censor-ratio",
+            "cencor-ratio",
+            "cencor_ratio",
+            "cencor-upper",
+            "cencor_upper",
+        ),
+    )
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
     figs_dir = ensure_dir(joinpath(outdir, "figures"))
@@ -181,14 +222,29 @@ function main()
 
     for rep in 1:reps, n in ns, p in ps, nonzero in nonzeros, baseline in baselines
         sim_seed = seed0 + rep - 1
-        sim = generate_simulation_data(n, p, nonzero; baseline = baseline, seed = sim_seed)
+        baseline_args = baseline_parameter_args(args, baseline)
+        sim = generate_simulation_data(
+            n,
+            p,
+            nonzero;
+            baseline = baseline,
+            seed = sim_seed,
+            baseline_args...,
+        )
         p0_value = p0_arg === :truth ? nonzero : p0_arg
         for prior in priors
             label = "rep$(rep)_$(prior)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)"
             run_dir = joinpath(outdir, "runs", label)
             coef_path = joinpath(tables_dir, "coef_$label.csv")
             should_plot = !plot_first_rep_only || rep == 1
-            if resume && simulation_run_recoverable(run_dir)
+            expected_metadata = Dict(
+                "baseline_rate" => sim.baseline_rate,
+                "baseline_scale" => sim.baseline_scale,
+                "baseline_shape" => sim.baseline_shape,
+                "censoring_distribution" => string(sim.censoring_distribution),
+                "censoring_upper" => sim.censoring_upper,
+            )
+            if resume && simulation_run_recoverable(run_dir) && simulation_metadata_matches(run_dir, expected_metadata)
                 try
                     recovered = load_or_recover_simulation_run(
                         run_dir,
@@ -233,6 +289,8 @@ function main()
                 catch err
                     @warn "Could not reuse existing outputs for $label; rerunning this loop." exception=(err, catch_backtrace())
                 end
+            elseif resume && simulation_run_recoverable(run_dir)
+                @info "Existing run uses a different or old censoring setup; rerunning." label run_dir
             end
             fit = fit_and_evaluate(
                 sim.X,
@@ -311,10 +369,17 @@ function main()
                     "sampler" => string(sampler),
                     "nuts_backend" => string(nuts_backend),
                     "baseline" => string(baseline),
+                    "baseline_rate" => sim.baseline_rate,
+                    "baseline_scale" => sim.baseline_scale,
+                    "baseline_shape" => sim.baseline_shape,
                     "n" => n,
                     "p" => p,
                     "nonzero_count" => nonzero,
                     "p0" => fit.p0,
+                    "censoring_distribution" => string(sim.censoring_distribution),
+                    "censoring_upper" => sim.censoring_upper,
+                    "observed_censoring_rate" => mean(sim.event .== 0),
+                    "observed_event_rate" => mean(sim.event .!= 0),
                 ),
                 settings = Dict(
                     "n_samples" => n_samples,
@@ -339,6 +404,11 @@ function main()
                     "use_car" => use_car && occursin("hs", lowercase(prior)),
                     "car_distance" => string(car_distance),
                     "p0_alpha" => p0_alpha,
+                    "baseline_rate" => sim.baseline_rate,
+                    "baseline_scale" => sim.baseline_scale,
+                    "baseline_shape" => sim.baseline_shape,
+                    "censoring_distribution" => string(sim.censoring_distribution),
+                    "censoring_upper" => sim.censoring_upper,
                 ),
                 posterior_summary = summary,
                 save_wide_csv = save_wide_csv,

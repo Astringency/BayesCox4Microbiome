@@ -152,6 +152,12 @@ function run_context(root::AbstractString, run_dir::AbstractString)
         "nonzero_count" => nonzero_value,
         "p0" => get_any(meta, "p0"; default = missing),
         "baseline" => baseline_value,
+        "baseline_rate" => get_any(meta, "baseline_rate"; default = missing),
+        "baseline_scale" => get_any(meta, "baseline_scale"; default = missing),
+        "baseline_shape" => get_any(meta, "baseline_shape"; default = missing),
+        "censoring_distribution" => get_any(meta, "censoring_distribution"; default = missing),
+        "censoring_upper" => get_any(meta, "censoring_upper"; default = missing),
+        "observed_censoring_rate" => get_any(meta, "observed_censoring_rate"; default = missing),
     )
 end
 
@@ -180,7 +186,9 @@ end
 
 function add_context_columns!(df::DataFrame, ctx::AbstractDict)
     for key in ("root", "setting_dir", "run_dir", "run_id", "rep", "prior", "sampler",
-        "nuts_backend", "n", "p", "nonzero_count", "p0", "baseline")
+        "nuts_backend", "n", "p", "nonzero_count", "p0", "baseline",
+        "baseline_rate", "baseline_scale", "baseline_shape", "censoring_distribution", "censoring_upper",
+        "observed_censoring_rate")
         sym = Symbol(key)
         if !(sym in propertynames(df))
             df[!, sym] = fill(get(ctx, key, missing), nrow(df))
@@ -306,7 +314,20 @@ function count_over_threshold(v, threshold)
 end
 
 function add_elpd_diffs!(metrics::DataFrame)
-    group_cols = [:root, :rep, :n, :p, :nonzero_count, :baseline, :estimate]
+    group_cols = [
+        :root,
+        :rep,
+        :n,
+        :p,
+        :nonzero_count,
+        :baseline,
+        :baseline_rate,
+        :baseline_scale,
+        :baseline_shape,
+        :censoring_distribution,
+        :censoring_upper,
+        :estimate,
+    ]
     valid_cols = [c for c in group_cols if c in propertynames(metrics)]
     :ELPD_Diff in propertynames(metrics) || (metrics[!, :ELPD_Diff] = fill(NaN, nrow(metrics)))
     for group in groupby(metrics, valid_cols)
@@ -321,11 +342,11 @@ end
 
 function summarize_sampling(rows::DataFrame)
     isempty(rows) && return DataFrame()
-    group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :prior, :sampler] if c in propertynames(rows)]
+    group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler] if c in propertynames(rows)]
     specs = Any[:run_dir => count_unique_nonmissing => :run_count]
     :is_complete in propertynames(rows) && push!(specs, :is_complete => (x -> count(==(true), skipmissing(x))) => :complete_run_count)
     for col in (:warmup_seconds, :sample_seconds, :total_seconds, :allocated_mb, :gc_seconds, :gc_percent,
-        :acceptance_rate, :warmup_acceptance_rate)
+        :acceptance_rate, :warmup_acceptance_rate, :observed_censoring_rate)
         col in propertynames(rows) || continue
         push!(specs, col => finite_mean => Symbol(col, "_mean"))
         push!(specs, col => finite_std => Symbol(col, "_sd"))
@@ -337,7 +358,7 @@ end
 
 function summarize_model_metrics(rows::DataFrame)
     isempty(rows) && return DataFrame()
-    group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :prior, :sampler, :estimate] if c in propertynames(rows)]
+    group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler, :estimate] if c in propertynames(rows)]
     specs = Any[:run_dir => count_unique_nonmissing => :run_count]
     mean_sd_cols = (:MSE, :loglik, :LPML, :AIC, :BIC, :WAIC_pw1, :WAIC_pw2, :DIC,
         :ELPD_LOO, :ELPD_LOO_SE, :ELPD_Diff, :PLOO, :PLOO_SE, :LOOIC, :LOOIC_SE,
@@ -358,7 +379,7 @@ end
 
 function summarize_parameter_diagnostics(rows::DataFrame)
     isempty(rows) && return DataFrame()
-    group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :prior, :sampler, :parameter_group] if c in propertynames(rows)]
+    group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler, :parameter_group] if c in propertynames(rows)]
     threshold =
         :rhat_threshold in propertynames(rows) && any(!ismissing, rows.rhat_threshold) ?
         finite_mean(rows.rhat_threshold) : 1.01
@@ -407,7 +428,7 @@ end
 
 function build_overview(model_summary::DataFrame, sampling_summary::DataFrame, parameter_summary::DataFrame)
     isempty(model_summary) && return DataFrame()
-    join_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :prior, :sampler] if c in propertynames(model_summary)]
+    join_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler] if c in propertynames(model_summary)]
     overview = copy(model_summary)
 
     if !isempty(sampling_summary)

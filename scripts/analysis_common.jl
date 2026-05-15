@@ -44,6 +44,22 @@ arg(args, key, default::Int) = parse(Int, get(args, key, string(default)))
 arg(args, key, default::Float64) = parse(Float64, get(args, key, string(default)))
 arg(args, key, default::Bool) = lowercase(get(args, key, string(default))) in ("true", "1", "yes", "y")
 
+function reject_removed_args!(args, keys)
+    for key in keys
+        if haskey(args, key)
+            throw(ArgumentError("--$key was removed; censoring now uses the baseline-specific Uniform(0, upper) defaults."))
+        end
+    end
+    return nothing
+end
+
+function optional_float_arg(args, keys...)
+    for key in keys
+        haskey(args, key) && return parse(Float64, args[key])
+    end
+    return nothing
+end
+
 function split_symbols(s::AbstractString)
     return Symbol.(strip.(split(s, ",")))
 end
@@ -65,6 +81,54 @@ function parse_optional_p0(args; default = nothing)
 end
 
 ensure_dir(path::AbstractString) = (mkpath(path); path)
+
+const DEFAULT_BASELINE_SETTINGS = Dict(
+    :exponential => (rate = 1 / 14, shape = nothing, censoring_upper = 64.0),
+    :weibull => (rate = 1 / 144, shape = 2.0, censoring_upper = 35.0),
+    :gompertz => (rate = 1 / 25, shape = 0.1, censoring_upper = 35.0),
+)
+
+function baseline_default_settings(baseline::Symbol)
+    haskey(DEFAULT_BASELINE_SETTINGS, baseline) ||
+        throw(ArgumentError("baseline must be :weibull, :exponential, or :gompertz."))
+    return DEFAULT_BASELINE_SETTINGS[baseline]
+end
+
+function baseline_parameters(baseline::Symbol; rate = nothing, scale = nothing, shape = nothing)
+    defaults = baseline_default_settings(baseline)
+    if rate !== nothing && scale !== nothing
+        throw(ArgumentError("pass either baseline rate or reciprocal-rate scale, not both."))
+    end
+    rate_value =
+        rate !== nothing ? Float64(rate) :
+        scale !== nothing ? inv(Float64(scale)) :
+        defaults.rate
+    rate_value > 0 || throw(ArgumentError("baseline rate must be positive."))
+
+    if baseline == :exponential
+        shape === nothing || throw(ArgumentError("exponential baseline does not use a shape parameter."))
+        return (rate = rate_value, shape = nothing)
+    end
+
+    shape_value = shape === nothing ? defaults.shape : Float64(shape)
+    shape_value > 0 || throw(ArgumentError("baseline shape must be positive."))
+    return (rate = rate_value, shape = shape_value)
+end
+
+baseline_censoring_upper(baseline::Symbol) = baseline_default_settings(baseline).censoring_upper
+
+function baseline_parameter_args(args, baseline::Symbol)
+    prefix = string(baseline)
+    rate = optional_float_arg(args, "$prefix-rate", "$prefix-lambda", "baseline-rate", "baseline-lambda")
+    scale = optional_float_arg(args, "$prefix-scale", "baseline-scale")
+    shape =
+        baseline == :weibull ?
+        optional_float_arg(args, "weibull-shape", "weibull-nu", "baseline-shape", "baseline-nu") :
+        baseline == :gompertz ?
+        optional_float_arg(args, "gompertz-shape", "gompertz-alpha", "baseline-shape", "baseline-alpha") :
+        optional_float_arg(args, "exponential-shape", "baseline-shape")
+    return (baseline_rate = rate, baseline_scale = scale, baseline_shape = shape)
+end
 
 function true_beta(p::Integer, nonzero::Integer)
     values =
@@ -97,22 +161,109 @@ function softmax_rows(U::AbstractMatrix)
     return X
 end
 
-function baseline_event_time(rng::AbstractRNG, eta::Real, baseline::Symbol; tmax::Real = 100.0)
+function baseline_event_time(
+    rng::AbstractRNG,
+    eta::Real,
+    baseline::Symbol;
+    rate = nothing,
+    scale = nothing,
+    shape = nothing,
+)
+    params = baseline_parameters(baseline; rate = rate, scale = scale, shape = shape)
     target = -log(rand(rng)) / exp(eta)
     if baseline == :exponential
-        rate = 0.01
-        return target / rate
+        return target / params.rate
     elseif baseline == :weibull
-        shape = 2.0
-        scale = 50.0
-        return scale * target^(1 / shape)
+        return (target / params.rate)^(1 / params.shape)
     elseif baseline == :gompertz
-        rate = 0.01
-        shape = 0.02
-        return log1p(shape * target / rate) / shape
+        return log1p(params.shape * target / params.rate) / params.shape
     else
         throw(ArgumentError("baseline must be :weibull, :exponential, or :gompertz."))
     end
+end
+
+function simulation_event_process(
+    rng::AbstractRNG,
+    n::Integer,
+    p::Integer,
+    nonzero::Integer;
+    baseline::Symbol = :weibull,
+    baseline_rate = nothing,
+    baseline_scale = nothing,
+    baseline_shape = nothing,
+)
+    beta, idx = true_beta(p, nonzero)
+    mu = zeros(Float64, p)
+    mu[idx] .= log(0.5 * p)
+    U = rand(rng, MvNormal(mu, paper_covariance(p)), n)'
+    X = softmax_rows(U)
+    eta = log.(X) * beta
+    params = baseline_parameters(baseline; rate = baseline_rate, scale = baseline_scale, shape = baseline_shape)
+    event_time = [baseline_event_time(rng, eta[i], baseline; rate = params.rate, shape = params.shape) for i in 1:n]
+    return (X = X, beta = beta, nonzero_index = idx, eta = eta, event_time = Float64.(event_time))
+end
+
+function random_censoring_times(
+    rng::AbstractRNG,
+    n::Integer;
+    upper::Real,
+)
+    upper_value = Float64(upper)
+    upper_value > 0 || throw(ArgumentError("censoring upper bound must be positive."))
+    return upper_value .* rand(rng, n)
+end
+
+function apply_censoring(event_time::AbstractVector{<:Real}, censor_time::AbstractVector{<:Real})
+    length(event_time) == length(censor_time) ||
+        throw(DimensionMismatch("event_time and censor_time must have the same length."))
+    event_time_f = Float64.(event_time)
+    censor_time_f = Float64.(censor_time)
+    time = min.(event_time_f, censor_time_f)
+    event = Int.(event_time_f .<= censor_time_f)
+    if count(!=(0), event) == 0
+        idx = argmin(event_time_f)
+        event[idx] = 1
+        time[idx] = event_time_f[idx]
+        censor_time_f[idx] = event_time_f[idx]
+    end
+    return (time = Float64.(time), event = event, censor_time = censor_time_f)
+end
+
+function uniform_censoring_rate(event_time::AbstractVector{<:Real}, upper::Real)
+    upper_value = Float64(upper)
+    upper_value > 0 || throw(ArgumentError("uniform censoring upper bound must be positive."))
+    return mean(min.(Float64.(event_time) ./ upper_value, 1.0))
+end
+
+function calibrate_uniform_censoring_upper(
+    event_time::AbstractVector{<:Real},
+    target_censoring_rate::Real;
+    tol::Real = 1e-4,
+    maxiter::Integer = 100,
+)
+    target = Float64(target_censoring_rate)
+    0 < target < 1 || throw(ArgumentError("target_censoring_rate must be in (0, 1)."))
+    finite_times = [Float64(t) for t in event_time if isfinite(Float64(t)) && Float64(t) > 0]
+    isempty(finite_times) && throw(ArgumentError("event_time must contain positive finite values."))
+
+    lo = eps(Float64)
+    hi = maximum(finite_times)
+    while uniform_censoring_rate(finite_times, hi) > target
+        hi *= 2
+    end
+
+    mid = hi
+    for _ in 1:maxiter
+        mid = (lo + hi) / 2
+        rate = uniform_censoring_rate(finite_times, mid)
+        abs(rate - target) <= tol && return mid
+        if rate > target
+            lo = mid
+        else
+            hi = mid
+        end
+    end
+    return mid
 end
 
 function generate_simulation_data(
@@ -121,22 +272,39 @@ function generate_simulation_data(
     nonzero::Integer;
     baseline::Symbol = :weibull,
     seed::Integer = 1,
-    tmax::Real = 100.0,
+    baseline_rate = nothing,
+    baseline_scale = nothing,
+    baseline_shape = nothing,
 )
     rng = MersenneTwister(seed)
-    beta, idx = true_beta(p, nonzero)
-    mu = zeros(Float64, p)
-    mu[idx] .= log(0.5 * p)
-    U = rand(rng, MvNormal(mu, paper_covariance(p)), n)'
-    X = softmax_rows(U)
-    eta = log.(X) * beta
-    event_time = [baseline_event_time(rng, eta[i], baseline; tmax = tmax) for i in 1:n]
-    time = min.(event_time, tmax)
-    event = Int.(event_time .<= tmax)
-    if count(!=(0), event) == 0
-        event[argmin(time)] = 1
-    end
-    return (X = X, time = Float64.(time), event = event, beta = beta, nonzero_index = idx)
+    params = baseline_parameters(baseline; rate = baseline_rate, scale = baseline_scale, shape = baseline_shape)
+    upper = baseline_censoring_upper(baseline)
+    process = simulation_event_process(
+        rng,
+        n,
+        p,
+        nonzero;
+        baseline = baseline,
+        baseline_rate = params.rate,
+        baseline_shape = params.shape,
+    )
+    censor_time = random_censoring_times(rng, n; upper = upper)
+    observed = apply_censoring(process.event_time, censor_time)
+    return (
+        X = process.X,
+        time = observed.time,
+        event = observed.event,
+        beta = process.beta,
+        nonzero_index = process.nonzero_index,
+        eta = process.eta,
+        event_time = process.event_time,
+        censor_time = observed.censor_time,
+        baseline_rate = params.rate,
+        baseline_scale = inv(params.rate),
+        baseline_shape = params.shape,
+        censoring_distribution = :uniform,
+        censoring_upper = upper,
+    )
 end
 
 function prior_from_name(

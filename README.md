@@ -195,7 +195,12 @@ Common options:
 | `--n` | `200` | Sample size. Comma-separated grids are supported. |
 | `--p` | `50` | Number of taxa/covariates. Comma-separated grids are supported. |
 | `--nonzero` | `6` | Number of true nonzero coefficients. Supported values are `6` and `12`. |
-| `--baseline` | `weibull` | `weibull`, `exponential`, or `gompertz`. |
+| `--baseline` | `weibull` | `weibull`, `exponential`, or `gompertz`. Default censoring is baseline-specific: exponential `U(0,64)`, Weibull `U(0,35)`, Gompertz `U(0,35)`. |
+| `--exponential-rate` | `1/14` | Exponential baseline hazard rate `lambda`. Aliases: `--exponential-lambda`, `--exponential-scale` for reciprocal rate. |
+| `--weibull-rate` | `1/144` | Weibull baseline hazard parameter `lambda` in `lambda * nu * t^(nu-1)`. Aliases: `--weibull-lambda`, `--weibull-scale` for reciprocal rate. |
+| `--weibull-shape` | `2.0` | Weibull shape `nu`. Alias: `--weibull-nu`. |
+| `--gompertz-rate` | `1/25` | Gompertz baseline hazard rate `lambda`. Aliases: `--gompertz-lambda`, `--gompertz-scale` for reciprocal rate. |
+| `--gompertz-alpha` | `0.1` | Gompertz shape `alpha` in `lambda * exp(alpha * t)`. Alias: `--gompertz-shape`. |
 | `--priors` | `hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso` | Comma-separated prior names. |
 | `--sampler` | `nuts` | `nuts`, `nuts_turing`, `nuts_explicit`, `mh`, `mala`, `ula`, or `gibbs`. |
 | `--nuts-backend` | `turing` | `turing` or `explicit` when `--sampler nuts`. |
@@ -264,9 +269,13 @@ Common options:
 | `--n` | `200` | Sample size. Comma-separated grids are supported. |
 | `--p` | `50` | Number of taxa/covariates. Comma-separated grids are supported. |
 | `--nonzero` | `6` | Number of true nonzero coefficients. Supported values are `6` and `12`. |
-| `--baseline` | `weibull` | `weibull`, `exponential`, or `gompertz`. |
+| `--baseline` | `weibull` | `weibull`, `exponential`, or `gompertz`. Default censoring is baseline-specific: exponential `U(0,64)`, Weibull `U(0,35)`, Gompertz `U(0,35)`. |
+| `--exponential-rate` | `1/14` | Exponential baseline hazard rate `lambda`. Aliases: `--exponential-lambda`, `--exponential-scale` for reciprocal rate. |
+| `--weibull-rate` | `1/144` | Weibull baseline hazard parameter `lambda` in `lambda * nu * t^(nu-1)`. Aliases: `--weibull-lambda`, `--weibull-scale` for reciprocal rate. |
+| `--weibull-shape` | `2.0` | Weibull shape `nu`. Alias: `--weibull-nu`. |
+| `--gompertz-rate` | `1/25` | Gompertz baseline hazard rate `lambda`. Aliases: `--gompertz-lambda`, `--gompertz-scale` for reciprocal rate. |
+| `--gompertz-alpha` | `0.1` | Gompertz shape `alpha` in `lambda * exp(alpha * t)`. Alias: `--gompertz-shape`. |
 | `--seed` | `1` | Base random seed. |
-| `--tmax` | `100.0` | Administrative censoring time. |
 | `--save-data` | `false` | Also save generated `X`, `time`, `event`, and true beta CSV files. |
 
 The censoring summary is written to
