@@ -401,6 +401,10 @@ function prefixed_columns(df::DataFrame, prefix::AbstractString, keep_cols)
     return out
 end
 
+function safe_leftjoin(left::DataFrame, right::DataFrame; on)
+    return leftjoin(left, right; on = on, matchmissing = :equal)
+end
+
 function build_overview(model_summary::DataFrame, sampling_summary::DataFrame, parameter_summary::DataFrame)
     isempty(model_summary) && return DataFrame()
     join_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :prior, :sampler] if c in propertynames(model_summary)]
@@ -408,7 +412,7 @@ function build_overview(model_summary::DataFrame, sampling_summary::DataFrame, p
 
     if !isempty(sampling_summary)
         sampling = prefixed_columns(sampling_summary, "sampling_", join_cols)
-        overview = leftjoin(overview, sampling, on = join_cols)
+        overview = safe_leftjoin(overview, sampling; on = join_cols)
     end
 
     if !isempty(parameter_summary) && :parameter_group in propertynames(parameter_summary)
@@ -416,7 +420,7 @@ function build_overview(model_summary::DataFrame, sampling_summary::DataFrame, p
         if !isempty(beta)
             select!(beta, Not(:parameter_group))
             beta = prefixed_columns(beta, "beta_mcmc_", join_cols)
-            overview = leftjoin(overview, beta, on = join_cols)
+            overview = safe_leftjoin(overview, beta; on = join_cols)
         end
     end
 
@@ -472,4 +476,6 @@ function main()
     end
 end
 
-main()
+if normpath(abspath(PROGRAM_FILE)) == normpath(abspath(@__FILE__))
+    main()
+end
