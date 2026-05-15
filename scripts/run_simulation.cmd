@@ -4,18 +4,35 @@ cd /d "%~dp0\.."
 
 if not defined GKSwstype set "GKSwstype=100"
 
-julia --project=. scripts\run_simulation.jl ^
-  --sampler mh ^
-  --samples 50 ^
-  --warmup 20 ^
-  --reps 1 ^
-  --n 200 ^
-  --p 50 ^
-  --nonzero 6 ^
-  --baseline weibull ^
-  --priors hs,cox-rhs,lasso ^
-  --p0 truth ^
-  %*
+set test_n=400
+set test_p=150
+
+set current_time=%date:~0,4%%date:~5,2%%date:~8,2%_%time:~0,2%%time:~3,2%%time:~6,2%
+set current_time=%current_time: =0%
+
+julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl ^
+    --sampler nuts ^
+    --nuts-backend explicit ^
+    --samples 5000 ^
+    --warmup 4000 ^
+    --chains 4 ^
+    --multichains ^
+    --reps 1 ^
+    --n "%test_n%" ^
+    --p "%test_p%" ^
+    --nonzero 12 ^
+    --baseline weibull ^
+    --priors prox-lasso ^
+    --constraint prox ^
+    --target-accept 0.8 ^
+    --mala-step-size 1e-3 ^
+    --mala-target-accept 0.7 ^
+    --seed 1 ^
+    --use-car true ^
+    --car-distance bray ^
+    --p0 truth ^
+    --p0-alpha 0.05 ^
+    --outdir "results/simulation/test_n%test_n%_p%test_p%_non12_weibull_%current_time%"
 
 exit /b %ERRORLEVEL%
 
