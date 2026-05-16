@@ -130,6 +130,8 @@ end
 
 function _base_metadata(result::CoxSamplerResult; run_id = "run", metadata = Dict(), settings = Dict())
     data = result.data
+    git_sha = _git_commit_hash()
+    samples_value = get(settings, "n_samples", get(settings, :n_samples, get(settings, "samples", missing)))
     base = Dict{String,Any}(
         "run_id" => run_id,
         "sampler" => String(result.sampler),
@@ -139,11 +141,18 @@ function _base_metadata(result::CoxSamplerResult; run_id = "run", metadata = Dic
         "n" => length(data.time),
         "p" => size(data.z, 2),
         "number_of_events" => count(!=(0), data.event),
-        "n_samples" => get(settings, "n_samples", get(settings, :n_samples, get(settings, "samples", missing))),
+        "samples" => samples_value,
+        "n_samples" => samples_value,
         "warmup" => get(settings, "warmup", get(settings, :warmup, missing)),
+        "chains" => get(settings, "chains", get(settings, :chains, missing)),
         "thin" => get(settings, "thin", get(settings, :thin, missing)),
+        "use_car" => get(settings, "use_car", get(settings, :use_car, missing)),
+        "car_distance" => get(settings, "car_distance", get(settings, :car_distance, missing)),
+        "tau_scale_mode" => get(settings, "tau_scale_mode", get(settings, :tau_scale_mode, get(ENV, "BAYESCOX_TAU_CAUCHY_SCALE", "tau0_squared"))),
+        "pseudocount" => data.pseudocount,
         "runtime" => result.diagnostics.total_seconds,
-        "git_commit_hash" => _git_commit_hash(),
+        "git_commit_hash" => git_sha,
+        "git_sha" => git_sha,
         "created_at" => string(now()),
     )
     merge!(base, _sampler_acceptance_metadata(result))

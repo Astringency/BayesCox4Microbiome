@@ -315,6 +315,7 @@ function prior_from_name(
     p0 = nothing,
     p0_alpha::Real = 0.05,
     realdata::Bool = false,
+    pseudocount::Real = realdata ? 1e-6 : 0.0,
 )
     return cox_paper_prior(
         name;
@@ -324,6 +325,7 @@ function prior_from_name(
         event = event,
         p0_alpha = p0_alpha,
         realdata = realdata,
+        pseudocount = pseudocount,
     )
 end
 
@@ -564,9 +566,20 @@ function fit_and_evaluate(
     mala_min_step::Real = 1e-8,
     mala_max_step::Real = 1.0,
     realdata::Bool = false,
+    pseudocount = nothing,
     progress::Bool = true,
 )
-    prior = prior_from_name(prior_name, X, time, event; p0 = p0, p0_alpha = p0_alpha, realdata = realdata)
+    pseudocount_value = pseudocount === nothing ? (realdata ? 1e-6 : 0.0) : Float64(pseudocount)
+    prior = prior_from_name(
+        prior_name,
+        X,
+        time,
+        event;
+        p0 = p0,
+        p0_alpha = p0_alpha,
+        realdata = realdata,
+        pseudocount = pseudocount_value,
+    )
     result =
         if sampler in (:nuts, :nuts_turing, :nuts_explicit, :nuts_explict)
             sample_bayes_cox(
@@ -585,6 +598,7 @@ function fit_and_evaluate(
                 seed = seed,
                 use_car = use_car,
                 car_distance = car_distance,
+                pseudocount = pseudocount_value,
                 constraint = constraint,
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
@@ -610,6 +624,7 @@ function fit_and_evaluate(
                     seed = seed,
                     use_car = use_car,
                     car_distance = car_distance,
+                    pseudocount = pseudocount_value,
                     constraint = constraint,
                     soft_center_scale = soft_center_scale,
                     prox_sum0_lambda = prox_sum0_lambda,
@@ -639,6 +654,7 @@ function fit_and_evaluate(
                     seed = seed,
                     use_car = use_car,
                     car_distance = car_distance,
+                    pseudocount = pseudocount_value,
                     constraint = constraint,
                     soft_center_scale = soft_center_scale,
                     prox_sum0_lambda = prox_sum0_lambda,
@@ -661,6 +677,7 @@ function fit_and_evaluate(
                 seed = seed,
                 use_car = use_car,
                 car_distance = car_distance,
+                pseudocount = pseudocount_value,
                 constraint = constraint,
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
@@ -1038,7 +1055,8 @@ end
 
 function metrics_from_saved_samples(run_dir::AbstractString, sim, summary::DataFrame)
     draws, layout = saved_beta_draws_and_layout(run_dir, length(sim.beta))
-    data = prepare_cox_data(sim.X, sim.time, sim.event; transform = :log, pseudocount = 1e-6)
+    pseudocount = Float64(_metadata_number(run_dir, "pseudocount", 0.0))
+    data = prepare_cox_data(sim.X, sim.time, sim.event; transform = :log, pseudocount = pseudocount)
     loglik = posterior_event_loglik(data, draws)
     event_rows = findall(!=(0), data.event)
     ll_event = loglik[event_rows, :]

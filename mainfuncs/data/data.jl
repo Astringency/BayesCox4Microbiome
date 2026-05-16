@@ -36,7 +36,7 @@ function _standardize_columns(z::Matrix{Float64})
 end
 
 """
-    prepare_cox_data(X, time, event; transform=:log, pseudocount=1e-6,
+    prepare_cox_data(X, time, event; transform=:log, pseudocount=0.0,
                      closure=true, standardize=false)
 
 Prepare microbiome covariates for the Cox partial-likelihood model.
@@ -77,17 +77,20 @@ function prepare_cox_data(
             x2 = copy(x)
 
             if pc == 0
-                # replaced zero abundances with half of the minimum observed abundance
-                positive_vals = x2[x2 .> 0]
+                if any(iszero, x2)
+                    positive_vals = x2[x2 .> 0]
 
-                isempty(positive_vals) &&
-                    throw(ArgumentError("X contains no positive values; cannot perform log transform."))
+                    isempty(positive_vals) &&
+                        throw(ArgumentError("X contains no positive values; cannot perform log transform."))
 
-                min_positive = minimum(positive_vals)
-                half_min = min_positive / 2
+                    min_positive = minimum(positive_vals)
+                    half_min = min_positive / 2
 
-                x2[x2 .== 0.0] .= half_min
-                applied_pc = half_min
+                    x2[x2 .== 0.0] .= half_min
+                    applied_pc = half_min
+                else
+                    applied_pc = 0.0
+                end
             else
                 # plus pseudocount
                 x2 .+= pc

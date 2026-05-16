@@ -754,12 +754,27 @@ function _sample_gibbs_chains(
 end
 
 function posterior_beta_draws(result::CoxSamplerResult)
+    beta_indices(names, p::Integer) = begin
+        sample_names = string.(names)
+        idx = [findfirst(==("beta[$j]"), sample_names) for j in 1:p]
+        if any(isnothing, idx)
+            missing = ["beta[$j]" for j in 1:p if idx[j] === nothing]
+            throw(ArgumentError(
+                "sampler result is missing beta columns: $(join(missing, ", ")).",
+            ))
+        end
+        return Int.(idx)
+    end
     if result.samples isa MHSamples
         p = size(result.data.z, 2)
-        return result.samples.draws[:, 1:p]
+        idx = beta_indices(result.samples.names, p)
+        return Matrix{Float64}(result.samples.draws[:, idx])
     elseif result.samples isa MultiMHSamples
         p = size(result.data.z, 2)
-        return reduce(vcat, [sample.draws[:, 1:p] for sample in result.samples.chains])
+        return reduce(vcat, begin
+            idx = beta_indices(sample.names, p)
+            Matrix{Float64}(sample.draws[:, idx])
+        end for sample in result.samples.chains)
     end
     p = size(result.data.z, 2)
     beta_vars = [Symbol("beta[$j]") for j in 1:p]

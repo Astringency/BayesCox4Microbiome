@@ -54,6 +54,7 @@ function main()
     use_car = arg(args, "use-car", true)
     progress = arg(args, "progress", true)
     car_distance = Symbol(arg(args, "car-distance", "bray"))
+    pseudocount = arg(args, "pseudocount", 1e-6)
     p0_arg = parse_optional_p0(args; default = nothing)
     p0_arg === :truth && throw(ArgumentError("--p0 truth is only valid for simulation."))
     p0_alpha = arg(args, "p0-alpha", 0.05)
@@ -72,6 +73,7 @@ function main()
     diagnose_formats = get(args, "diagnose-format", "png")
     diagnose_top_k_beta = arg(args, "diagnose-top-k-beta", 10)
     diagnose_max_lag = arg(args, "diagnose-max-lag", 50)
+    tau_scale_mode = get(ENV, "BAYESCOX_TAU_CAUCHY_SCALE", "tau0_squared")
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
     figs_dir = ensure_dir(joinpath(outdir, "figures"))
@@ -106,6 +108,7 @@ function main()
             seed = seed,
             use_car = use_car && occursin("hs", lowercase(prior)),
             car_distance = car_distance,
+            pseudocount = pseudocount,
             p0 = p0_arg,
             p0_alpha = p0_alpha,
             constraint = constraint,
@@ -139,6 +142,8 @@ function main()
                 "sampler" => string(sampler),
                 "nuts_backend" => string(nuts_backend),
                 "p0" => fit.p0,
+                "pseudocount" => pseudocount,
+                "tau_scale_mode" => tau_scale_mode,
                 "input" => input,
             ),
             settings = Dict(
@@ -162,6 +167,8 @@ function main()
                 "mala_max_step" => mala_max_step,
                 "use_car" => use_car && occursin("hs", lowercase(prior)),
                 "car_distance" => string(car_distance),
+                "pseudocount" => pseudocount,
+                "tau_scale_mode" => tau_scale_mode,
                 "p0_alpha" => p0_alpha,
             ),
             posterior_summary = summary,

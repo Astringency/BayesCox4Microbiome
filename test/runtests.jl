@@ -495,3 +495,5 @@ end
         @test isfile(joinpath(diag.output_dir, "rhat_histogram.png"))
     end
 end
+
+include("simulation_diagnostics_tests.jl")

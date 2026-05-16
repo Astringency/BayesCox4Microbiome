@@ -191,10 +191,14 @@ function main()
     mala_min_step = arg(args, "mala-min-step", 1e-8)
     mala_max_step = arg(args, "mala-max-step", 1.0)
     diagnose = arg(args, "diagnose", true)
+    debug = arg(args, "debug", false)
     diagnose_formats = get(args, "diagnose-format", "png")
     diagnose_top_k_beta = arg(args, "diagnose-top-k-beta", 10)
     diagnose_max_lag = arg(args, "diagnose-max-lag", 50)
-    resume = arg(args, "resume", true)
+    resume = debug ? false : arg(args, "resume", true)
+    debug && @info "Debug mode forces resume=false."
+    pseudocount = arg(args, "pseudocount", 0.0)
+    tau_scale_mode = get(ENV, "BAYESCOX_TAU_CAUCHY_SCALE", "tau0_squared")
     plot_first_rep_only = arg(args, "plot-first-rep-only", true)
     sample_thin = max(1, arg(args, "sample-thin", 10))
     first_rep_sample_thin = max(1, arg(args, "first-rep-sample-thin", 1))
@@ -231,8 +235,23 @@ function main()
             seed = sim_seed,
             baseline_args...,
         )
-        p0_value = p0_arg === :truth ? nonzero : p0_arg
         for prior in priors
+            p0_requested = p0_arg === :truth ? nonzero : p0_arg
+            p0_auto =
+                p0_requested === nothing ?
+                prior_p0(prior_from_name(
+                    prior,
+                    sim.X,
+                    sim.time,
+                    sim.event;
+                    p0 = nothing,
+                    p0_alpha = p0_alpha,
+                    realdata = false,
+                    pseudocount = pseudocount,
+                )) :
+                p0_requested
+            p0_value = p0_auto === missing ? nothing : p0_auto
+            actual_use_car = use_car && occursin("hs", lowercase(prior))
             label = "rep$(rep)_$(prior)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)"
             run_dir = joinpath(outdir, "runs", label)
             coef_path = joinpath(tables_dir, "coef_$label.csv")
@@ -243,6 +262,22 @@ function main()
                 "baseline_shape" => sim.baseline_shape,
                 "censoring_distribution" => string(sim.censoring_distribution),
                 "censoring_upper" => sim.censoring_upper,
+                "prior" => prior,
+                "prior_name" => prior,
+                "sampler" => string(sampler),
+                "nuts_backend" => string(nuts_backend),
+                "samples" => n_samples,
+                "n_samples" => n_samples,
+                "warmup" => warmup,
+                "chains" => chains,
+                "p0" => p0_value,
+                "constraint" => string(constraint),
+                "use_car" => actual_use_car,
+                "car_distance" => string(car_distance),
+                "pseudocount" => pseudocount,
+                "tau_scale_mode" => tau_scale_mode,
+                "seed" => sim_seed,
+                "git_commit_hash" => BayesCox4Micro._git_commit_hash(),
             )
             if resume && simulation_run_recoverable(run_dir) && simulation_metadata_matches(run_dir, expected_metadata)
                 try
@@ -306,8 +341,9 @@ function main()
                 multichains = multichains,
                 target_accept = target_accept,
                 seed = sim_seed,
-                use_car = use_car && occursin("hs", lowercase(prior)),
+                use_car = actual_use_car,
                 car_distance = car_distance,
+                pseudocount = pseudocount,
                 p0 = p0_value,
                 p0_alpha = p0_alpha,
                 constraint = constraint,
@@ -365,6 +401,7 @@ function main()
                     "simulation_id" => label,
                     "replicate_id" => rep,
                     "method_name" => prior,
+                    "prior" => prior,
                     "prior_name" => prior,
                     "sampler" => string(sampler),
                     "nuts_backend" => string(nuts_backend),
@@ -375,13 +412,16 @@ function main()
                     "n" => n,
                     "p" => p,
                     "nonzero_count" => nonzero,
-                    "p0" => fit.p0,
+                    "p0" => p0_value,
+                    "pseudocount" => pseudocount,
+                    "tau_scale_mode" => tau_scale_mode,
                     "censoring_distribution" => string(sim.censoring_distribution),
                     "censoring_upper" => sim.censoring_upper,
                     "observed_censoring_rate" => mean(sim.event .== 0),
                     "observed_event_rate" => mean(sim.event .!= 0),
                 ),
                 settings = Dict(
+                    "samples" => n_samples,
                     "n_samples" => n_samples,
                     "warmup" => warmup,
                     "chains" => chains,
@@ -401,8 +441,10 @@ function main()
                     "mala_adapt_every" => mala_adapt_every,
                     "mala_min_step" => mala_min_step,
                     "mala_max_step" => mala_max_step,
-                    "use_car" => use_car && occursin("hs", lowercase(prior)),
+                    "use_car" => actual_use_car,
                     "car_distance" => string(car_distance),
+                    "pseudocount" => pseudocount,
+                    "tau_scale_mode" => tau_scale_mode,
                     "p0_alpha" => p0_alpha,
                     "baseline_rate" => sim.baseline_rate,
                     "baseline_scale" => sim.baseline_scale,

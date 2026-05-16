@@ -1,3 +1,4 @@
 docs/
 results/*
+# !results/debug_report.md
 hatch-runs
