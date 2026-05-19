@@ -208,6 +208,7 @@ function main()
     use_car = arg(args, "use-car", true)
     car_distance = Symbol(arg(args, "car-distance", "bray"))
     pseudocount = arg(args, "pseudocount", 0.0)
+    tie_method = parse_tie_method(args)
     progress = arg(args, "progress", false)
     constraint = Symbol(arg(args, "constraint", "soft_center"))
     soft_center_scale = haskey(args, "soft-center-scale") ? parse(Float64, args["soft-center-scale"]) : nothing
@@ -262,6 +263,7 @@ function main()
                         car_distance = car_distance,
                         p0_alpha = p0_alpha,
                         pseudocount = pseudocount,
+                        tie_method = tie_method,
                         constraint = constraint,
                         soft_center_scale = soft_center_scale,
                         prox_sum0_lambda = prox_sum0_lambda,

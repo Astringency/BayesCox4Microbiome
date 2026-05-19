@@ -219,6 +219,7 @@ Common options:
 | `--car-distance` | `bray` | CAR distance. |
 | `--p0` | `auto` | `auto`, numeric, or `truth` for simulation. |
 | `--p0-alpha` | `0.05` | Screening threshold for automatic `p0`. |
+| `--tie_method` | `efron` | Cox tied-event method: `efron` or `breslow`. Alias: `--tie-method`. |
 | `--constraint` | `soft_center` | Zero-sum constraint mode. |
 | `--soft-center-scale` | automatic | Scale for `soft_center`. |
 | `--prox-sum0-lambda` | `1e-3` | Zero-sum Moreau smoothing parameter. |
@@ -328,6 +329,7 @@ Common options:
 | `--warmup` | `200` | Warmup/adaptation iterations. |
 | `--chains` | `4` | Number of chains. |
 | `--p0` | `auto` | `auto` or numeric. `truth` is rejected for real data. |
+| `--tie_method` | `efron` | Cox tied-event method: `efron` or `breslow`. Alias: `--tie-method`. |
 | `--constraint` | `soft_center` | Zero-sum constraint mode. |
 | `--diagnose` | `true` | Generate diagnostics after each fit. |
 

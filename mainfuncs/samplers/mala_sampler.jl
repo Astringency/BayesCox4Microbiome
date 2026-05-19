@@ -162,17 +162,19 @@ function _full_logposterior_gradient_beta(
             grad[j] -= beta[j] / exp(log_tau2[j])
         end
     elseif prior isa SpikeSlabLassoPrior
-        theta = _logistic(u[p + 1])
+        log_tau2_spike = view(u, (p + 1):(2p))
+        log_tau2_slab = view(u, (2p + 1):(3p))
+        theta = _logistic(u[3p + 1])
         theta = clamp(theta, eps(Float64), 1 - eps(Float64))
         @inbounds for j in 1:p
             b = beta[j]
-            sgn = b > 0 ? 1.0 : b < 0 ? -1.0 : 0.0
-            log_spike = log1p(-theta) + _laplace_logpdf(b, prior.spike_scale)
-            log_slab = log(theta) + _laplace_logpdf(b, prior.slab_scale)
-            norm = _logsumexp2(log_spike, log_slab)
+            tau2_spike = exp(log_tau2_spike[j])
+            tau2_slab = exp(log_tau2_slab[j])
+            log_spike, log_slab, norm =
+                _ssl_component_logpdf(b, theta, log_tau2_spike[j], log_tau2_slab[j])
             prob_spike = exp(log_spike - norm)
             prob_slab = exp(log_slab - norm)
-            grad[j] -= sgn * (prob_spike / prior.spike_scale + prob_slab / prior.slab_scale)
+            grad[j] -= b * (prob_spike / tau2_spike + prob_slab / tau2_slab)
         end
     else
         throw(ArgumentError("unsupported prior type for MALA: $(typeof(prior))"))

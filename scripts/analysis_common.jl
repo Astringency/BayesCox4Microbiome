@@ -122,6 +122,20 @@ function split_strings(s::AbstractString)
     return strip.(split(s, ","))
 end
 
+function option_value(args, default::AbstractString, keys::AbstractString...)
+    for key in keys
+        haskey(args, key) && return args[key]
+    end
+    return default
+end
+
+function parse_tie_method(args; default::AbstractString = "efron")
+    value = lowercase(strip(option_value(args, default, "tie_method", "tie-method")))
+    value in ("efron", "breslow") ||
+        throw(ArgumentError("--tie_method must be efron or breslow."))
+    return Symbol(value)
+end
+
 function parse_optional_p0(args; default = nothing)
     haskey(args, "p0") || return default
     value = lowercase(strip(args["p0"]))
@@ -664,6 +678,7 @@ function fit_and_evaluate(
     realdata::Bool = false,
     pseudocount = nothing,
     standardize::Bool = false,
+    tie_method::Symbol = :efron,
     rhs_slab_df::Real = 4.0,
     rhs_slab_s2::Real = 2.0,
     hs_tau_scale::Real = 1.0,
@@ -731,6 +746,7 @@ function fit_and_evaluate(
                 car_distance = car_distance,
                 pseudocount = pseudocount_value,
                 standardize = standardize,
+                tie_method = tie_method,
                 constraint = constraint,
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
@@ -760,6 +776,7 @@ function fit_and_evaluate(
                     car_distance = car_distance,
                     pseudocount = pseudocount_value,
                     standardize = standardize,
+                    tie_method = tie_method,
                     constraint = constraint,
                     soft_center_scale = soft_center_scale,
                     prox_sum0_lambda = prox_sum0_lambda,
@@ -793,6 +810,7 @@ function fit_and_evaluate(
                     car_distance = car_distance,
                     pseudocount = pseudocount_value,
                     standardize = standardize,
+                    tie_method = tie_method,
                     constraint = constraint,
                     soft_center_scale = soft_center_scale,
                     prox_sum0_lambda = prox_sum0_lambda,
@@ -817,6 +835,7 @@ function fit_and_evaluate(
                 car_distance = car_distance,
                 pseudocount = pseudocount_value,
                 standardize = standardize,
+                tie_method = tie_method,
                 constraint = constraint,
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
@@ -1099,6 +1118,15 @@ function _metadata_number(run_dir::AbstractString, key::AbstractString, default)
     end
 end
 
+function _metadata_string(run_dir::AbstractString, key::AbstractString, default::AbstractString)
+    meta = read_run_metadata(run_dir)
+    haskey(meta, key) || return default
+    value = meta[key]
+    value === nothing && return default
+    value === missing && return default
+    return string(value)
+end
+
 function _metadata_bool(run_dir::AbstractString, key::AbstractString, default::Bool)
     meta = read_run_metadata(run_dir)
     haskey(meta, key) || return default
@@ -1209,6 +1237,7 @@ end
 function metrics_from_saved_samples(run_dir::AbstractString, sim, summary::DataFrame)
     draws, layout = saved_beta_draws_and_layout(run_dir, length(sim.beta))
     pseudocount = Float64(_metadata_number(run_dir, "pseudocount", 0.0))
+    tie_method = Symbol(_metadata_string(run_dir, "tie_method", "efron"))
     data = prepare_cox_data(
         sim.X,
         sim.time,
@@ -1216,6 +1245,7 @@ function metrics_from_saved_samples(run_dir::AbstractString, sim, summary::DataF
         transform = :log,
         pseudocount = pseudocount,
         standardize = false,
+        tie_method = tie_method,
     )
     loglik = posterior_event_loglik(data, draws)
     event_rows = findall(!=(0), data.event)

@@ -1,13 +1,3 @@
-function _ssl_tau2_rate(scale::Real)
-    return inv(2 * scale^2)
-end
-
-function _ssl_tau2_logpdf(tau2::Real, scale::Real)
-    tau2 > 0 || return -Inf
-    rate = _ssl_tau2_rate(scale)
-    return log(rate) - rate * tau2
-end
-
 function _ssl_normal_prior_logpdf(beta::AbstractVector, tau2::AbstractVector)
     lp = zero(eltype(beta))
     @inbounds for j in eachindex(beta)

@@ -149,6 +149,7 @@ function _base_metadata(result::CoxSamplerResult; run_id = "run", metadata = Dic
         "use_car" => get(settings, "use_car", get(settings, :use_car, missing)),
         "car_distance" => get(settings, "car_distance", get(settings, :car_distance, missing)),
         "tau_scale_mode" => get(settings, "tau_scale_mode", get(settings, :tau_scale_mode, "tau0")),
+        "tie_method" => String(data.tie_method),
         "pseudocount" => data.pseudocount,
         "runtime" => result.diagnostics.total_seconds,
         "git_commit_hash" => git_sha,
@@ -362,6 +363,7 @@ function save_run_outputs(
                 "pseudocount" => result.data.pseudocount,
                 "closure" => result.data.closure,
                 "standardize" => result.data.standardize,
+                "tie_method" => String(result.data.tie_method),
             ),
             "posterior_summary" => summary_df,
         )

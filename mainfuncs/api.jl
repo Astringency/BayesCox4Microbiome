@@ -374,6 +374,7 @@ function sample_bayes_cox(
     pseudocount::Real = 1e-6,
     closure::Bool = true,
     standardize::Bool = false,
+    tie_method::Symbol = :efron,
     use_car::Bool = false,
     car_weights = nothing,
     car_distance = nothing,
@@ -403,6 +404,7 @@ function sample_bayes_cox(
         pseudocount = pseudocount,
         closure = closure,
         standardize = standardize,
+        tie_method = tie_method,
     )
     return sample_bayes_cox(
         data;
@@ -943,13 +945,24 @@ function sslasso_inclusion_probabilities(result::CoxSamplerResult)
         theta_idx === nothing && (theta_idx = findfirst(==("theta"), names0))
         theta_idx === nothing &&
             throw(ArgumentError("could not find logit_theta or theta in SSLASSO samples."))
+        spike_idx = [findfirst(==("log_tau2_spike[$j]"), names0) for j in 1:p]
+        slab_idx = [findfirst(==("log_tau2_slab[$j]"), names0) for j in 1:p]
+        use_log_tau = all(!isnothing, spike_idx) && all(!isnothing, slab_idx)
+        tau_spike_idx = [findfirst(==("tau2_spike[$j]"), names0) for j in 1:p]
+        tau_slab_idx = [findfirst(==("tau2_slab[$j]"), names0) for j in 1:p]
+        use_tau = all(!isnothing, tau_spike_idx) && all(!isnothing, tau_slab_idx)
+        (use_log_tau || use_tau) ||
+            throw(ArgumentError("could not find SSLASSO tau2 state variables for inclusion probabilities."))
         out = zeros(size(draws, 1), p)
         for r in axes(draws, 1)
             theta = names0[theta_idx] == "theta" ? draws[r, theta_idx] : _logistic(draws[r, theta_idx])
             for j in 1:p
                 b = draws[r, j]
-                log_spike = log1p(-theta) + _laplace_logpdf(b, prior.spike_scale)
-                log_slab = log(theta) + _laplace_logpdf(b, prior.slab_scale)
+                log_tau2_spike =
+                    use_log_tau ? draws[r, Int(spike_idx[j])] : log(draws[r, Int(tau_spike_idx[j])])
+                log_tau2_slab =
+                    use_log_tau ? draws[r, Int(slab_idx[j])] : log(draws[r, Int(tau_slab_idx[j])])
+                log_spike, log_slab, _ = _ssl_component_logpdf(b, theta, log_tau2_spike, log_tau2_slab)
                 out[r, j] = exp(log_slab - _logsumexp2(log_spike, log_slab))
             end
         end
@@ -968,13 +981,28 @@ function sslasso_inclusion_probabilities(result::CoxSamplerResult)
         throw(ArgumentError("could not find logit_theta or theta in SSLASSO samples."))
     beta_draws = posterior_beta_draws(result)
     theta_draws = vec(_chain_variable_draws(result.samples, [theta_name])[:, 1])
+    spike_names = Symbol.(["tau2_spike[$j]" for j in 1:p])
+    slab_names = Symbol.(["tau2_slab[$j]" for j in 1:p])
+    log_spike_names = Symbol.(["log_tau2_spike[$j]" for j in 1:p])
+    log_slab_names = Symbol.(["log_tau2_slab[$j]" for j in 1:p])
+    has_tau = all(name -> string(name) in chain_names, spike_names) &&
+        all(name -> string(name) in chain_names, slab_names)
+    has_log_tau = all(name -> string(name) in chain_names, log_spike_names) &&
+        all(name -> string(name) in chain_names, log_slab_names)
+    (has_tau || has_log_tau) ||
+        throw(ArgumentError("could not find SSLASSO tau2 state variables for inclusion probabilities."))
+    tau_spike_draws = has_tau ? _chain_variable_draws(result.samples, spike_names) : nothing
+    tau_slab_draws = has_tau ? _chain_variable_draws(result.samples, slab_names) : nothing
+    log_tau_spike_draws = has_log_tau ? _chain_variable_draws(result.samples, log_spike_names) : nothing
+    log_tau_slab_draws = has_log_tau ? _chain_variable_draws(result.samples, log_slab_names) : nothing
     out = zeros(size(beta_draws, 1), p)
     for r in axes(beta_draws, 1)
         theta = theta_name == :theta ? theta_draws[r] : _logistic(theta_draws[r])
         for j in 1:p
             b = beta_draws[r, j]
-            log_spike = log1p(-theta) + _laplace_logpdf(b, prior.spike_scale)
-            log_slab = log(theta) + _laplace_logpdf(b, prior.slab_scale)
+            log_tau2_spike = has_tau ? log(tau_spike_draws[r, j]) : log_tau_spike_draws[r, j]
+            log_tau2_slab = has_tau ? log(tau_slab_draws[r, j]) : log_tau_slab_draws[r, j]
+            log_spike, log_slab, _ = _ssl_component_logpdf(b, theta, log_tau2_spike, log_tau2_slab)
             out[r, j] = exp(log_slab - _logsumexp2(log_spike, log_slab))
         end
     end

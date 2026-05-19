@@ -55,6 +55,7 @@ function main()
     progress = arg(args, "progress", true)
     car_distance = Symbol(arg(args, "car-distance", "bray"))
     pseudocount = arg(args, "pseudocount", 1e-6)
+    tie_method = parse_tie_method(args)
     p0_arg = parse_optional_p0(args; default = nothing)
     p0_arg === :truth && throw(ArgumentError("--p0 truth is only valid for simulation."))
     p0_alpha = arg(args, "p0-alpha", 0.05)
@@ -109,6 +110,7 @@ function main()
             use_car = use_car && occursin("hs", lowercase(prior)),
             car_distance = car_distance,
             pseudocount = pseudocount,
+            tie_method = tie_method,
             p0 = p0_arg,
             p0_alpha = p0_alpha,
             constraint = constraint,
@@ -143,6 +145,7 @@ function main()
                 "nuts_backend" => string(nuts_backend),
                 "p0" => fit.p0,
                 "pseudocount" => pseudocount,
+                "tie_method" => string(tie_method),
                 "tau_scale_mode" => tau_scale_mode,
                 "input" => input,
             ),
@@ -168,6 +171,7 @@ function main()
                 "use_car" => use_car && occursin("hs", lowercase(prior)),
                 "car_distance" => string(car_distance),
                 "pseudocount" => pseudocount,
+                "tie_method" => string(tie_method),
                 "tau_scale_mode" => tau_scale_mode,
                 "p0_alpha" => p0_alpha,
             ),
