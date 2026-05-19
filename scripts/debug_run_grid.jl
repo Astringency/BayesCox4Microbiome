@@ -189,7 +189,9 @@ function main()
     use_cars = split_bools(arg(args, "use-car", "true"))
     car_distance = Symbol(arg(args, "car-distance", "bray"))
     pseudocounts = split_floats(arg(args, "pseudocount", "0.0"))
-    tau_modes = split_strings(arg(args, "tau-scale-mode", get(ENV, "BAYESCOX_TAU_CAUCHY_SCALE", "tau0_squared")))
+    haskey(args, "tau-scale-mode") &&
+        throw(ArgumentError("--tau-scale-mode was removed; HS/RHS tau scale is fixed at tau0."))
+    tau_mode = "tau0"
     p0_arg = parse_optional_p0(args; default = :truth)
     p0_alpha = arg(args, "p0-alpha", 0.05)
     progress = arg(args, "progress", false)
@@ -202,11 +204,9 @@ function main()
         sim_seed = seed0 + rep - 1
         sim = generate_simulation_data(n, p, nonzero; baseline = baseline, seed = sim_seed)
         for prior in priors, nuts_backend in nuts_backends, sw in sample_warmups,
-            use_car_requested in use_cars, pseudocount in pseudocounts, tau_mode in tau_modes
+            use_car_requested in use_cars, pseudocount in pseudocounts
 
             actual_use_car = use_car_requested && occursin("hs", lowercase(prior))
-            old_tau = get(ENV, "BAYESCOX_TAU_CAUCHY_SCALE", nothing)
-            ENV["BAYESCOX_TAU_CAUCHY_SCALE"] = tau_mode
             try
                 p0 = resolve_debug_p0(prior, sim, p0_arg, nonzero, p0_alpha, pseudocount)
                 data = prepare_cox_data(sim.X, sim.time, sim.event; transform = :log, pseudocount = pseudocount)
@@ -300,12 +300,6 @@ function main()
                 )
                 append_row!(outpath, row)
                 @warn "Debug fit failed." baseline n p nonzero prior nuts_backend sw use_car_requested pseudocount tau_mode exception=(err, catch_backtrace())
-            finally
-                if old_tau === nothing
-                    delete!(ENV, "BAYESCOX_TAU_CAUCHY_SCALE")
-                else
-                    ENV["BAYESCOX_TAU_CAUCHY_SCALE"] = old_tau
-                end
             end
         end
     end

@@ -148,7 +148,7 @@ function _base_metadata(result::CoxSamplerResult; run_id = "run", metadata = Dic
         "thin" => get(settings, "thin", get(settings, :thin, missing)),
         "use_car" => get(settings, "use_car", get(settings, :use_car, missing)),
         "car_distance" => get(settings, "car_distance", get(settings, :car_distance, missing)),
-        "tau_scale_mode" => get(settings, "tau_scale_mode", get(settings, :tau_scale_mode, get(ENV, "BAYESCOX_TAU_CAUCHY_SCALE", "tau0_squared"))),
+        "tau_scale_mode" => get(settings, "tau_scale_mode", get(settings, :tau_scale_mode, "tau0")),
         "pseudocount" => data.pseudocount,
         "runtime" => result.diagnostics.total_seconds,
         "git_commit_hash" => git_sha,
@@ -229,6 +229,23 @@ function _thin_wide_samples(wide::DataFrame, sample_thin::Integer)
         keep = mod.(collect(0:(nrow(wide) - 1)), sample_thin) .== 0
     end
     return wide[keep, :]
+end
+
+function _beta_column_index(col)
+    m = match(r"^beta\[(\d+)\]$", string(col))
+    m === nothing && return nothing
+    return parse(Int, m.captures[1])
+end
+
+function _unstandardize_wide_beta!(wide::DataFrame, data::CoxPreparedData)
+    data.standardize || return wide
+    for col in propertynames(wide)
+        j = _beta_column_index(col)
+        j === nothing && continue
+        1 <= j <= length(data.col_scale) || continue
+        wide[!, col] = Float64.(wide[!, col]) ./ data.col_scale[j]
+    end
+    return wide
 end
 
 function dataframe_to_chains(wide::DataFrame)
@@ -312,10 +329,13 @@ function save_run_outputs(
     mkpath(output_dir)
     chains = result_to_chains(result)
     wide = _thin_wide_samples(chains_to_wide_dataframe(chains), sample_thin)
+    _unstandardize_wide_beta!(wide, result.data)
     meta = _base_metadata(result; run_id = run_id, metadata = metadata, settings = settings)
     meta["saved_sample_thin"] = sample_thin
+    meta["posterior_beta_scale"] = result.data.standardize ? "unstandardized" : "model"
     diagnostics = sampling_diagnostics_dict(result.diagnostics)
-    summary_df = posterior_summary === nothing ? _posterior_summary_dataframe(chains) : DataFrame(posterior_summary)
+    output_chains = result.data.standardize || sample_thin != 1 ? dataframe_to_chains(wide) : chains
+    summary_df = posterior_summary === nothing ? _posterior_summary_dataframe(output_chains) : DataFrame(posterior_summary)
 
     if save_wide_csv
         _write_csv(joinpath(output_dir, "samples_wide.csv"), wide)
@@ -328,10 +348,9 @@ function save_run_outputs(
 
     if save_jld2
         JLD2 = _require_pkg(:JLD2)
-        saved_chains = sample_thin == 1 ? chains : dataframe_to_chains(wide)
         bundle = Dict(
             "samples" => wide,
-            "samples_chain" => saved_chains,
+            "samples_chain" => output_chains,
             "diagnostics" => diagnostics,
             "metadata" => meta,
             "settings" => Dict(String(k) => _jsonable(v) for (k, v) in pairs(settings)),

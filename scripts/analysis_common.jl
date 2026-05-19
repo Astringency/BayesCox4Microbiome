@@ -60,6 +60,56 @@ function optional_float_arg(args, keys...)
     return nothing
 end
 
+function prior_hyperparameter_kwargs(args)
+    return (
+        rhs_slab_df = something(optional_float_arg(args, "rhs-slab-df", "rhs-c2-df"), 4.0),
+        rhs_slab_s2 = something(optional_float_arg(args, "rhs-slab-s2", "rhs-c2-s2"), 2.0),
+        hs_tau_scale = something(optional_float_arg(args, "hs-tau-scale"), 1.0),
+        hs_local_scale = something(optional_float_arg(args, "hs-local-scale"), 1.0),
+        rhs_tau_scale = something(optional_float_arg(args, "rhs-tau-scale"), 1.0),
+        rhs_local_scale = something(optional_float_arg(args, "rhs-local-scale"), 1.0),
+        rhs_pseudo_sigma_df = something(optional_float_arg(args, "rhs-pseudo-sigma-df"), 3.0),
+        rhs_pseudo_sigma_scale = something(optional_float_arg(args, "rhs-pseudo-sigma-scale"), 10.0),
+        lasso_lambda = optional_float_arg(args, "lasso-lambda"),
+        lasso_lambda2_shape = something(optional_float_arg(args, "lasso-lambda2-shape"), 1.0),
+        lasso_lambda2_rate = something(optional_float_arg(args, "lasso-lambda2-rate"), 0.1),
+        lasso_tau2_shape = something(optional_float_arg(args, "lasso-tau2-shape", "lasso-local-shape"), 1.0),
+        sslasso_spike_scale = optional_float_arg(args, "sslasso-spike-scale", "sslasso-s0"),
+        sslasso_slab_scale = optional_float_arg(args, "sslasso-slab-scale", "sslasso-s1"),
+        sslasso_theta_a = something(optional_float_arg(args, "sslasso-theta-a"), 1.0),
+        sslasso_theta_b = something(optional_float_arg(args, "sslasso-theta-b"), 1.0),
+    )
+end
+
+function prior_hyperparameter_metadata(kwargs)
+    return Dict(
+        "rhs_slab_df" => kwargs.rhs_slab_df,
+        "rhs_slab_s2" => kwargs.rhs_slab_s2,
+        "hs_tau_scale" => kwargs.hs_tau_scale,
+        "hs_local_scale" => kwargs.hs_local_scale,
+        "rhs_tau_scale" => kwargs.rhs_tau_scale,
+        "rhs_local_scale" => kwargs.rhs_local_scale,
+        "rhs_pseudo_sigma_df" => kwargs.rhs_pseudo_sigma_df,
+        "rhs_pseudo_sigma_scale" => kwargs.rhs_pseudo_sigma_scale,
+        "lasso_lambda" => kwargs.lasso_lambda,
+        "lasso_lambda2_shape" => kwargs.lasso_lambda2_shape,
+        "lasso_lambda2_rate" => kwargs.lasso_lambda2_rate,
+        "lasso_tau2_shape" => kwargs.lasso_tau2_shape,
+        "sslasso_spike_scale" => kwargs.sslasso_spike_scale,
+        "sslasso_slab_scale" => kwargs.sslasso_slab_scale,
+        "sslasso_theta_a" => kwargs.sslasso_theta_a,
+        "sslasso_theta_b" => kwargs.sslasso_theta_b,
+    )
+end
+
+function add_prior_hyperparameter_columns!(table::DataFrame, kwargs)
+    meta = kwargs isa AbstractDict ? kwargs : prior_hyperparameter_metadata(kwargs)
+    for (key, value) in pairs(meta)
+        table[!, Symbol(key)] = fill(value === nothing ? missing : value, nrow(table))
+    end
+    return table
+end
+
 function split_symbols(s::AbstractString)
     return Symbol.(strip.(split(s, ",")))
 end
@@ -316,6 +366,22 @@ function prior_from_name(
     p0_alpha::Real = 0.05,
     realdata::Bool = false,
     pseudocount::Real = realdata ? 1e-6 : 0.0,
+    rhs_slab_df::Real = 4.0,
+    rhs_slab_s2::Real = 2.0,
+    hs_tau_scale::Real = 1.0,
+    hs_local_scale::Real = 1.0,
+    rhs_tau_scale::Real = 1.0,
+    rhs_local_scale::Real = 1.0,
+    rhs_pseudo_sigma_df::Real = 3.0,
+    rhs_pseudo_sigma_scale::Real = 10.0,
+    lasso_lambda = nothing,
+    lasso_lambda2_shape::Real = 1.0,
+    lasso_lambda2_rate::Real = 0.1,
+    lasso_tau2_shape::Real = 1.0,
+    sslasso_spike_scale = nothing,
+    sslasso_slab_scale = nothing,
+    sslasso_theta_a::Real = 1.0,
+    sslasso_theta_b::Real = 1.0,
 )
     return cox_paper_prior(
         name;
@@ -326,6 +392,22 @@ function prior_from_name(
         p0_alpha = p0_alpha,
         realdata = realdata,
         pseudocount = pseudocount,
+        rhs_slab_df = rhs_slab_df,
+        rhs_slab_s2 = rhs_slab_s2,
+        hs_tau_scale = hs_tau_scale,
+        hs_local_scale = hs_local_scale,
+        rhs_tau_scale = rhs_tau_scale,
+        rhs_local_scale = rhs_local_scale,
+        rhs_pseudo_sigma_df = rhs_pseudo_sigma_df,
+        rhs_pseudo_sigma_scale = rhs_pseudo_sigma_scale,
+        lasso_lambda = lasso_lambda,
+        lasso_lambda2_shape = lasso_lambda2_shape,
+        lasso_lambda2_rate = lasso_lambda2_rate,
+        lasso_tau2_shape = lasso_tau2_shape,
+        sslasso_spike_scale = sslasso_spike_scale,
+        sslasso_slab_scale = sslasso_slab_scale,
+        sslasso_theta_a = sslasso_theta_a,
+        sslasso_theta_b = sslasso_theta_b,
     )
 end
 
@@ -365,6 +447,20 @@ function posterior_summary(
         lower = [quantile(view(draws, :, j), lower_p) for j in 1:p],
         upper = [quantile(view(draws, :, j), upper_p) for j in 1:p],
     )
+end
+
+function beta_draws_unstandardized(data::CoxPreparedData, draws::AbstractMatrix)
+    size(draws, 2) == length(data.col_scale) ||
+        throw(DimensionMismatch("draw columns must match the number of covariates."))
+    data.standardize || return Matrix{Float64}(draws)
+    return Matrix{Float64}(draws) ./ reshape(data.col_scale, 1, :)
+end
+
+function beta_vector_unstandardized(data::CoxPreparedData, beta::AbstractVector)
+    length(beta) == length(data.col_scale) ||
+        throw(DimensionMismatch("beta length must match the number of covariates."))
+    data.standardize || return collect(Float64, beta)
+    return collect(Float64, beta) ./ data.col_scale
 end
 
 function false_discovery(beta::AbstractVector, summary::DataFrame)
@@ -567,6 +663,25 @@ function fit_and_evaluate(
     mala_max_step::Real = 1.0,
     realdata::Bool = false,
     pseudocount = nothing,
+    standardize::Bool = false,
+    rhs_slab_df::Real = 4.0,
+    rhs_slab_s2::Real = 2.0,
+    hs_tau_scale::Real = 1.0,
+    hs_local_scale::Real = 1.0,
+    rhs_tau_scale::Real = 1.0,
+    rhs_local_scale::Real = 1.0,
+    rhs_pseudo_sigma_df::Real = 3.0,
+    rhs_pseudo_sigma_scale::Real = 10.0,
+    lasso_lambda = nothing,
+    lasso_lambda2_shape::Real = 1.0,
+    lasso_lambda2_rate::Real = 0.1,
+    lasso_tau2_shape::Real = 1.0,
+    sslasso_spike_scale = nothing,
+    sslasso_slab_scale = nothing,
+    sslasso_theta_a::Real = 1.0,
+    sslasso_theta_b::Real = 1.0,
+    alpha_prior_shape = nothing,
+    alpha_prior_rate = nothing,
     progress::Bool = true,
 )
     pseudocount_value = pseudocount === nothing ? (realdata ? 1e-6 : 0.0) : Float64(pseudocount)
@@ -579,6 +694,22 @@ function fit_and_evaluate(
         p0_alpha = p0_alpha,
         realdata = realdata,
         pseudocount = pseudocount_value,
+        rhs_slab_df = rhs_slab_df,
+        rhs_slab_s2 = rhs_slab_s2,
+        hs_tau_scale = hs_tau_scale,
+        hs_local_scale = hs_local_scale,
+        rhs_tau_scale = rhs_tau_scale,
+        rhs_local_scale = rhs_local_scale,
+        rhs_pseudo_sigma_df = rhs_pseudo_sigma_df,
+        rhs_pseudo_sigma_scale = rhs_pseudo_sigma_scale,
+        lasso_lambda = lasso_lambda,
+        lasso_lambda2_shape = lasso_lambda2_shape,
+        lasso_lambda2_rate = lasso_lambda2_rate,
+        lasso_tau2_shape = lasso_tau2_shape,
+        sslasso_spike_scale = sslasso_spike_scale,
+        sslasso_slab_scale = sslasso_slab_scale,
+        sslasso_theta_a = sslasso_theta_a,
+        sslasso_theta_b = sslasso_theta_b,
     )
     result =
         if sampler in (:nuts, :nuts_turing, :nuts_explicit, :nuts_explict)
@@ -599,10 +730,13 @@ function fit_and_evaluate(
                 use_car = use_car,
                 car_distance = car_distance,
                 pseudocount = pseudocount_value,
+                standardize = standardize,
                 constraint = constraint,
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = alpha_prior_shape,
+                alpha_prior_rate = alpha_prior_rate,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
                 progress = progress,
@@ -625,10 +759,13 @@ function fit_and_evaluate(
                     use_car = use_car,
                     car_distance = car_distance,
                     pseudocount = pseudocount_value,
+                    standardize = standardize,
                     constraint = constraint,
                     soft_center_scale = soft_center_scale,
                     prox_sum0_lambda = prox_sum0_lambda,
                     prox_l1_lambda = prox_l1_lambda,
+                    alpha_prior_shape = alpha_prior_shape,
+                    alpha_prior_rate = alpha_prior_rate,
                     prox_root_tol = prox_root_tol,
                     prox_root_maxiter = prox_root_maxiter,
                     mala_step_size = mala_step_size,
@@ -655,6 +792,7 @@ function fit_and_evaluate(
                     use_car = use_car,
                     car_distance = car_distance,
                     pseudocount = pseudocount_value,
+                    standardize = standardize,
                     constraint = constraint,
                     soft_center_scale = soft_center_scale,
                     prox_sum0_lambda = prox_sum0_lambda,
@@ -678,10 +816,13 @@ function fit_and_evaluate(
                 use_car = use_car,
                 car_distance = car_distance,
                 pseudocount = pseudocount_value,
+                standardize = standardize,
                 constraint = constraint,
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = alpha_prior_shape,
+                alpha_prior_rate = alpha_prior_rate,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
                 progress = progress,
@@ -689,20 +830,22 @@ function fit_and_evaluate(
         else
             throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :nuts_explict, :mh, :mala, :ula, or :gibbs."))
     end
-    draws = posterior_beta_draws(result)
-    layout = posterior_draw_layout(result, size(draws, 1))
-    loglik = posterior_event_loglik(result.data, draws)
+    model_draws = posterior_beta_draws(result)
+    layout = posterior_draw_layout(result, size(model_draws, 1))
+    loglik = posterior_event_loglik(result.data, model_draws)
     event_rows = findall(!=(0), result.data.event)
     ll_event = loglik[event_rows, :]
     loo = psis_loo_metrics(ll_event, layout.chains, layout.draws)
-    names = ["beta[$j]" for j in 1:size(draws, 2)]
-    beta_map = posterior_beta_map(result)
+    names = ["beta[$j]" for j in 1:size(model_draws, 2)]
+    beta_map_model = posterior_beta_map(result)
+    draws = beta_draws_unstandardized(result.data, model_draws)
+    beta_map = beta_vector_unstandardized(result.data, beta_map_model)
     summary = posterior_summary(draws; names = names, map = beta_map)
-    beta_mean = summary.mean
-    beta_median = summary.median
-    metrics_mean = fit_metrics(result.data, draws, beta_mean; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
-    metrics_median = fit_metrics(result.data, draws, beta_median; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
-    metrics_map = fit_metrics(result.data, draws, beta_map; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
+    beta_mean_model = vec(mean(model_draws; dims = 1))
+    beta_median_model = [median(view(model_draws, :, j)) for j in 1:size(model_draws, 2)]
+    metrics_mean = fit_metrics(result.data, model_draws, beta_mean_model; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
+    metrics_median = fit_metrics(result.data, model_draws, beta_median_model; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
+    metrics_map = fit_metrics(result.data, model_draws, beta_map_model; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
     diagnostics = sampler_diagnostics(result)
     metrics = DataFrame(
         estimate = ["mean", "median", "MAP"],
@@ -956,6 +1099,16 @@ function _metadata_number(run_dir::AbstractString, key::AbstractString, default)
     end
 end
 
+function _metadata_bool(run_dir::AbstractString, key::AbstractString, default::Bool)
+    meta = read_run_metadata(run_dir)
+    haskey(meta, key) || return default
+    value = meta[key]
+    value isa Bool && return value
+    value isa Number && return value != 0
+    value isa AbstractString || return default
+    return lowercase(value) in ("true", "1", "yes", "y")
+end
+
 function _beta_index(name)
     m = match(r"^beta\[(\d+)\]$", string(name))
     m === nothing && return nothing
@@ -1056,7 +1209,14 @@ end
 function metrics_from_saved_samples(run_dir::AbstractString, sim, summary::DataFrame)
     draws, layout = saved_beta_draws_and_layout(run_dir, length(sim.beta))
     pseudocount = Float64(_metadata_number(run_dir, "pseudocount", 0.0))
-    data = prepare_cox_data(sim.X, sim.time, sim.event; transform = :log, pseudocount = pseudocount)
+    data = prepare_cox_data(
+        sim.X,
+        sim.time,
+        sim.event;
+        transform = :log,
+        pseudocount = pseudocount,
+        standardize = false,
+    )
     loglik = posterior_event_loglik(data, draws)
     event_rows = findall(!=(0), data.event)
     ll_event = loglik[event_rows, :]

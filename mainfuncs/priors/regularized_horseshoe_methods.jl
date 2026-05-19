@@ -161,7 +161,7 @@ function _prior_logposterior_and_gradient!(
                 prior.pseudo_sigma_scale,
             )
         if _resolved_tau_formula(prior) == :linear
-            grad[2p + 3] += (pseudo_sigma2_deriv / pseudo_sigma2) *
+            grad[2p + 3] += (0.5 * pseudo_sigma2_deriv / pseudo_sigma2) *
                 _halfcauchy_logscale_gradient(log_tau, tau_cauchy_scale)
         end
     end

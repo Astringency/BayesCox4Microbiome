@@ -55,6 +55,12 @@ arg(args, key, default::String) = get(args, key, default)
 arg(args, key, default::Int) = parse(Int, get(args, key, string(default)))
 arg(args, key, default::Float64) = parse(Float64, get(args, key, string(default)))
 arg(args, key, default::Bool) = lowercase(get(args, key, string(default))) in ("true", "1", "yes", "y")
+function optional_float_arg(args, keys...)
+    for key in keys
+        haskey(args, key) && return parse(Float64, args[key])
+    end
+    return nothing
+end
 split_strings(s::AbstractString) = [strip(x) for x in split(s, ","; keepempty = false)]
 split_ints(s::AbstractString) = parse.(Int, split_strings(s))
 split_float_or_truth(s::AbstractString, truth::Int) =
@@ -121,6 +127,47 @@ struct GLMPosteriorTarget <: B.AbstractCoxTarget
     car_precision::Float64
     names::Vector{String}
     work::GLMWork
+end
+
+mutable struct GLMProxWork
+    glm::GLMWork
+    prox_beta::Vector{Float64}
+    weights::Vector{Float64}
+end
+
+GLMProxWork(n::Integer, p::Integer) =
+    GLMProxWork(GLMWork(n), zeros(Float64, p), ones(Float64, p))
+
+struct GLMProxLassoTarget <: B.AbstractCoxTarget
+    data::BCGLMData
+    prior::B.BayesianLassoPrior
+    constraint::Symbol
+    soft_center_scale::Float64
+    prox_sum0_lambda::Float64
+    prox_l1_lambda::Float64
+    alpha_prior_shape::Float64
+    alpha_prior_rate::Float64
+    prox_root_tol::Float64
+    prox_root_maxiter::Int
+    names::Vector{String}
+    work::GLMProxWork
+end
+
+struct GLMProxSSLassoTarget <: B.AbstractCoxTarget
+    data::BCGLMData
+    prior::B.SpikeSlabLassoPrior
+    gamma::Vector{Bool}
+    theta::Base.RefValue{Float64}
+    constraint::Symbol
+    soft_center_scale::Float64
+    prox_sum0_lambda::Float64
+    prox_l1_lambda::Float64
+    alpha_prior_shape::Float64
+    alpha_prior_rate::Float64
+    prox_root_tol::Float64
+    prox_root_maxiter::Int
+    names::Vector{String}
+    work::GLMProxWork
 end
 
 function true_beta_zhang(p::Integer, nonzero::Integer)
@@ -274,42 +321,133 @@ function glm_loglik_and_gradient!(
     throw(ArgumentError("unsupported GLM family: $(data.family)"))
 end
 
-function make_prior(name::AbstractString, p0::Real, family::Symbol, sigma::Real)
+function make_prior(
+    name::AbstractString,
+    p0::Real,
+    family::Symbol,
+    sigma::Real;
+    hs_tau_scale::Real = 1.0,
+    hs_local_scale::Real = 1.0,
+    rhs_tau_scale::Real = 1.0,
+    rhs_local_scale::Real = 1.0,
+    rhs_slab_df::Real = 4.0,
+    rhs_slab_s2::Real = 2.0,
+    rhs_pseudo_sigma_df::Real = 3.0,
+    rhs_pseudo_sigma_scale::Real = 10.0,
+    lasso_lambda = nothing,
+    lasso_lambda2_shape::Real = 1.0,
+    lasso_lambda2_rate::Real = 0.1,
+    lasso_tau2_shape::Real = 1.0,
+    sslasso_spike_scale::Real = 0.04,
+    sslasso_slab_scale::Real = 0.5,
+    sslasso_theta_a::Real = 1.0,
+    sslasso_theta_b::Real = 1.0,
+)
     key = lowercase(replace(name, "_" => "-", " " => "-"))
-    if key in ("rhs", "regularized-horseshoe", "bcglm-rhs")
-        return B.RegularizedHorseshoePrior(
+    if key in ("hs", "horseshoe", "bcglm-hs")
+        return B.HorseshoePrior(
+            tau_scale = Float64(hs_tau_scale),
             use_cox_tau0 = false,
             p0 = Float64(p0),
+            local_scale = Float64(hs_local_scale),
+        )
+    elseif key in ("cox-hs", "coxhs")
+        return B.HorseshoePrior(
+            tau_scale = Float64(hs_tau_scale),
+            use_cox_tau0 = true,
+            p0 = Float64(p0),
+            local_scale = Float64(hs_local_scale),
+        )
+    elseif key in ("rhs", "regularized-horseshoe", "bcglm-rhs")
+        return B.RegularizedHorseshoePrior(
+            tau_scale = Float64(rhs_tau_scale),
+            use_cox_tau0 = false,
+            p0 = Float64(p0),
+            local_scale = Float64(rhs_local_scale),
             tau_formula = :linear,
             pseudo_sigma = family == :gaussian ? Float64(sigma) : 1.0,
             sample_pseudo_sigma = false,
-            slab_df = 4.0,
-            slab_s2 = 2.0,
+            slab_df = Float64(rhs_slab_df),
+            slab_s2 = Float64(rhs_slab_s2),
+        )
+    elseif key in ("new-rhs", "newrhs")
+        return B.RegularizedHorseshoePrior(
+            tau_scale = Float64(rhs_tau_scale),
+            use_cox_tau0 = false,
+            p0 = Float64(p0),
+            local_scale = Float64(rhs_local_scale),
+            tau_formula = :linear,
+            pseudo_sigma = 1.0,
+            sample_pseudo_sigma = false,
+            slab_df = Float64(rhs_slab_df),
+            slab_s2 = Float64(rhs_slab_s2),
+        )
+    elseif key in ("est-rhs", "estrhs")
+        return B.RegularizedHorseshoePrior(
+            tau_scale = Float64(rhs_tau_scale),
+            use_cox_tau0 = false,
+            p0 = Float64(p0),
+            local_scale = Float64(rhs_local_scale),
+            tau_formula = :linear,
+            pseudo_sigma = family == :gaussian ? Float64(sigma) : 1.0,
+            sample_pseudo_sigma = false,
+            slab_df = Float64(rhs_slab_df),
+            slab_s2 = Float64(rhs_slab_s2),
         )
     elseif key in ("rhs-sigma", "rhs-sample-sigma")
         return B.RegularizedHorseshoePrior(
+            tau_scale = Float64(rhs_tau_scale),
             use_cox_tau0 = false,
             p0 = Float64(p0),
+            local_scale = Float64(rhs_local_scale),
             tau_formula = :linear,
             pseudo_sigma = nothing,
             sample_pseudo_sigma = true,
-            pseudo_sigma_df = 3.0,
-            pseudo_sigma_scale = 10.0,
-            slab_df = 4.0,
-            slab_s2 = 2.0,
+            pseudo_sigma_df = Float64(rhs_pseudo_sigma_df),
+            pseudo_sigma_scale = Float64(rhs_pseudo_sigma_scale),
+            slab_df = Float64(rhs_slab_df),
+            slab_s2 = Float64(rhs_slab_s2),
         )
     elseif key in ("cox-rhs", "coxrhs")
         return B.RegularizedHorseshoePrior(
+            tau_scale = Float64(rhs_tau_scale),
             use_cox_tau0 = true,
             p0 = Float64(p0),
+            local_scale = Float64(rhs_local_scale),
             tau_formula = :cox,
-            slab_df = 4.0,
-            slab_s2 = 2.0,
+            slab_df = Float64(rhs_slab_df),
+            slab_s2 = Float64(rhs_slab_s2),
         )
     elseif key in ("lasso", "bayesian-lasso")
-        return B.BayesianLassoPrior(lambda = nothing, lambda2_shape = 1.0, lambda2_rate = 0.1)
+        return B.BayesianLassoPrior(
+            lambda = lasso_lambda === nothing ? nothing : Float64(lasso_lambda),
+            lambda2_shape = Float64(lasso_lambda2_shape),
+            lambda2_rate = Float64(lasso_lambda2_rate),
+            tau2_shape = Float64(lasso_tau2_shape),
+        )
+    elseif key in ("prox-lasso", "proximal-lasso")
+        return B.BayesianLassoPrior(
+            lambda = lasso_lambda === nothing ? nothing : Float64(lasso_lambda),
+            lambda2_shape = Float64(lasso_lambda2_shape),
+            lambda2_rate = Float64(lasso_lambda2_rate),
+            tau2_shape = Float64(lasso_tau2_shape),
+            proximal = true,
+        )
     elseif key in ("sslasso", "spike-slab", "spike-and-slab")
-        return B.SpikeSlabLassoPrior(spike_scale = 0.04, slab_scale = 0.5)
+        return B.SpikeSlabLassoPrior(
+            spike_scale = Float64(sslasso_spike_scale),
+            slab_scale = Float64(sslasso_slab_scale),
+            theta_a = Float64(sslasso_theta_a),
+            theta_b = Float64(sslasso_theta_b),
+        )
+    elseif key in ("prox-sslasso", "prox-ssl", "proximal-sslasso")
+        return B.SpikeSlabLassoPrior(
+            spike_scale = Float64(sslasso_spike_scale),
+            slab_scale = Float64(sslasso_slab_scale),
+            theta_a = Float64(sslasso_theta_a),
+            theta_b = Float64(sslasso_theta_b),
+            proximal = true,
+        )
     end
     throw(ArgumentError("unsupported prior for GLM diagnostic: $name"))
 end
@@ -341,8 +479,78 @@ function GLMPosteriorTarget(
     )
 end
 
+function _prox_names(p::Integer)
+    return vcat(["beta[$j]" for j in 1:p], ["eta"])
+end
+
+function GLMProxLassoTarget(
+    data::BCGLMData,
+    prior::B.BayesianLassoPrior;
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape::Real,
+    alpha_prior_rate::Real,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+)
+    p = size(data.z, 2)
+    return GLMProxLassoTarget(
+        data,
+        prior,
+        constraint,
+        Float64(soft_center_scale),
+        Float64(prox_sum0_lambda),
+        Float64(prox_l1_lambda),
+        Float64(alpha_prior_shape),
+        Float64(alpha_prior_rate),
+        Float64(prox_root_tol),
+        Int(prox_root_maxiter),
+        _prox_names(p),
+        GLMProxWork(size(data.z, 1), p),
+    )
+end
+
+function GLMProxSSLassoTarget(
+    data::BCGLMData,
+    prior::B.SpikeSlabLassoPrior,
+    gamma::AbstractVector{Bool},
+    theta::Base.RefValue{Float64};
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape::Real,
+    alpha_prior_rate::Real,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+)
+    p = size(data.z, 2)
+    return GLMProxSSLassoTarget(
+        data,
+        prior,
+        collect(Bool, gamma),
+        theta,
+        constraint,
+        Float64(soft_center_scale),
+        Float64(prox_sum0_lambda),
+        Float64(prox_l1_lambda),
+        Float64(alpha_prior_shape),
+        Float64(alpha_prior_rate),
+        Float64(prox_root_tol),
+        Int(prox_root_maxiter),
+        _prox_names(p),
+        GLMProxWork(size(data.z, 1), p),
+    )
+end
+
 B.dimension(target::GLMPosteriorTarget) = length(target.names)
 B.state_names(target::GLMPosteriorTarget) = target.names
+B.dimension(target::Union{GLMProxLassoTarget,GLMProxSSLassoTarget}) = length(target.names)
+B.state_names(target::Union{GLMProxLassoTarget,GLMProxSSLassoTarget}) = target.names
+B.initial_state(target::Union{GLMProxLassoTarget,GLMProxSSLassoTarget}) =
+    vcat(zeros(Float64, size(target.data.z, 2)), [0.0])
 
 function B.initial_state(target::GLMPosteriorTarget)
     p = size(target.data.z, 2)
@@ -430,6 +638,426 @@ function B.logdensity_and_gradient!(
     return lp, grad
 end
 
+function prox_alpha_hyperparameters(prior::B.AbstractCoxPrior, alpha_prior_shape, alpha_prior_rate)
+    shape = Float64(something(alpha_prior_shape, prior isa B.BayesianLassoPrior ? prior.lambda2_shape : 1.0))
+    rate = Float64(something(alpha_prior_rate, prior isa B.BayesianLassoPrior ? prior.lambda2_rate : 1.0))
+    B._check_positive(shape, "alpha_prior_shape")
+    B._check_positive(rate, "alpha_prior_rate")
+    return shape, rate
+end
+
+function glm_prox_lasso_logposterior(
+    u::AbstractVector,
+    data::BCGLMData;
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape::Real,
+    alpha_prior_rate::Real,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+)
+    p = size(data.z, 2)
+    length(u) == p + 1 || throw(DimensionMismatch("state length must be p + 1 for prox lasso."))
+    beta = view(u, 1:p)
+    eta = Float64(u[p + 1])
+    alpha = exp(clamp(eta, -700.0, 700.0))
+    lp = glm_loglik(data, beta)
+    lp += B._constraint_logpenalty(
+        beta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+    )
+    lp -= B.l1_moreau(
+        beta,
+        alpha,
+        prox_l1_lambda;
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    lp += -Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) * eta
+    return lp
+end
+
+function glm_prox_lasso_logposterior_and_gradient!(
+    grad::AbstractVector{Float64},
+    u::AbstractVector,
+    data::BCGLMData,
+    work::GLMProxWork;
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape::Real,
+    alpha_prior_rate::Real,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+)
+    p = size(data.z, 2)
+    length(u) == p + 1 || throw(DimensionMismatch("state length must be p + 1 for prox lasso."))
+    length(grad) == p + 1 || throw(DimensionMismatch("gradient length must be p + 1 for prox lasso."))
+    fill!(grad, 0.0)
+    beta = view(u, 1:p)
+    eta = Float64(u[p + 1])
+    alpha, alpha_deriv = B._clamped_exp_with_derivative(eta, -700.0, 700.0)
+    lambda_l1 = B._check_positive(prox_l1_lambda, "prox_l1_lambda")
+    prox = B.project_l1_epigraph!(
+        work.prox_beta,
+        beta,
+        alpha;
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    lp = glm_loglik_and_gradient!(view(grad, 1:p), data, beta, work.glm)
+    lp += B._constraint_logpenalty(
+        beta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+    )
+    B._constraint_gradient_penalty!(
+        view(grad, 1:p),
+        beta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+    )
+    dist2 = (Float64(alpha) - Float64(prox.alpha))^2
+    @inbounds for j in 1:p
+        residual = Float64(beta[j]) - Float64(prox.beta[j])
+        dist2 += residual^2
+        grad[j] -= residual / lambda_l1
+    end
+    lp -= 0.5 * dist2 / lambda_l1
+    lp += -Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) * eta
+    grad[p + 1] = Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) -
+        alpha_deriv * (Float64(alpha) - Float64(prox.alpha)) / lambda_l1
+    return lp, grad
+end
+
+function glm_prox_ssl_logposterior(
+    u::AbstractVector,
+    data::BCGLMData,
+    prior::B.SpikeSlabLassoPrior,
+    gamma::AbstractVector{Bool},
+    theta::Real;
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape::Real,
+    alpha_prior_rate::Real,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+)
+    p = size(data.z, 2)
+    length(u) == p + 1 || throw(DimensionMismatch("state length must be p + 1 for prox SSLASSO."))
+    beta = view(u, 1:p)
+    eta = Float64(u[p + 1])
+    alpha = exp(clamp(eta, -700.0, 700.0))
+    weights = B._ssl_weights(prior, gamma)
+    lp = glm_loglik(data, beta)
+    lp += B._constraint_logpenalty(
+        beta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+    )
+    lp -= B.weighted_l1_moreau(
+        beta,
+        alpha,
+        weights,
+        prox_l1_lambda;
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    lp += -Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) * eta
+    theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
+    lp += sum(gamma) * log(theta_clamped) + (length(gamma) - sum(gamma)) * log1p(-theta_clamped)
+    return lp
+end
+
+function glm_prox_ssl_logposterior_and_gradient!(
+    grad::AbstractVector{Float64},
+    u::AbstractVector,
+    data::BCGLMData,
+    prior::B.SpikeSlabLassoPrior,
+    gamma::AbstractVector{Bool},
+    theta::Real,
+    work::GLMProxWork;
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape::Real,
+    alpha_prior_rate::Real,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+)
+    p = size(data.z, 2)
+    length(u) == p + 1 || throw(DimensionMismatch("state length must be p + 1 for prox SSLASSO."))
+    length(grad) == p + 1 || throw(DimensionMismatch("gradient length must be p + 1 for prox SSLASSO."))
+    fill!(grad, 0.0)
+    beta = view(u, 1:p)
+    eta = Float64(u[p + 1])
+    alpha, alpha_deriv = B._clamped_exp_with_derivative(eta, -700.0, 700.0)
+    weights = B._ssl_weights!(work.weights, prior, gamma)
+    lambda_l1 = B._check_positive(prox_l1_lambda, "prox_l1_lambda")
+    prox = B.project_weighted_l1_epigraph!(
+        work.prox_beta,
+        beta,
+        alpha,
+        weights;
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+    )
+    lp = glm_loglik_and_gradient!(view(grad, 1:p), data, beta, work.glm)
+    lp += B._constraint_logpenalty(
+        beta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+    )
+    B._constraint_gradient_penalty!(
+        view(grad, 1:p),
+        beta;
+        constraint = constraint,
+        soft_center_scale = soft_center_scale,
+        prox_sum0_lambda = prox_sum0_lambda,
+    )
+    dist2 = (Float64(alpha) - Float64(prox.alpha))^2
+    @inbounds for j in 1:p
+        residual = Float64(beta[j]) - Float64(prox.beta[j])
+        dist2 += residual^2
+        grad[j] -= residual / lambda_l1
+    end
+    lp -= 0.5 * dist2 / lambda_l1
+    lp += -Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) * eta
+    theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
+    lp += sum(gamma) * log(theta_clamped) + (length(gamma) - sum(gamma)) * log1p(-theta_clamped)
+    grad[p + 1] = Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) -
+        alpha_deriv * (Float64(alpha) - Float64(prox.alpha)) / lambda_l1
+    return lp, grad
+end
+
+B.logdensity(target::GLMProxLassoTarget, u::AbstractVector) =
+    glm_prox_lasso_logposterior(
+        u,
+        target.data;
+        constraint = target.constraint,
+        soft_center_scale = target.soft_center_scale,
+        prox_sum0_lambda = target.prox_sum0_lambda,
+        prox_l1_lambda = target.prox_l1_lambda,
+        alpha_prior_shape = target.alpha_prior_shape,
+        alpha_prior_rate = target.alpha_prior_rate,
+        prox_root_tol = target.prox_root_tol,
+        prox_root_maxiter = target.prox_root_maxiter,
+    )
+
+B.logdensity(target::GLMProxSSLassoTarget, u::AbstractVector) =
+    glm_prox_ssl_logposterior(
+        u,
+        target.data,
+        target.prior,
+        target.gamma,
+        target.theta[];
+        constraint = target.constraint,
+        soft_center_scale = target.soft_center_scale,
+        prox_sum0_lambda = target.prox_sum0_lambda,
+        prox_l1_lambda = target.prox_l1_lambda,
+        alpha_prior_shape = target.alpha_prior_shape,
+        alpha_prior_rate = target.alpha_prior_rate,
+        prox_root_tol = target.prox_root_tol,
+        prox_root_maxiter = target.prox_root_maxiter,
+    )
+
+function B.logdensity_and_gradient!(
+    grad::AbstractVector{Float64},
+    target::GLMProxLassoTarget,
+    u::AbstractVector,
+)
+    return glm_prox_lasso_logposterior_and_gradient!(
+        grad,
+        u,
+        target.data,
+        target.work;
+        constraint = target.constraint,
+        soft_center_scale = target.soft_center_scale,
+        prox_sum0_lambda = target.prox_sum0_lambda,
+        prox_l1_lambda = target.prox_l1_lambda,
+        alpha_prior_shape = target.alpha_prior_shape,
+        alpha_prior_rate = target.alpha_prior_rate,
+        prox_root_tol = target.prox_root_tol,
+        prox_root_maxiter = target.prox_root_maxiter,
+    )
+end
+
+function B.logdensity_and_gradient!(
+    grad::AbstractVector{Float64},
+    target::GLMProxSSLassoTarget,
+    u::AbstractVector,
+)
+    return glm_prox_ssl_logposterior_and_gradient!(
+        grad,
+        u,
+        target.data,
+        target.prior,
+        target.gamma,
+        target.theta[],
+        target.work;
+        constraint = target.constraint,
+        soft_center_scale = target.soft_center_scale,
+        prox_sum0_lambda = target.prox_sum0_lambda,
+        prox_l1_lambda = target.prox_l1_lambda,
+        alpha_prior_shape = target.alpha_prior_shape,
+        alpha_prior_rate = target.alpha_prior_rate,
+        prox_root_tol = target.prox_root_tol,
+        prox_root_maxiter = target.prox_root_maxiter,
+    )
+end
+
+B.gradient!(
+    grad::AbstractVector{Float64},
+    target::Union{GLMProxLassoTarget,GLMProxSSLassoTarget},
+    u::AbstractVector,
+) = (B.logdensity_and_gradient!(grad, target, u); grad)
+
+function sample_glm_ssl_prox_nuts_gibbs_one(
+    data::BCGLMData,
+    prior::B.SpikeSlabLassoPrior;
+    n_samples::Integer,
+    warmup::Integer,
+    rng::AbstractRNG,
+    target_accept::Real,
+    max_depth::Integer,
+    constraint::Symbol,
+    soft_center_scale::Real,
+    prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape::Real,
+    alpha_prior_rate::Real,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
+    progress::Bool,
+    progress_desc::AbstractString = "GLM SSLASSO prox NUTS-Gibbs",
+)
+    p = size(data.z, 2)
+    gamma = trues(p)
+    theta = 0.5
+    theta_ref = Ref(theta)
+    weights = B._ssl_weights(prior, gamma)
+    spike_weight = inv(prior.spike_scale)
+    slab_weight = inv(prior.slab_scale)
+    total_iter = warmup + n_samples
+    names = vcat(["beta[$j]" for j in 1:p], ["eta"], ["gamma[$j]" for j in 1:p], ["theta"])
+    draws = Matrix{Float64}(undef, n_samples, length(names))
+    lps = Vector{Float64}(undef, n_samples)
+    u = vcat(zeros(Float64, p), [0.0])
+    saved = 0
+    accept_sum = 0.0
+    accept_count = 0
+
+    for iter in 1:total_iter
+        theta_ref[] = theta
+        target = GLMProxSSLassoTarget(
+            data,
+            prior,
+            gamma,
+            theta_ref;
+            constraint = constraint,
+            soft_center_scale = soft_center_scale,
+            prox_sum0_lambda = prox_sum0_lambda,
+            prox_l1_lambda = prox_l1_lambda,
+            alpha_prior_shape = alpha_prior_shape,
+            alpha_prior_rate = alpha_prior_rate,
+            prox_root_tol = prox_root_tol,
+            prox_root_maxiter = prox_root_maxiter,
+        )
+        block = B._sample_explicit_nuts_one(
+            target;
+            n_samples = 1,
+            warmup = 0,
+            rng = rng,
+            target_accept = target_accept,
+            max_depth = max_depth,
+            progress = false,
+            progress_desc = progress_desc,
+            initial = u,
+        )
+        @views u .= block.draws[1, :]
+        if isfinite(block.acceptance_rate)
+            accept_sum += block.acceptance_rate
+            accept_count += 1
+        end
+
+        beta = view(u, 1:p)
+        alpha = exp(clamp(u[p + 1], -700.0, 700.0))
+        theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
+        @inbounds for j in 1:p
+            gamma[j] = false
+            weights[j] = spike_weight
+            h0 = B.weighted_l1_moreau(
+                beta,
+                alpha,
+                weights,
+                prox_l1_lambda;
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
+            )
+            gamma[j] = true
+            weights[j] = slab_weight
+            h1 = B.weighted_l1_moreau(
+                beta,
+                alpha,
+                weights,
+                prox_l1_lambda;
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
+            )
+            logit_p = log(theta_clamped) - log1p(-theta_clamped) - (h1 - h0)
+            gamma[j] = rand(rng) < logistic_stable(logit_p)
+            weights[j] = gamma[j] ? slab_weight : spike_weight
+        end
+        theta = rand(rng, Beta(prior.theta_a + count(gamma), prior.theta_b + p - count(gamma)))
+
+        if iter > warmup
+            saved += 1
+            @views draws[saved, 1:p] .= beta
+            draws[saved, p + 1] = u[p + 1]
+            @views draws[saved, (p + 2):(2p + 1)] .= Float64.(gamma)
+            draws[saved, 2p + 2] = theta
+            lps[saved] = glm_prox_ssl_logposterior(
+                u,
+                data,
+                prior,
+                gamma,
+                theta;
+                constraint = constraint,
+                soft_center_scale = soft_center_scale,
+                prox_sum0_lambda = prox_sum0_lambda,
+                prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = alpha_prior_shape,
+                alpha_prior_rate = alpha_prior_rate,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
+            )
+        end
+        progress && saved > 0 && saved % max(1, n_samples ÷ 10) == 0 &&
+            @info "$progress_desc sample $saved/$n_samples"
+    end
+
+    return B.MHSamples(
+        draws,
+        lps,
+        names,
+        accept_count == 0 ? NaN : accept_sum / accept_count,
+        NaN,
+        fill(NaN, length(names)),
+    )
+end
+
 function samples_to_array(samples::Vector{B.MHSamples})
     n_iter, n_param = size(samples[1].draws)
     arr = Array{Float64}(undef, n_iter, n_param + 1, length(samples))
@@ -511,6 +1139,11 @@ function sample_one_fit(;
     constraint::Symbol,
     soft_center_scale,
     prox_sum0_lambda::Real,
+    prox_l1_lambda::Real,
+    alpha_prior_shape,
+    alpha_prior_rate,
+    prox_root_tol::Real,
+    prox_root_maxiter::Integer,
     use_car::Bool,
     car_distance::Symbol,
     car_weight_quantile::Real,
@@ -521,15 +1154,62 @@ function sample_one_fit(;
             distance = car_distance,
             threshold_quantile = car_weight_quantile,
         )) : nothing
-    target = GLMPosteriorTarget(
-        train,
-        prior;
-        constraint = constraint,
-        soft_center_scale = soft_center_scale,
-        prox_sum0_lambda = prox_sum0_lambda,
-        car_weights = car_weights,
-        use_car = use_car,
-    )
+    p = size(train.z, 2)
+    soft_scale = soft_center_scale === nothing ? B._default_soft_center_scale(p) : Float64(soft_center_scale)
+    if prior isa B.SpikeSlabLassoPrior && prior.proximal
+        a_shape, a_rate = prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
+        out = B.MHSamples[]
+        for c in 1:chains
+            push!(
+                out,
+                sample_glm_ssl_prox_nuts_gibbs_one(
+                    train,
+                    prior;
+                    n_samples = samples,
+                    warmup = warmup,
+                    rng = MersenneTwister(seed + 10_007c),
+                    target_accept = target_accept,
+                    max_depth = max_depth,
+                    constraint = constraint,
+                    soft_center_scale = soft_scale,
+                    prox_sum0_lambda = prox_sum0_lambda,
+                    prox_l1_lambda = prox_l1_lambda,
+                    alpha_prior_shape = a_shape,
+                    alpha_prior_rate = a_rate,
+                    prox_root_tol = prox_root_tol,
+                    prox_root_maxiter = prox_root_maxiter,
+                    progress = progress,
+                    progress_desc = "BCGLM SSLASSO prox NUTS-Gibbs chain $c/$chains",
+                ),
+            )
+        end
+        return out
+    end
+    target =
+        prior isa B.BayesianLassoPrior && prior.proximal ? begin
+            a_shape, a_rate = prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
+            GLMProxLassoTarget(
+                train,
+                prior;
+                constraint = constraint,
+                soft_center_scale = soft_scale,
+                prox_sum0_lambda = prox_sum0_lambda,
+                prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = a_shape,
+                alpha_prior_rate = a_rate,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
+            )
+        end :
+        GLMPosteriorTarget(
+            train,
+            prior;
+            constraint = constraint,
+            soft_center_scale = soft_center_scale,
+            prox_sum0_lambda = prox_sum0_lambda,
+            car_weights = car_weights,
+            use_car = use_car,
+        )
     out = B.MHSamples[]
     for c in 1:chains
         push!(
@@ -622,7 +1302,7 @@ function main()
     ps = split_ints(arg(args, "p", "100"))
     ns = split_ints(arg(args, "n", "200"))
     nonzeros = split_ints(arg(args, "nonzero", "6,12"))
-    priors = split_strings(arg(args, "priors", "rhs,lasso,sslasso"))
+    priors = split_strings(arg(args, "priors", "hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso,prox-lasso,prox-sslasso"))
     reps = arg(args, "reps", 1)
     samples = arg(args, "samples", 300)
     warmup = arg(args, "warmup", 150)
@@ -638,100 +1318,129 @@ function main()
     soft_center_scale_arg = arg(args, "soft-center-scale", "auto")
     soft_center_scale = lowercase(soft_center_scale_arg) == "auto" ? nothing : parse(Float64, soft_center_scale_arg)
     prox_sum0_lambda = arg(args, "prox-sum0-lambda", 1e-3)
+    prox_l1_lambda = arg(args, "prox-l1-lambda", 0.1)
+    alpha_prior_shape = optional_float_arg(args, "alpha-prior-shape", "prox-alpha-prior-shape")
+    alpha_prior_rate = optional_float_arg(args, "alpha-prior-rate", "prox-alpha-prior-rate")
+    prox_root_tol = arg(args, "prox-root-tol", 1e-10)
+    prox_root_maxiter = arg(args, "prox-root-maxiter", 100)
     use_cars = [lowercase(x) in ("true", "1", "yes", "y") for x in split_strings(arg(args, "use-car", "false"))]
     car_distance = Symbol(arg(args, "car-distance", "bray"))
     car_weight_quantile = arg(args, "car-weight-quantile", 0.75)
-    tau_modes = split_strings(arg(args, "tau-scale-mode", get(ENV, "BAYESCOX_TAU_CAUCHY_SCALE", "tau0_squared")))
+    prior_hyperparams = (
+        hs_tau_scale = something(optional_float_arg(args, "hs-tau-scale"), 1.0),
+        hs_local_scale = something(optional_float_arg(args, "hs-local-scale"), 1.0),
+        rhs_tau_scale = something(optional_float_arg(args, "rhs-tau-scale"), 1.0),
+        rhs_local_scale = something(optional_float_arg(args, "rhs-local-scale"), 1.0),
+        rhs_slab_df = something(optional_float_arg(args, "rhs-slab-df", "rhs-c2-df"), 4.0),
+        rhs_slab_s2 = something(optional_float_arg(args, "rhs-slab-s2", "rhs-c2-s2"), 2.0),
+        rhs_pseudo_sigma_df = something(optional_float_arg(args, "rhs-pseudo-sigma-df"), 3.0),
+        rhs_pseudo_sigma_scale = something(optional_float_arg(args, "rhs-pseudo-sigma-scale"), 10.0),
+        lasso_lambda = optional_float_arg(args, "lasso-lambda"),
+        lasso_lambda2_shape = something(optional_float_arg(args, "lasso-lambda2-shape"), 1.0),
+        lasso_lambda2_rate = something(optional_float_arg(args, "lasso-lambda2-rate"), 0.1),
+        lasso_tau2_shape = something(optional_float_arg(args, "lasso-tau2-shape", "lasso-local-shape"), 1.0),
+        sslasso_spike_scale = something(optional_float_arg(args, "sslasso-spike-scale", "sslasso-s0"), 0.04),
+        sslasso_slab_scale = something(optional_float_arg(args, "sslasso-slab-scale", "sslasso-s1"), 0.5),
+        sslasso_theta_a = something(optional_float_arg(args, "sslasso-theta-a"), 1.0),
+        sslasso_theta_b = something(optional_float_arg(args, "sslasso-theta-b"), 1.0),
+    )
+    prior_hypermeta = merge(
+        prior_hyperparams,
+        (
+            lasso_lambda = prior_hyperparams.lasso_lambda === nothing ? missing : prior_hyperparams.lasso_lambda,
+            prox_l1_lambda = prox_l1_lambda,
+            alpha_prior_shape = alpha_prior_shape === nothing ? missing : alpha_prior_shape,
+            alpha_prior_rate = alpha_prior_rate === nothing ? missing : alpha_prior_rate,
+        ),
+    )
+    haskey(args, "tau-scale-mode") &&
+        throw(ArgumentError("--tau-scale-mode was removed; HS/RHS tau scale is fixed at tau0."))
+    tau_mode = "tau0"
 
     rows = DataFrame()
-    for tau_mode in tau_modes
-        old_tau = get(ENV, "BAYESCOX_TAU_CAUCHY_SCALE", nothing)
-        ENV["BAYESCOX_TAU_CAUCHY_SCALE"] = tau_mode
-        try
-            for family in families, n in ns, p in ps, nonzero in nonzeros
-                nonzero <= p || continue
-                p0s = split_float_or_truth(p0_mode, nonzero)
-                for rep in 1:reps
-                    seed = seed0 + 100_000rep + 1000p + 10nonzero + (family == :gaussian ? 1 : 2)
-                    train = simulate_bcglm_data(
-                        family = family,
-                        n = n,
-                        p = p,
-                        nonzero = nonzero,
-                        seed = seed,
-                        sigma = sigma,
-                        binary_mode = binary_mode,
-                    )
-                    valid = simulate_bcglm_data(
-                        family = family,
-                        n = n,
-                        p = p,
-                        nonzero = nonzero,
-                        seed = seed + 50_000_000,
-                        sigma = sigma,
-                        binary_mode = binary_mode,
-                    )
-                    CSV.write(
-                        joinpath(outdir, "truth_$(family)_n$(n)_p$(p)_nz$(nonzero)_rep$(rep).csv"),
-                        DataFrame(variable = ["beta[$j]" for j in 1:p], true_beta = train.beta_true, nonzero = train.beta_true .!= 0),
-                    )
-                    for p0 in p0s, use_car in use_cars, prior_name in priors
-                        prior = make_prior(prior_name, p0, family, sigma)
-                        posterior = sample_one_fit(
-                            train = train,
-                            prior = prior,
-                            samples = samples,
-                            warmup = warmup,
-                            chains = chains,
-                            seed = seed + round(Int, 100p0),
-                            target_accept = target_accept,
-                            max_depth = max_depth,
-                            progress = progress,
-                            constraint = constraint,
-                            soft_center_scale = soft_center_scale,
-                            prox_sum0_lambda = prox_sum0_lambda,
-                            use_car = use_car,
-                            car_distance = car_distance,
-                            car_weight_quantile = car_weight_quantile,
-                        )
-                        row = summarize_fit(
-                            train = train,
-                            valid = valid,
-                            posterior = posterior,
-                            family = family,
-                            prior_name = prior_name,
-                            n = n,
-                            p = p,
-                            nonzero = nonzero,
-                            p0 = p0,
-                            rep = rep,
-                            seed = seed,
-                            samples = samples,
-                            warmup = warmup,
-                            chains = chains,
-                            use_car = use_car,
-                            tau_scale_mode = tau_mode,
-                        )
-                        push!(rows, row; cols = :union)
-                        CSV.write(joinpath(outdir, "bcglm_mse_metrics.csv"), rows)
-                        println(
-                            "BCGLM row family=$family n=$n p=$p nz=$nonzero prior=$prior_name " *
-                            "p0=$p0 car=$use_car tau=$tau_mode coef_mse=$(row.coef_mse)",
-                        )
-                    end
-                end
-            end
-        finally
-            if old_tau === nothing
-                delete!(ENV, "BAYESCOX_TAU_CAUCHY_SCALE")
-            else
-                ENV["BAYESCOX_TAU_CAUCHY_SCALE"] = old_tau
+    for family in families, n in ns, p in ps, nonzero in nonzeros
+        nonzero <= p || continue
+        p0s = split_float_or_truth(p0_mode, nonzero)
+        for rep in 1:reps
+            seed = seed0 + 100_000rep + 1000p + 10nonzero + (family == :gaussian ? 1 : 2)
+            train = simulate_bcglm_data(
+                family = family,
+                n = n,
+                p = p,
+                nonzero = nonzero,
+                seed = seed,
+                sigma = sigma,
+                binary_mode = binary_mode,
+            )
+            valid = simulate_bcglm_data(
+                family = family,
+                n = n,
+                p = p,
+                nonzero = nonzero,
+                seed = seed + 50_000_000,
+                sigma = sigma,
+                binary_mode = binary_mode,
+            )
+            CSV.write(
+                joinpath(outdir, "truth_$(family)_n$(n)_p$(p)_nz$(nonzero)_rep$(rep).csv"),
+                DataFrame(variable = ["beta[$j]" for j in 1:p], true_beta = train.beta_true, nonzero = train.beta_true .!= 0),
+            )
+            for p0 in p0s, use_car in use_cars, prior_name in priors
+                prior = make_prior(prior_name, p0, family, sigma; prior_hyperparams...)
+                posterior = sample_one_fit(
+                    train = train,
+                    prior = prior,
+                    samples = samples,
+                    warmup = warmup,
+                    chains = chains,
+                    seed = seed + round(Int, 100p0),
+                    target_accept = target_accept,
+                    max_depth = max_depth,
+                    progress = progress,
+                    constraint = constraint,
+                    soft_center_scale = soft_center_scale,
+                    prox_sum0_lambda = prox_sum0_lambda,
+                    prox_l1_lambda = prox_l1_lambda,
+                    alpha_prior_shape = alpha_prior_shape,
+                    alpha_prior_rate = alpha_prior_rate,
+                    prox_root_tol = prox_root_tol,
+                    prox_root_maxiter = prox_root_maxiter,
+                    use_car = use_car,
+                    car_distance = car_distance,
+                    car_weight_quantile = car_weight_quantile,
+                )
+                row = summarize_fit(
+                    train = train,
+                    valid = valid,
+                    posterior = posterior,
+                    family = family,
+                    prior_name = prior_name,
+                    n = n,
+                    p = p,
+                    nonzero = nonzero,
+                    p0 = p0,
+                    rep = rep,
+                    seed = seed,
+                    samples = samples,
+                    warmup = warmup,
+                    chains = chains,
+                    use_car = use_car,
+                    tau_scale_mode = tau_mode,
+                )
+                row = merge(row, prior_hypermeta)
+                push!(rows, row; cols = :union)
+                CSV.write(joinpath(outdir, "bcglm_mse_metrics.csv"), rows)
+                println(
+                    "BCGLM row family=$family n=$n p=$p nz=$nonzero prior=$prior_name " *
+                    "p0=$p0 car=$use_car tau=$tau_mode coef_mse=$(row.coef_mse)",
+                )
             end
         end
     end
 
     if !isempty(rows)
-        group_cols = [:family, :prior, :n, :p, :nonzero, :p0, :use_car, :tau_scale_mode]
+        hyper_cols = [k for k in keys(prior_hypermeta) if k in propertynames(rows)]
+        group_cols = vcat([:family, :prior, :n, :p, :nonzero, :p0, :use_car, :tau_scale_mode], hyper_cols)
         summary = combine(
             groupby(rows, group_cols),
             :coef_mse => mean => :coef_mse_mean,

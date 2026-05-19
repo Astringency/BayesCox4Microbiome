@@ -198,6 +198,7 @@ function main()
     resume = debug ? false : arg(args, "resume", true)
     debug && @info "Debug mode forces resume=false."
     pseudocount = arg(args, "pseudocount", 0.0)
+    standardize = arg(args, "standardize", false)
     tau_scale_mode = get(ENV, "BAYESCOX_TAU_CAUCHY_SCALE", "tau0_squared")
     plot_first_rep_only = arg(args, "plot-first-rep-only", true)
     sample_thin = max(1, arg(args, "sample-thin", 10))
@@ -275,6 +276,7 @@ function main()
                 "use_car" => actual_use_car,
                 "car_distance" => string(car_distance),
                 "pseudocount" => pseudocount,
+                "standardize" => standardize,
                 "tau_scale_mode" => tau_scale_mode,
                 "seed" => sim_seed,
                 "git_commit_hash" => BayesCox4Micro._git_commit_hash(),
@@ -344,6 +346,7 @@ function main()
                 use_car = actual_use_car,
                 car_distance = car_distance,
                 pseudocount = pseudocount,
+                standardize = standardize,
                 p0 = p0_value,
                 p0_alpha = p0_alpha,
                 constraint = constraint,
@@ -414,6 +417,7 @@ function main()
                     "nonzero_count" => nonzero,
                     "p0" => p0_value,
                     "pseudocount" => pseudocount,
+                    "standardize" => standardize,
                     "tau_scale_mode" => tau_scale_mode,
                     "censoring_distribution" => string(sim.censoring_distribution),
                     "censoring_upper" => sim.censoring_upper,
@@ -444,6 +448,7 @@ function main()
                     "use_car" => actual_use_car,
                     "car_distance" => string(car_distance),
                     "pseudocount" => pseudocount,
+                    "standardize" => standardize,
                     "tau_scale_mode" => tau_scale_mode,
                     "p0_alpha" => p0_alpha,
                     "baseline_rate" => sim.baseline_rate,

@@ -95,20 +95,7 @@ end
     @test annotated.MSE[annotated.estimate .== "mean"][1] != sum((aligned.mean .- beta) .^ 2)
 end
 
-@testset "global tau Cauchy scale mode" begin
-    old = get(ENV, "BAYESCOX_TAU_CAUCHY_SCALE", nothing)
-    try
-        delete!(ENV, "BAYESCOX_TAU_CAUCHY_SCALE")
-        @test BayesCox4Micro._global_tau_cauchy_scale(0.2) ≈ 0.04
-        ENV["BAYESCOX_TAU_CAUCHY_SCALE"] = "tau0_squared"
-        @test BayesCox4Micro._global_tau_cauchy_scale(0.2) ≈ 0.04
-        ENV["BAYESCOX_TAU_CAUCHY_SCALE"] = "tau0"
-        @test_throws ArgumentError BayesCox4Micro._global_tau_cauchy_scale(0.2)
-    finally
-        if old === nothing
-            delete!(ENV, "BAYESCOX_TAU_CAUCHY_SCALE")
-        else
-            ENV["BAYESCOX_TAU_CAUCHY_SCALE"] = old
-        end
-    end
+@testset "global tau Cauchy scale" begin
+    @test BayesCox4Micro._global_tau_cauchy_scale(0.2) ≈ 0.2
+    @test_throws ArgumentError BayesCox4Micro._global_tau_cauchy_scale(0.0)
 end

@@ -61,8 +61,12 @@ prepare_cox_data(X, time, event;
     transform = :log,
     pseudocount = 1e-6,
     closure = true,
-    standardize = false)
+    standardize = false,
+    tie_method = :efron)
 ```
+
+Tied event times use Efron's approximation by default. Pass
+`tie_method = :breslow` to reproduce the previous Breslow approximation.
 
 Posterior helpers:
 
@@ -221,6 +225,14 @@ Common options:
 | `--prox-l1-lambda` | `1e-3` | L1 Moreau smoothing parameter for proximal L1 priors. |
 | `--prox-root-tol` | `1e-10` | Projection root tolerance for proximal L1 priors. |
 | `--prox-root-maxiter` | `100` | Projection root iteration limit for proximal L1 priors. |
+| `--hs-local-scale`, `--hs-tau-scale` | `1`, `1` | HS/CoxHS local shrinkage scale and fixed HS global scale. `--hs-tau-scale` is only active when the prior does not use Cox `tau0`. |
+| `--rhs-local-scale`, `--rhs-tau-scale` | `1`, `1` | RHS/CoxRHS local shrinkage scale and fixed RHS global scale. `--rhs-tau-scale` is only active for fixed `tau_formula`. |
+| `--rhs-slab-df`, `--rhs-slab-s2` | `4`, `2` | RHS slab `c2 ~ InverseGamma(df/2, df*s2/2)` hyperparameters. Aliases: `--rhs-c2-df`, `--rhs-c2-s2`. |
+| `--lasso-lambda2-shape`, `--lasso-lambda2-rate` | `1`, `0.1` | Hyperprior for BLASSO global `lambda^2`. |
+| `--lasso-tau2-shape` | `1` | Shape of the BLASSO local variance prior `tau_j^2 | lambda^2`. Alias: `--lasso-local-shape`. |
+| `--sslasso-s0`, `--sslasso-s1` | simulation `0.04`, `0.5`; real data `1`, `10` | SSLASSO spike and slab Laplace scales. Aliases: `--sslasso-spike-scale`, `--sslasso-slab-scale`. |
+| `--sslasso-theta-a`, `--sslasso-theta-b` | `1`, `1` | Beta prior hyperparameters for SSLASSO inclusion probability. |
+| `--alpha-prior-shape`, `--alpha-prior-rate` | prior-specific | Proximal L1 epigraph `alpha` prior hyperparameters for `prox-lasso` and `prox-sslasso`. Aliases: `--prox-alpha-prior-shape`, `--prox-alpha-prior-rate`. |
 | `--mala-step-size` | `1e-4` | MALA/ULA step size. |
 | `--mala-target-accept` | `0.574` | MALA step-size adaptation target. |
 | `--mala-adapt-every` | `50` | MALA adaptation interval. |
@@ -250,6 +262,18 @@ results/simulation/
 
 The long posterior sample CSV is not written. Diagnostics and recovery use
 `result_bundle.jld2` when present, otherwise `samples_wide.csv`.
+
+For focused MSE tuning, use the hyperparameter grid runner:
+
+```powershell
+julia --project=. scripts\tune_prior_hyperparams.jl --priors rhs,lasso,sslasso --samples 200 --warmup 100 --chains 2 --p0 truth
+```
+
+It writes `hyperparam_tuning_metrics.csv` and a sorted
+`hyperparam_tuning_summary.csv` under the selected `--outdir`.
+The tuning runner also accepts grid options such as `--hs-p0-grid`,
+`--rhs-local-scale-grid`, `--prox-l1-lambda-grid`, and
+`--alpha-prior-shape-grid` for CoxHS/CoxRHS and proximal priors.
 
 ## Simulation Data and Censoring Summary
 

@@ -6,8 +6,12 @@ if not defined GKSwstype set "GKSwstype=100"
 
 set test_n=200
 set test_p=50
+set test_nonzero=6
+set test_baseline=weibull
 
-julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl ^
+for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "timestamp=%%i"
+
+julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --sampler nuts ^
     --nuts-backend explicit ^
     --samples 5000 ^
@@ -17,17 +21,20 @@ julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl ^
     --reps 1 ^
     --n "%test_n%" ^
     --p "%test_p%" ^
-    --nonzero 12 ^
-    --baseline weibull ^
-    --priors rhs ^
+    --nonzero "%test_nonzero%" ^
+    --baseline "%test_baseline%" ^
+    --priors cox-rhs ^
     --constraint soft_center ^
     --target-accept 0.95 ^
-    --seed 3 ^
+    --seed 1 ^
     --use-car true ^
     --car-distance bray ^
     --p0 truth ^
     --p0-alpha 0.05 ^
-    --outdir "results/simulation/test_n%test_n%_p%test_p%_non12_weibull"
+    --standardize false ^
+    --outdir "results/simulation/test_n%test_n%_p%test_p%_non%test_nonzero%_%test_baseline%_%timestamp%"
+
+REM explicit turing 
 
 REM julia +1.11.7 -t 4 --project=. scripts\run_simulation.jl ^
 REM     --outdir results/simulation ^

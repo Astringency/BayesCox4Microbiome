@@ -1,3 +1,21 @@
+"""
+    _build_riskset(time::AbstractVector{<:Real}) -> CoxRiskSet
+
+Construct a compact risk-set representation for Cox proportional hazards models.
+
+The observations are sorted in descending order of their observed times, so that
+for any unique event/censoring time group `g`, the corresponding risk set can be
+represented by the prefix `order[1:group_stop[g]]`, which contains all observations
+with `time >= t_g`.
+
+Observations with identical time values are grouped together. The returned
+`CoxRiskSet` contains:
+
+- `order`: indices of observations sorted by decreasing time;
+- `group_start`: starting position of each unique time group in `order`;
+- `group_stop`: ending position of each unique time group in `order`;
+- `obs_to_group`: mapping from each original observation index to its time group.
+"""
 function _build_riskset(time::AbstractVector{<:Real})
     n = length(time)
     order = sortperm(collect(Float64, time); rev=true)
@@ -22,6 +40,19 @@ function _build_riskset(time::AbstractVector{<:Real})
     return CoxRiskSet(order, group_start, group_stop, obs_to_group)
 end
 
+"""
+    _standardize_columns(z::Matrix{Float64}) -> Tuple{Matrix{Float64}, Vector{Float64}, Vector{Float64}}
+
+Standardize each column of the input matrix to have mean zero and unit standard
+deviation.
+
+Returns a tuple `(out, mu, sigma)`, where:
+
+- `out` is the standardized matrix;
+- `mu` contains the column means of the original matrix;
+- `sigma` contains the column standard deviations used for scaling.
+data, such as validation or test matrices.
+"""
 function _standardize_columns(z::Matrix{Float64})
     p = size(z, 2)
     mu = vec(mean(z; dims=1))
@@ -37,11 +68,17 @@ end
 
 """
     prepare_cox_data(X, time, event; transform=:log, pseudocount=0.0,
-                     closure=true, standardize=false)
+                     closure=true, standardize=false, tie_method=:efron)
 
 Prepare microbiome covariates for the Cox partial-likelihood model.
 `transform=:log` implements the paper's elementwise log transform.
 """
+function _check_cox_tie_method(tie_method::Symbol)
+    tie_method in (:efron, :breslow) ||
+        throw(ArgumentError("tie_method must be :efron or :breslow."))
+    return tie_method
+end
+
 function prepare_cox_data(
     X::AbstractMatrix{<:Real},
     time::AbstractVector{<:Real},
@@ -50,6 +87,7 @@ function prepare_cox_data(
     pseudocount::Real = 0.0,
     closure::Bool = true,
     standardize::Bool = false,
+    tie_method::Symbol = :efron,
 )
     n, p = size(X)
     length(time) == n || throw(DimensionMismatch("length(time) must match size(X, 1)."))
@@ -64,6 +102,7 @@ function prepare_cox_data(
     all(v -> v == 0 || v == 1, e) ||
         throw(ArgumentError("event must contain only 0/1 indicators."))
     count(!=(0), e) > 0 || throw(ArgumentError("at least one uncensored event is required."))
+    tie = _check_cox_tie_method(tie_method)
 
     pc = _check_nonnegative(pseudocount, "pseudocount")
     x = Matrix{Float64}(X)
@@ -123,6 +162,7 @@ function prepare_cox_data(
         t,
         e,
         _build_riskset(t),
+        tie,
         transform,
         applied_pc,
         closure,

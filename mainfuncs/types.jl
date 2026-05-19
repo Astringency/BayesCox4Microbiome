@@ -10,6 +10,7 @@ struct CoxPreparedData
     time::Vector{Float64}
     event::Vector{Int}
     risk::CoxRiskSet
+    tie_method::Symbol
     transform::Symbol
     pseudocount::Float64
     closure::Bool

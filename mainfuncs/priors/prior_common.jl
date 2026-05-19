@@ -35,14 +35,7 @@ end
 
 function _global_tau_cauchy_scale(tau0::Real)
     tau0 > 0 || throw(ArgumentError("tau0 must be positive."))
-    mode = lowercase(strip(get(ENV, "BAYESCOX_TAU_CAUCHY_SCALE", "tau0_squared")))
-    if !(mode in ("tau0_squared", "tau0^2", "squared"))
-        throw(ArgumentError(
-            "BAYESCOX_TAU_CAUCHY_SCALE must be tau0_squared. " *
-            "RHS uses half-Cauchy scale tau0^2; power=1/tau0 is not supported. Got $mode.",
-        ))
-    end
-    return tau0 * tau0
+    return tau0
 end
 
 function _positive_t_distribution(df::Real, scale::Real)

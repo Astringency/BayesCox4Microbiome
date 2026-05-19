@@ -24,6 +24,12 @@ function _logaddexp(a, b)
     end
 end
 
+function _logdiffexp(a, b)
+    b == -Inf && return a
+    b < a || throw(ArgumentError("log difference requires the second argument to be smaller."))
+    return a + log1p(-exp(b - a))
+end
+
 function _risk_logdenominators(eta::AbstractVector, risk::CoxRiskSet)
     g = length(risk.group_start)
     den = Vector{typeof(first(eta))}(undef, g)
@@ -42,13 +48,15 @@ function cox_logpartiallikelihood(
     time::AbstractVector{<:Real},
     event::AbstractVector,
     beta::AbstractVector,
+    ;
+    tie_method::Symbol = :efron,
 )
     risk = _build_riskset(time)
-    return cox_logpartiallikelihood(z, [Int(v) for v in event], risk, beta)
+    return cox_logpartiallikelihood(z, [Int(v) for v in event], risk, beta; tie_method = tie_method)
 end
 
 function cox_logpartiallikelihood(data::CoxPreparedData, beta::AbstractVector)
-    return cox_logpartiallikelihood(data.z, data.event, data.risk, beta)
+    return cox_logpartiallikelihood(data.z, data.event, data.risk, beta; tie_method = data.tie_method)
 end
 
 function cox_logpartiallikelihood(
@@ -56,13 +64,43 @@ function cox_logpartiallikelihood(
     event::AbstractVector{<:Integer},
     risk::CoxRiskSet,
     beta::AbstractVector,
+    ;
+    tie_method::Symbol = :efron,
 )
+    tie = _check_cox_tie_method(tie_method)
     eta = _linear_predictor(z, beta)
-    den = _risk_logdenominators(eta, risk)
     lp = zero(first(eta))
-    @inbounds for i in eachindex(event)
-        if event[i] != 0
-            lp += eta[i] - den[risk.obs_to_group[i]]
+    if tie == :breslow
+        den = _risk_logdenominators(eta, risk)
+        @inbounds for i in eachindex(event)
+            if event[i] != 0
+                lp += eta[i] - den[risk.obs_to_group[i]]
+            end
+        end
+    else
+        den = _risk_logdenominators(eta, risk)
+        @inbounds for k in eachindex(risk.group_start)
+            logevent = -Inf
+            d = 0
+            event_eta_sum = zero(first(eta))
+            for pos in risk.group_start[k]:risk.group_stop[k]
+                i = risk.order[pos]
+                if event[i] != 0
+                    d += 1
+                    event_eta_sum += eta[i]
+                    logevent = _logaddexp(logevent, eta[i])
+                end
+            end
+            if d > 0
+                lp += event_eta_sum
+                if d == 1
+                    lp -= den[k]
+                else
+                    for r in 0:(d - 1)
+                        lp -= _logdiffexp(den[k], log(r / d) + logevent)
+                    end
+                end
+            end
         end
     end
     return lp
@@ -70,11 +108,42 @@ end
 
 function cox_loglik_events(data::CoxPreparedData, beta::AbstractVector)
     eta = _linear_predictor(data.z, beta)
-    den = _risk_logdenominators(eta, data.risk)
     out = Vector{typeof(first(eta))}(undef, length(data.event))
-    @inbounds for i in eachindex(data.event)
-        out[i] = data.event[i] == 0 ? zero(first(eta)) :
-            eta[i] - den[data.risk.obs_to_group[i]]
+    fill!(out, zero(first(eta)))
+    if data.tie_method == :breslow
+        den = _risk_logdenominators(eta, data.risk)
+        @inbounds for i in eachindex(data.event)
+            out[i] = data.event[i] == 0 ? zero(first(eta)) :
+                eta[i] - den[data.risk.obs_to_group[i]]
+        end
+    else
+        den = _risk_logdenominators(eta, data.risk)
+        @inbounds for k in eachindex(data.risk.group_start)
+            logevent = -Inf
+            d = 0
+            for pos in data.risk.group_start[k]:data.risk.group_stop[k]
+                i = data.risk.order[pos]
+                if data.event[i] != 0
+                    d += 1
+                    logevent = _logaddexp(logevent, eta[i])
+                end
+            end
+            if d == 1
+                for pos in data.risk.group_start[k]:data.risk.group_stop[k]
+                    i = data.risk.order[pos]
+                    data.event[i] != 0 && (out[i] = eta[i] - den[k])
+                end
+            elseif d > 1
+                r = 0
+                for pos in data.risk.group_start[k]:data.risk.group_stop[k]
+                    i = data.risk.order[pos]
+                    if data.event[i] != 0
+                        out[i] = eta[i] - _logdiffexp(den[k], log(r / d) + logevent)
+                        r += 1
+                    end
+                end
+            end
+        end
     end
     return out
 end
@@ -104,12 +173,14 @@ function cox_score_gradient(
     time::AbstractVector{<:Real},
     event::AbstractVector,
     beta::AbstractVector,
+    ;
+    tie_method::Symbol = :efron,
 )
     risk = _build_riskset(time)
     event_int = [Int(v) for v in event]
     work = CoxGradientWorkspace(size(z, 1), size(z, 2), length(risk.group_start))
     grad = zeros(Float64, size(z, 2))
-    return cox_score_gradient!(grad, z, event_int, risk, beta, work)
+    return cox_score_gradient!(grad, z, event_int, risk, beta, work; tie_method = tie_method)
 end
 
 function cox_score_gradient(data::CoxPreparedData, beta::AbstractVector)
@@ -123,10 +194,12 @@ function cox_score_gradient(
     event::AbstractVector{<:Integer},
     risk::CoxRiskSet,
     beta::AbstractVector,
+    ;
+    tie_method::Symbol = :efron,
 )
     work = CoxGradientWorkspace(size(z, 1), size(z, 2), length(risk.group_start))
     grad = zeros(Float64, size(z, 2))
-    return cox_score_gradient!(grad, z, event, risk, beta, work)
+    return cox_score_gradient!(grad, z, event, risk, beta, work; tie_method = tie_method)
 end
 
 function cox_score_gradient!(
@@ -135,7 +208,7 @@ function cox_score_gradient!(
     beta::AbstractVector,
     work::CoxGradientWorkspace,
 )
-    return cox_score_gradient!(grad, data.z, data.event, data.risk, beta, work)
+    return cox_score_gradient!(grad, data.z, data.event, data.risk, beta, work; tie_method = data.tie_method)
 end
 
 function cox_score_gradient!(
@@ -145,8 +218,10 @@ function cox_score_gradient!(
     risk::CoxRiskSet,
     beta::AbstractVector,
     work::CoxGradientWorkspace,
+    ;
+    tie_method::Symbol = :efron,
 )
-    cox_logpartiallikelihood_and_score_gradient!(grad, z, event, risk, beta, work)
+    cox_logpartiallikelihood_and_score_gradient!(grad, z, event, risk, beta, work; tie_method = tie_method)
     return grad
 end
 
@@ -162,7 +237,8 @@ function cox_logpartiallikelihood_and_score_gradient!(
         data.event,
         data.risk,
         beta,
-        work,
+        work;
+        tie_method = data.tie_method,
     )
 end
 
@@ -173,7 +249,10 @@ function cox_logpartiallikelihood_and_score_gradient!(
     risk::CoxRiskSet,
     beta::AbstractVector,
     work::CoxGradientWorkspace,
+    ;
+    tie_method::Symbol = :efron,
 )
+    tie = _check_cox_tie_method(tie_method)
     n, p = size(z)
     length(beta) == p || throw(DimensionMismatch("length(beta) must match size(z, 2)."))
     length(event) == n || throw(DimensionMismatch("length(event) must match size(z, 1)."))
@@ -217,16 +296,53 @@ function cox_logpartiallikelihood_and_score_gradient!(
             end
         end
         s0 > 0 || throw(ArgumentError("encountered an empty or degenerate Cox risk set."))
-        logden = max_eta + log(s0)
-        for j in 1:p
-            work.group_mean[k, j] = work.s1[j] / s0
-        end
-        for pos in risk.group_start[k]:risk.group_stop[k]
-            i = risk.order[pos]
-            if event[i] != 0
-                lp += eta[i] - logden
-                for j in 1:p
-                    grad[j] += Float64(z[i, j]) - work.group_mean[k, j]
+        if tie == :breslow
+            logden = max_eta + log(s0)
+            for j in 1:p
+                work.group_mean[k, j] = work.s1[j] / s0
+            end
+            for pos in risk.group_start[k]:risk.group_stop[k]
+                i = risk.order[pos]
+                if event[i] != 0
+                    lp += eta[i] - logden
+                    for j in 1:p
+                        grad[j] += Float64(z[i, j]) - work.group_mean[k, j]
+                    end
+                end
+            end
+        else
+            d = 0
+            e0 = 0.0
+            fill!(view(work.group_mean, k, :), 0.0)
+            for pos in risk.group_start[k]:risk.group_stop[k]
+                i = risk.order[pos]
+                if event[i] != 0
+                    d += 1
+                    lp += eta[i]
+                    w = exp(eta[i] - max_eta)
+                    e0 += w
+                    for j in 1:p
+                        grad[j] += Float64(z[i, j])
+                        work.group_mean[k, j] += w * Float64(z[i, j])
+                    end
+                end
+            end
+            if d > 0
+                if d == 1
+                    lp -= max_eta + log(s0)
+                    for j in 1:p
+                        grad[j] -= work.s1[j] / s0
+                    end
+                else
+                    for r in 0:(d - 1)
+                        frac = r / d
+                        denom = s0 - frac * e0
+                        denom > 0 || throw(ArgumentError("encountered an empty or degenerate Efron Cox risk set."))
+                        lp -= max_eta + log(denom)
+                        for j in 1:p
+                            grad[j] -= (work.s1[j] - frac * work.group_mean[k, j]) / denom
+                        end
+                    end
                 end
             end
         end

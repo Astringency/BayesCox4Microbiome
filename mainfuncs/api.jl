@@ -169,7 +169,9 @@ of `docs/cox4microbiome_detail.pdf`: `hs`, `rhs`, `new-rhs`, `est-rhs`,
 `prox-lasso` and `prox-sslasso` select the proximal L1 implementations.
 
 When `p0` is `nothing`, HS/RHS-style priors estimate `p0` by univariate Cox
-screening and use the number of covariates significant at `p0_alpha`.
+screening and use the number of covariates significant at `p0_alpha`. RHS
+slab, BLASSO shrinkage, and SSLASSO spike/slab hyperparameters can be tuned
+with the `rhs_*`, `lasso_*`, and `sslasso_*` keyword arguments.
 """
 function cox_paper_prior(
     name::Union{AbstractString,Symbol};
@@ -186,8 +188,35 @@ function cox_paper_prior(
     p0_alpha::Real = 0.05,
     p0_min::Integer = 1,
     p0_max = nothing,
+    rhs_slab_df::Real = 4.0,
+    rhs_slab_s2::Real = 2.0,
+    rhs_c2_df = nothing,
+    rhs_c2_s2 = nothing,
+    hs_tau_scale::Real = 1.0,
+    hs_local_scale::Real = 1.0,
+    rhs_tau_scale::Real = 1.0,
+    rhs_local_scale::Real = 1.0,
+    rhs_pseudo_sigma_df::Real = 3.0,
+    rhs_pseudo_sigma_scale::Real = 10.0,
+    lasso_lambda = nothing,
+    lasso_lambda2_shape::Real = 1.0,
+    lasso_lambda2_rate::Real = 0.1,
+    lasso_tau2_shape::Real = 1.0,
+    sslasso_spike_scale = nothing,
+    sslasso_slab_scale = nothing,
+    sslasso_s0 = nothing,
+    sslasso_s1 = nothing,
+    sslasso_theta_a::Real = 1.0,
+    sslasso_theta_b::Real = 1.0,
 )
     key = lowercase(replace(string(name), "_" => "-", " " => "-"))
+    rhs_df = Float64(something(rhs_c2_df, rhs_slab_df))
+    rhs_s2 = Float64(something(rhs_c2_s2, rhs_slab_s2))
+    lasso_lambda_value = lasso_lambda === nothing ? nothing : Float64(lasso_lambda)
+    ssl_spike_default = realdata ? 1.0 : 0.04
+    ssl_slab_default = realdata ? 10.0 : 0.5
+    ssl_spike = Float64(something(sslasso_spike_scale, sslasso_s0, ssl_spike_default))
+    ssl_slab = Float64(something(sslasso_slab_scale, sslasso_s1, ssl_slab_default))
     p0_value = _resolve_p0(
         name,
         p0,
@@ -202,27 +231,36 @@ function cox_paper_prior(
         p0_max = p0_max,
     )
     if key in ("hs", "horseshoe")
-        return HorseshoePrior(tau_scale = 1.0, use_cox_tau0 = false, p0 = p0_value)
-    elseif key in ("rhs", "regularized-horseshoe")
-        return RegularizedHorseshoePrior(
+        return HorseshoePrior(
+            tau_scale = Float64(hs_tau_scale),
             use_cox_tau0 = false,
             p0 = p0_value,
+            local_scale = Float64(hs_local_scale),
+        )
+    elseif key in ("rhs", "regularized-horseshoe")
+        return RegularizedHorseshoePrior(
+            tau_scale = Float64(rhs_tau_scale),
+            use_cox_tau0 = false,
+            p0 = p0_value,
+            local_scale = Float64(rhs_local_scale),
             tau_formula = :linear,
             pseudo_sigma = nothing,
             sample_pseudo_sigma = true,
-            pseudo_sigma_df = 3.0,
-            pseudo_sigma_scale = 10.0,
-            slab_df = 4.0,
-            slab_s2 = 2.0,
+            pseudo_sigma_df = Float64(rhs_pseudo_sigma_df),
+            pseudo_sigma_scale = Float64(rhs_pseudo_sigma_scale),
+            slab_df = rhs_df,
+            slab_s2 = rhs_s2,
         )
     elseif key in ("new-rhs", "newrhs")
         return RegularizedHorseshoePrior(
+            tau_scale = Float64(rhs_tau_scale),
             use_cox_tau0 = false,
             p0 = p0_value,
+            local_scale = Float64(rhs_local_scale),
             tau_formula = :linear,
             pseudo_sigma = 1.0,
-            slab_df = 4.0,
-            slab_s2 = 2.0,
+            slab_df = rhs_df,
+            slab_s2 = rhs_s2,
         )
     elseif key in ("est-rhs", "estrhs")
         (X === nothing || time === nothing || event === nothing) &&
@@ -242,33 +280,62 @@ function cox_paper_prior(
             l2_cost = cox_estimate_l2_cost,
         )
         return RegularizedHorseshoePrior(
+            tau_scale = Float64(rhs_tau_scale),
             use_cox_tau0 = false,
             p0 = p0_value,
+            local_scale = Float64(rhs_local_scale),
             tau_formula = :linear,
             pseudo_sigma = sqrt(inv(max(muhat, eps(Float64)))),
-            slab_df = 4.0,
-            slab_s2 = 2.0,
+            slab_df = rhs_df,
+            slab_s2 = rhs_s2,
         )
     elseif key in ("cox-hs", "coxhs")
-        return HorseshoePrior(use_cox_tau0 = true, p0 = p0_value)
-    elseif key in ("cox-rhs", "coxrhs")
-        return RegularizedHorseshoePrior(
+        return HorseshoePrior(
+            tau_scale = Float64(hs_tau_scale),
             use_cox_tau0 = true,
             p0 = p0_value,
+            local_scale = Float64(hs_local_scale),
+        )
+    elseif key in ("cox-rhs", "coxrhs")
+        return RegularizedHorseshoePrior(
+            tau_scale = Float64(rhs_tau_scale),
+            use_cox_tau0 = true,
+            p0 = p0_value,
+            local_scale = Float64(rhs_local_scale),
             tau_formula = :cox,
-            slab_df = 4.0,
-            slab_s2 = 2.0,
+            slab_df = rhs_df,
+            slab_s2 = rhs_s2,
         )
     elseif key in ("lasso", "bayesian-lasso")
-        return BayesianLassoPrior(lambda = nothing, lambda2_shape = 1.0, lambda2_rate = 0.1)
+        return BayesianLassoPrior(
+            lambda = lasso_lambda_value,
+            lambda2_shape = Float64(lasso_lambda2_shape),
+            lambda2_rate = Float64(lasso_lambda2_rate),
+            tau2_shape = Float64(lasso_tau2_shape),
+        )
     elseif key == "prox-lasso"
-        return BayesianLassoPrior(lambda = nothing, lambda2_shape = 1.0, lambda2_rate = 0.1, proximal = true)
+        return BayesianLassoPrior(
+            lambda = lasso_lambda_value,
+            lambda2_shape = Float64(lasso_lambda2_shape),
+            lambda2_rate = Float64(lasso_lambda2_rate),
+            tau2_shape = Float64(lasso_tau2_shape),
+            proximal = true,
+        )
     elseif key in ("sslasso", "spike-slab", "spike-and-slab")
-        return realdata ? SpikeSlabLassoPrior(spike_scale = 1.0, slab_scale = 10.0) :
-                          SpikeSlabLassoPrior(spike_scale = 0.04, slab_scale = 0.5)
+        return SpikeSlabLassoPrior(
+            spike_scale = ssl_spike,
+            slab_scale = ssl_slab,
+            theta_a = Float64(sslasso_theta_a),
+            theta_b = Float64(sslasso_theta_b),
+        )
     elseif key == "prox-sslasso"
-        return realdata ? SpikeSlabLassoPrior(spike_scale = 1.0, slab_scale = 10.0, proximal = true) :
-                          SpikeSlabLassoPrior(spike_scale = 0.04, slab_scale = 0.5, proximal = true)
+        return SpikeSlabLassoPrior(
+            spike_scale = ssl_spike,
+            slab_scale = ssl_slab,
+            theta_a = Float64(sslasso_theta_a),
+            theta_b = Float64(sslasso_theta_b),
+            proximal = true,
+        )
     end
     throw(ArgumentError("unsupported paper prior name: $name"))
 end

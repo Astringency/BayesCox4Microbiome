@@ -56,6 +56,7 @@ end
     time = [1.0, 2.0, 3.0, 3.0, 5.0]
     event = [1, 0, 1, 1, 0]
     data = prepare_cox_data(X, time, event; transform = :none)
+    @test data.tie_method == :efron
     beta = [0.2, -0.1, 0.05]
     grad = cox_score_gradient(data, beta)
     work = CoxGradientWorkspace(data)
@@ -71,6 +72,35 @@ end
         fd = (cox_logpartiallikelihood(data, beta .+ e) - cox_logpartiallikelihood(data, beta .- e)) / (2epsfd)
         @test grad[j] ≈ fd atol=1e-5 rtol=1e-5
     end
+end
+
+@testset "Cox Efron and Breslow ties" begin
+    X = [0.2 0.3;
+         0.1 0.6;
+         0.4 0.2;
+         0.3 0.3]
+    time = [1.0, 2.0, 2.0, 3.0]
+    event = [1, 1, 1, 0]
+    beta = [0.25, -0.2]
+    data_efron = prepare_cox_data(X, time, event; transform = :none)
+    data_breslow = prepare_cox_data(X, time, event; transform = :none, tie_method = :breslow)
+
+    eta = X * beta
+    risk_t2 = sum(exp.(eta[time .>= 2.0]))
+    tied_t2 = sum(exp.(eta[[2, 3]]))
+    risk_t1 = sum(exp.(eta[time .>= 1.0]))
+    manual_efron = eta[2] + eta[3] - log(risk_t2) -
+        log(risk_t2 - 0.5 * tied_t2) + eta[1] - log(risk_t1)
+    manual_breslow = eta[2] + eta[3] - 2log(risk_t2) + eta[1] - log(risk_t1)
+
+    @test cox_logpartiallikelihood(data_efron, beta) ≈ manual_efron atol=1e-12 rtol=1e-12
+    @test cox_logpartiallikelihood(data_breslow, beta) ≈ manual_breslow atol=1e-12 rtol=1e-12
+    @test cox_logpartiallikelihood(data_efron, beta) != cox_logpartiallikelihood(data_breslow, beta)
+    @test sum(cox_loglik_events(data_efron, beta)) ≈ cox_logpartiallikelihood(data_efron, beta)
+
+    grad = cox_score_gradient(data_efron, beta)
+    grad_ad = ForwardDiff.gradient(b -> cox_logpartiallikelihood(data_efron, b), beta)
+    @test grad ≈ grad_ad atol=1e-8 rtol=1e-8
 end
 
 function _explicit_initial_for_test(prior, data)
@@ -95,12 +125,31 @@ end
         ("cox-hs", cox_paper_prior("cox-hs"; p0 = 1.0)),
         ("cox-rhs", cox_paper_prior("cox-rhs"; p0 = 1.0)),
         ("lasso", cox_paper_prior("lasso"; p0 = 1.0)),
+        ("lasso-tuned", cox_paper_prior("lasso"; p0 = 1.0, lasso_tau2_shape = 0.75)),
         ("sslasso", cox_paper_prior("sslasso"; p0 = 1.0)),
     ]
     @test !cox_paper_prior("lasso").proximal
     @test cox_paper_prior("prox-lasso").proximal
     @test !cox_paper_prior("sslasso").proximal
     @test cox_paper_prior("prox-sslasso").proximal
+    tuned_rhs = cox_paper_prior("cox-rhs"; p0 = 1.0, rhs_slab_df = 2.0, rhs_slab_s2 = 0.5)
+    @test tuned_rhs.slab_df == 2.0
+    @test tuned_rhs.slab_s2 == 0.5
+    tuned_hs = cox_paper_prior("cox-hs"; p0 = 2.0, hs_local_scale = 0.5)
+    @test tuned_hs.p0 == 2.0
+    @test tuned_hs.local_scale == 0.5
+    tuned_rhs_local = cox_paper_prior("cox-rhs"; p0 = 2.0, rhs_local_scale = 0.25)
+    @test tuned_rhs_local.p0 == 2.0
+    @test tuned_rhs_local.local_scale == 0.25
+    tuned_lasso = cox_paper_prior("lasso"; lasso_lambda2_shape = 2.0, lasso_lambda2_rate = 0.5, lasso_tau2_shape = 0.75)
+    @test tuned_lasso.lambda2_shape == 2.0
+    @test tuned_lasso.lambda2_rate == 0.5
+    @test tuned_lasso.tau2_shape == 0.75
+    tuned_ssl = cox_paper_prior("sslasso"; sslasso_s0 = 0.02, sslasso_s1 = 1.0, sslasso_theta_a = 2.0, sslasso_theta_b = 8.0)
+    @test tuned_ssl.spike_scale == 0.02
+    @test tuned_ssl.slab_scale == 1.0
+    @test tuned_ssl.theta_a == 2.0
+    @test tuned_ssl.theta_b == 8.0
     for (name, prior) in cases
         target = B._make_explicit_nuts_target(
             data,

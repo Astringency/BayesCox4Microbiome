@@ -22,7 +22,7 @@ function initial_state(
     _validate_prior(prior)
     length(beta0) == p || throw(DimensionMismatch("length(beta0) must be p."))
     tau0 = _resolved_tau_scale(prior, p, n_events)
-    return vcat(collect(Float64, beta0), [log(_global_tau_cauchy_scale(tau0))], zeros(p))
+    return vcat(collect(Float64, beta0), [log(tau0)], zeros(p))
 end
 
 function _prior_logposterior(
@@ -39,9 +39,9 @@ function _prior_logposterior(
     log_lambda = view(u, (p + 2):(2p + 1))
     tau = exp(log_tau)
     lambda = exp.(log_lambda)
-    tau_cauchy_scale = _global_tau_cauchy_scale(_resolved_tau_scale(prior, p, count(!=(0), data.event)))
+    tau_scale = _resolved_tau_scale(prior, p, count(!=(0), data.event))
 
-    lp = _halfcauchy_logpdf(tau, tau_cauchy_scale) + log_tau
+    lp = _halfcauchy_logpdf(tau, tau_scale) + log_tau
     for j in 1:p
         lp += _halfcauchy_logpdf(lambda[j], prior.local_scale) + log_lambda[j]
         lp += logpdf(Normal(0, tau * lambda[j]), beta[j])
@@ -65,10 +65,10 @@ function _prior_logposterior_and_gradient!(
     log_tau = Float64(u[p + 1])
     log_lambda = view(u, (p + 2):(2p + 1))
     tau = exp(log_tau)
-    tau_cauchy_scale = _global_tau_cauchy_scale(_resolved_tau_scale(prior, p, count(!=(0), data.event)))
+    tau_scale = _resolved_tau_scale(prior, p, count(!=(0), data.event))
 
-    lp = _halfcauchy_logpdf(tau, tau_cauchy_scale) + log_tau
-    grad[p + 1] += _halfcauchy_logx_gradient(log_tau, tau_cauchy_scale)
+    lp = _halfcauchy_logpdf(tau, tau_scale) + log_tau
+    grad[p + 1] += _halfcauchy_logx_gradient(log_tau, tau_scale)
     @inbounds for j in 1:p
         logλ = Float64(log_lambda[j])
         λ = exp(logλ)
