@@ -27,7 +27,7 @@ julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --constraint soft_center ^
     --target-accept 0.95 ^
     --seed 1 ^
-    --use-car true ^
+    --use-car false ^
     --car-distance bray ^
     --p0 truth ^
     --p0-alpha 0.05 ^
@@ -35,6 +35,7 @@ julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --outdir "results/simulation/test_n%test_n%_p%test_p%_non%test_nonzero%_%test_baseline%_%timestamp%"
 
 REM explicit turing 
+REM soft_center prox none
 
 REM julia +1.11.7 -t 4 --project=. scripts\run_simulation.jl ^
 REM     --outdir results/simulation ^
