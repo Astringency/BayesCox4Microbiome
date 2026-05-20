@@ -53,40 +53,39 @@ baseline_vals=("weibull" "exponential" "gompertz")
 pids=()
 
 for n in "${n_vals[@]}"; do
-  for p in "${p_vals[@]}"; do
-    for nonzero in "${non_vals[@]}"; do
+    for p in "${p_vals[@]}"; do
+        for nonzero in "${non_vals[@]}"; do
 
-      (
-        for baseline in "${baseline_vals[@]}"; do
-          echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
+            (
+                for baseline in "${baseline_vals[@]}"; do
+                    echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
 
-          julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
-            --sampler nuts \
-            --nuts-backend explicit \
-            --samples 5000 \
-            --warmup 2000 \
-            --chains 4 \
-            --reps 50 \
-            --n "$n" \
-            --p "$p" \
-            --nonzero "$nonzero" \
-            --baseline "$baseline" \
-            --constraint soft_center \
-            --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso \
-            --target-accept 0.95 \
-            --seed 1 \
-            --use-car true \
-            --car-distance bray \
-            --p0 truth \
-            --p0-alpha 0.05 \
-            --outdir "/large_storage/zhangxf/BayesCox/results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}"
+                    julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
+                        --sampler nuts \
+                        --nuts-backend explicit \
+                        --samples 5000 \
+                        --warmup 2000 \
+                        --chains 4 \
+                        --reps 50 \
+                        --n "$n" \
+                        --p "$p" \
+                        --nonzero "$nonzero" \
+                        --baseline "$baseline" \
+                        --constraint soft_center \
+                        --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso \
+                        --target-accept 0.95 \
+                        --seed 1 \
+                        --use-car true \
+                        --car-distance bray \
+                        --p0 truth \
+                        --p0-alpha 0.05 \
+                        --outdir "/large_storage/zhangxf/BayesCox/results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}"
+                done
+            ) &
+
+            pids+=("$!")
         done
-      ) &
-
-      pids+=("$!")
-
     done
-  done
 done
 
 wait "${pids[@]}"
