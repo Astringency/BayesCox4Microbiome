@@ -15,7 +15,7 @@ julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --sampler nuts ^
     --nuts-backend explicit ^
     --samples 5000 ^
-    --warmup 4000 ^
+    --warmup 2000 ^
     --chains 4 ^
     --multichains ^
     --reps 1 ^
@@ -23,11 +23,11 @@ julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --p "%test_p%" ^
     --nonzero "%test_nonzero%" ^
     --baseline "%test_baseline%" ^
-    --priors cox-rhs ^
-    --constraint soft_center ^
+    --priors prox-lasso,prox-sslasso ^
+    --constraint prox ^
     --target-accept 0.95 ^
     --seed 1 ^
-    --use-car false ^
+    --use-car true ^
     --car-distance bray ^
     --p0 truth ^
     --p0-alpha 0.05 ^
@@ -71,7 +71,7 @@ REM     --mala-adapt-every 50 ^
 REM     --mala-min-step 1e-8 ^
 REM     --mala-max-step 1.0 ^
 REM     --diagnose true ^
-REM     --diagnose-format png ^
+REM     --diagnose-format pdf ^
 REM     --diagnose-top-k-beta 10 ^
 REM     --diagnose-max-lag 50 ^
 REM     --resume true ^

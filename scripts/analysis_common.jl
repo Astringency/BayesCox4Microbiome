@@ -4,6 +4,7 @@ using DataFrames
 using Distributions
 using JSON
 using LinearAlgebra
+using Printf
 
 if !haskey(ENV, "GKSwstype") && !haskey(ENV, "DISPLAY")
     ENV["GKSwstype"] = "100"
@@ -206,12 +207,24 @@ function true_beta(p::Integer, nonzero::Integer)
     return beta, idx
 end
 
-function paper_covariance(p::Integer)
-    sigma = [0.75 - 0.015 * abs(i - j) for i in 1:p, j in 1:p]
-    sigma = Symmetric(sigma)
-    vals, vecs = eigen(sigma)
-    floor = 1e-6
-    return Symmetric(vecs * Diagonal(max.(vals, floor)) * vecs')
+function paper_covariance(p::Integer, index::AbstractVector{<:Integer})
+    p > 0 || throw(ArgumentError("p must be positive."))
+    idx = collect(Int, index)
+    all(i -> 1 <= i <= p, idx) ||
+        throw(ArgumentError("covariance index entries must be between 1 and p."))
+    length(unique(idx)) == length(idx) ||
+        throw(ArgumentError("covariance index entries must be unique."))
+
+    sigma = Matrix{Float64}(I, p, p)
+    for a in 1:(length(idx) - 1)
+        i = idx[a]
+        for b in (a + 1):length(idx)
+            j = idx[b]
+            sigma[i, j] = 0.75 - 0.015 * abs(i - j)
+            sigma[j, i] = sigma[i, j]
+        end
+    end
+    return Symmetric(sigma)
 end
 
 function softmax_rows(U::AbstractMatrix)
@@ -259,7 +272,7 @@ function simulation_event_process(
     beta, idx = true_beta(p, nonzero)
     mu = zeros(Float64, p)
     mu[idx] .= log(0.5 * p)
-    U = rand(rng, MvNormal(mu, paper_covariance(p)), n)'
+    U = rand(rng, MvNormal(mu, paper_covariance(p, idx)), n)'
     X = softmax_rows(U)
     eta = log.(X) * beta
     params = baseline_parameters(baseline; rate = baseline_rate, scale = baseline_scale, shape = baseline_shape)
@@ -913,6 +926,26 @@ function _save_plots_vector(plot_obj, path::AbstractString; save_eps::Bool = tru
     return pdf_path
 end
 
+function _coefficient_diagnostic_title(summary::DataFrame, estimate::Symbol, estimates::AbstractVector, truth)
+    truth === nothing && return ""
+    truthv = Float64.(truth)
+    length(truthv) == length(estimates) ||
+        throw(DimensionMismatch("truth length must match summary row count."))
+    mse = mean((Float64.(estimates) .- truthv) .^ 2)
+    fd = false_discovery(truthv, summary)
+    estimate_name = estimate == :map ? "MAP" : String(estimate)
+    return @sprintf(
+        "MSE(%s)=%.4f | FDR=%.4f (FP=%d, FN=%d, TP=%d, TN=%d)",
+        estimate_name,
+        mse,
+        fd.FDR,
+        fd.FP,
+        fd.FN,
+        fd.TP,
+        fd.TN,
+    )
+end
+
 function coefficient_plot(
     summary::DataFrame,
     path::AbstractString;
@@ -929,9 +962,11 @@ function coefficient_plot(
     lower = Float64.(summary.lower)
     upper = Float64.(summary.upper)
     estimate_label = estimate == :map ? "MAP" : "posterior $(String(estimate))"
+    diagnostic_title = _coefficient_diagnostic_title(summary, estimate, y, truth)
+    plot_title = isempty(diagnostic_title) ? title : "$title\n$diagnostic_title"
     y_values = vcat(lower, upper, y, [0.0], truth === nothing ? Float64[] : Float64.(truth))
     ymin, ymax = extrema(y_values)
-    pad = max(0.08 * (ymax - ymin), 0.1)
+    pad = max(0.12 * (ymax - ymin), 0.15)
     ymin -= pad
     ymax += pad
     try
@@ -945,7 +980,7 @@ function coefficient_plot(
         label = estimate_label,
         xlabel = "Taxon index",
         ylabel = "Coefficient",
-        title = title,
+        title = plot_title,
         ylims = (ymin, ymax),
         color = :steelblue,
         markerstrokecolor = :steelblue,
@@ -953,7 +988,15 @@ function coefficient_plot(
         linewidth = 1.2,
         legend = :topright,
         grid = true,
-        size = (900, 420),
+        size = (1000, 520),
+        titlefontsize = 10,
+        guidefontsize = 10,
+        tickfontsize = 8,
+        legendfontsize = 8,
+        left_margin = 9Plots.mm,
+        right_margin = 7Plots.mm,
+        bottom_margin = 9Plots.mm,
+        top_margin = 9Plots.mm,
     )
     Plots.hline!(p, [0.0]; label = "", color = :gray, linestyle = :dash, linewidth = 1)
     if truth !== nothing
@@ -984,25 +1027,42 @@ end
 
 function _metric_values(rows::DataFrame, metric::Symbol)
     agg = combine(groupby(rows, [:prior, :estimate]), metric => _finite_mean => :value)
-    priors = unique(agg.prior)
-    estimates = unique(agg.estimate)
+    priors = sort(unique(agg.prior))
+    estimate_order = ["mean", "median", "MAP"]
+    estimates = sort(unique(agg.estimate); by = e -> begin
+        pos = findfirst(==(string(e)), estimate_order)
+        pos === nothing ? length(estimate_order) + 1 : pos
+    end)
     return agg, priors, estimates
 end
 
 function _metric_panel_plot(rows::DataFrame, metric::Symbol; title::AbstractString)
     agg, priors, estimates = _metric_values(rows, metric)
-    p = Plots.plot(; title = title, xlabel = "", ylabel = "", legend = false, grid = true)
+    p = Plots.plot(;
+        title = title,
+        xlabel = "",
+        ylabel = "",
+        legend = false,
+        grid = true,
+        gridalpha = 0.22,
+        framestyle = :box,
+        titlefontsize = 10,
+        tickfontsize = 7,
+        guidefontsize = 8,
+        left_margin = 6Plots.mm,
+        right_margin = 3Plots.mm,
+        bottom_margin = 7Plots.mm,
+        top_margin = 5Plots.mm,
+    )
     isempty(priors) && return p
     vals = [Float64(v) for v in agg.value if isfinite(Float64(v))]
     isempty(vals) && return p
-    ymin = metric == :Cindex ? 0.0 : min(0.0, minimum(vals))
-    ymax = metric == :Cindex ? 1.0 : max(0.0, maximum(vals))
-    ymax == ymin && (ymax += 1.0)
     xbase = collect(1:length(priors))
     n_est = max(length(estimates), 1)
-    bar_w = min(0.7 / n_est, 0.22)
+    bar_w = min(0.72 / n_est, 0.24)
     offsets = collect(range(-bar_w * (n_est - 1) / 2, bar_w * (n_est - 1) / 2; length = n_est))
-    palette = [:steelblue, :darkorange, :seagreen, :purple]
+    palette = ["#2F5D8C", "#5B8FC1", "#A9CBE8", "#6BAF92", "#B8D8BA"]
+    all_label_y = Float64[]
     for (k, est) in enumerate(estimates)
         xs = Float64[]
         ys = Float64[]
@@ -1014,6 +1074,7 @@ function _metric_panel_plot(rows::DataFrame, metric::Symbol; title::AbstractStri
             push!(xs, xbase[i] + offsets[k])
             push!(ys, Float64(value))
         end
+        isempty(xs) && continue
         Plots.bar!(
             p,
             xs,
@@ -1021,8 +1082,25 @@ function _metric_panel_plot(rows::DataFrame, metric::Symbol; title::AbstractStri
             bar_width = bar_w,
             label = string(est),
             color = palette[mod1(k, length(palette))],
+            linecolor = :white,
+            linewidth = 0.6,
+            fillalpha = 0.92,
         )
+        span = max(maximum(vals) - minimum(vals), 1e-6)
+        offset = max(0.025 * span, 1e-4)
+        for (x, y) in zip(xs, ys)
+            label_y = y >= 0 ? y + offset : y - offset
+            push!(all_label_y, label_y)
+            valign = y >= 0 ? :bottom : :top
+            Plots.annotate!(p, x, label_y, Plots.text(@sprintf("%.2f", y), 6, :center, valign))
+        end
     end
+    y_candidates = vcat(vals, [0.0], all_label_y)
+    ymin = metric == :Cindex ? 0.0 : minimum(y_candidates)
+    ymax = metric == :Cindex ? max(1.0, maximum(y_candidates)) : maximum(y_candidates)
+    span = max(ymax - ymin, 1e-6)
+    ymin -= metric == :Cindex ? 0.0 : 0.12 * span
+    ymax += 0.18 * span
     labels = [length(string(prior)) > 10 ? string(prior)[1:10] : string(prior) for prior in priors]
     Plots.plot!(
         p;
@@ -1054,9 +1132,10 @@ function metrics_plot(metrics::DataFrame, path::AbstractString; title = "Model m
     )
     p = Plots.plot(
         panels...;
-        layout = (1, 4),
+        layout = (2, 2),
         plot_title = title,
-        size = (1320, 360),
+        size = (1200, 850),
+        plot_titlefontsize = 13,
     )
     return _save_plots_vector(p, path)
 end

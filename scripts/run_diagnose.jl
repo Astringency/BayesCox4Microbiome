@@ -46,7 +46,7 @@ function main()
     top_k_beta = parse(Int, get(args, "top-k-beta", "10"))
     max_lag = parse(Int, get(args, "max-lag", "50"))
     rhat_threshold = parse(Float64, get(args, "rhat-threshold", "1.01"))
-    formats = get(args, "format", "png,pdf")
+    formats = get(args, "format", "pdf")
 
     result = diagnose_run(
         input;

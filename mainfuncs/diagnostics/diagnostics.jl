@@ -455,6 +455,8 @@ function _save_plot_all_formats(plot_obj, output_dir::AbstractString, stem::Abst
     return paths
 end
 
+_plot_margin(Plots, value::Real) = _call_latest(*, value, getproperty(Plots, :mm))
+
 function _plot_mcmc_chains(chains, output_dir::AbstractString, stem::AbstractString, seriestype::Symbol; formats, kwargs...)
     _configure_headless_gr!()
     _require_pkg(:StatsPlots)
@@ -463,7 +465,22 @@ function _plot_mcmc_chains(chains, output_dir::AbstractString, stem::AbstractStr
         _call_latest(getproperty(Plots, :gr))
     catch
     end
-    plot_obj = _call_latest(getproperty(Plots, :plot), chains; seriestype = seriestype, kwargs...)
+    n_params = max(size(chains, 2), 1)
+    plot_kwargs = merge(
+        (
+            seriestype = seriestype,
+            size = (1050, max(680, 150 * n_params)),
+            left_margin = _plot_margin(Plots, 5),
+            right_margin = _plot_margin(Plots, 3),
+            bottom_margin = _plot_margin(Plots, 4),
+            top_margin = _plot_margin(Plots, 4),
+            tickfontsize = 7,
+            guidefontsize = 9,
+            titlefontsize = 10,
+        ),
+        NamedTuple(kwargs),
+    )
+    plot_obj = _call_latest(getproperty(Plots, :plot), chains; plot_kwargs...)
     return _save_plot_all_formats(plot_obj, output_dir, stem, formats)
 end
 
@@ -501,6 +518,11 @@ function _save_rhat_plots(summary::DataFrame, output_dir::AbstractString; rhat_t
             ylabel = "R-hat",
             label = "beta",
             title = "R-hat by beta index",
+            size = (850, 520),
+            left_margin = _plot_margin(Plots, 9),
+            right_margin = _plot_margin(Plots, 6),
+            bottom_margin = _plot_margin(Plots, 8),
+            top_margin = _plot_margin(Plots, 7),
         )
         _call_latest(getproperty(Plots, :hline!), p, [Float64(rhat_threshold)]; label = "threshold")
         append!(paths, _save_plot_all_formats(p, output_dir, "rhat_scatter", formats))
@@ -513,6 +535,11 @@ function _save_rhat_plots(summary::DataFrame, output_dir::AbstractString; rhat_t
             ylabel = "count",
             label = "parameters",
             title = "R-hat histogram",
+            size = (850, 520),
+            left_margin = _plot_margin(Plots, 9),
+            right_margin = _plot_margin(Plots, 6),
+            bottom_margin = _plot_margin(Plots, 8),
+            top_margin = _plot_margin(Plots, 7),
         )
         _call_latest(getproperty(Plots, :vline!), p, [Float64(rhat_threshold)]; label = "threshold")
         append!(paths, _save_plot_all_formats(p, output_dir, "rhat_histogram", formats))
@@ -538,7 +565,7 @@ function save_diagnostic_outputs(
     top_k_beta::Integer = 10,
     max_lag::Integer = 50,
     rhat_threshold::Real = 1.01,
-    formats = "png,pdf",
+    formats = "pdf",
     plots::Bool = true,
 )
     mkpath(output_dir)
@@ -587,7 +614,7 @@ function save_diagnostic_outputs(
     top_k_beta::Integer = 10,
     max_lag::Integer = 50,
     rhat_threshold::Real = 1.01,
-    formats = "png,pdf",
+    formats = "pdf",
     plots::Bool = true,
 )
     return save_diagnostic_outputs(
@@ -610,7 +637,7 @@ function diagnose_run(
     top_k_beta::Integer = 10,
     max_lag::Integer = 50,
     rhat_threshold::Real = 1.01,
-    formats = "png,pdf",
+    formats = "pdf",
     plots::Bool = true,
 )
     mkpath(output_dir)

@@ -6,7 +6,7 @@ function _validate_prior(prior::HorseshoePrior)
 end
 
 function _resolved_tau_scale(prior::HorseshoePrior, p::Integer, n_events::Integer)
-    return prior.use_cox_tau0 ? cox_tau0(p, prior.p0, n_events) : prior.tau_scale
+    return prior.use_cox_tau0 ? prior.tau_scale * cox_tau0(p, prior.p0, n_events) : prior.tau_scale
 end
 
 function _state_names(::HorseshoePrior, p::Integer)

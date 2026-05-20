@@ -41,30 +41,46 @@ function write_simulation_plots(
         joinpath(figs_dir, "coef_median_$label.pdf"),
         joinpath(figs_dir, "coef_map_$label.pdf"),
     ]
-    if !all(file_complete, coef_paths)
-        coefficient_plot(
-            summary,
-            coef_paths[1];
-            truth = sim.beta,
-            title = "Simulation $prior $baseline n=$n p=$p nonzero=$nonzero",
-            estimate = :mean,
-        )
-        coefficient_plot(
-            summary,
-            coef_paths[2];
-            truth = sim.beta,
-            title = "Simulation $prior median $baseline n=$n p=$p nonzero=$nonzero",
-            estimate = :median,
-        )
-        coefficient_plot(
-            summary,
-            coef_paths[3];
-            truth = sim.beta,
-            title = "Simulation $prior MAP $baseline n=$n p=$p nonzero=$nonzero",
-            estimate = :map,
-        )
-    end
+    coefficient_plot(
+        summary,
+        coef_paths[1];
+        truth = sim.beta,
+        title = "Simulation $prior $baseline n=$n p=$p nonzero=$nonzero",
+        estimate = :mean,
+    )
+    coefficient_plot(
+        summary,
+        coef_paths[2];
+        truth = sim.beta,
+        title = "Simulation $prior median $baseline n=$n p=$p nonzero=$nonzero",
+        estimate = :median,
+    )
+    coefficient_plot(
+        summary,
+        coef_paths[3];
+        truth = sim.beta,
+        title = "Simulation $prior MAP $baseline n=$n p=$p nonzero=$nonzero",
+        estimate = :map,
+    )
     return nothing
+end
+
+function _diagnostic_format_list(formats)
+    raw =
+        formats isa AbstractString ? strip.(split(formats, ",")) :
+        formats isa AbstractVector || formats isa Tuple ? strip.(string.(formats)) :
+        [strip(string(formats))]
+    return [lowercase(fmt) for fmt in raw if !isempty(fmt)]
+end
+
+function simulation_diagnostic_outputs_complete(run_dir::AbstractString, formats; make_plots::Bool)
+    diag_dir = joinpath(run_dir, "diagnose")
+    file_complete(joinpath(diag_dir, "diagnostics_summary.csv")) || return false
+    make_plots || return true
+    fmt_list = _diagnostic_format_list(formats)
+    isempty(fmt_list) && return true
+    stems = ("traceplot", "density", "acf")
+    return all(file_complete(joinpath(diag_dir, "$stem.$fmt")) for stem in stems for fmt in fmt_list)
 end
 
 function write_simulation_diagnostics_from_result(
@@ -78,7 +94,7 @@ function write_simulation_diagnostics_from_result(
     diagnose_top_k_beta::Integer,
     diagnose_max_lag::Integer,
 )
-    if diagnose && !file_complete(joinpath(run_dir, "diagnose", "diagnostics_summary.csv"))
+    if diagnose && !simulation_diagnostic_outputs_complete(run_dir, diagnose_formats; make_plots = make_plots)
         nonzero_diagnostic_params = join(("beta[$j]" for j in findall(!iszero, sim.beta)), ",")
         try
             save_diagnostic_outputs(
@@ -108,7 +124,7 @@ function write_simulation_diagnostics_from_saved_run(
     diagnose_top_k_beta::Integer,
     diagnose_max_lag::Integer,
 )
-    if diagnose && !file_complete(joinpath(run_dir, "diagnose", "diagnostics_summary.csv"))
+    if diagnose && !simulation_diagnostic_outputs_complete(run_dir, diagnose_formats; make_plots = make_plots)
         nonzero_diagnostic_params = join(("beta[$j]" for j in findall(!iszero, sim.beta)), ",")
         try
             diagnose_run(
@@ -192,7 +208,7 @@ function main()
     mala_max_step = arg(args, "mala-max-step", 1.0)
     diagnose = arg(args, "diagnose", true)
     debug = arg(args, "debug", false)
-    diagnose_formats = get(args, "diagnose-format", "png")
+    diagnose_formats = get(args, "diagnose-format", "pdf")
     diagnose_top_k_beta = arg(args, "diagnose-top-k-beta", 10)
     diagnose_max_lag = arg(args, "diagnose-max-lag", 50)
     resume = debug ? false : arg(args, "resume", true)
@@ -206,6 +222,10 @@ function main()
     first_rep_sample_thin = max(1, arg(args, "first-rep-sample-thin", 1))
     save_wide_csv = arg(args, "save-wide-csv", true)
     save_jld2 = arg(args, "save-jld2", false)
+    prior_kwargs = prior_hyperparameter_kwargs(args)
+    prior_metadata = prior_hyperparameter_metadata(prior_kwargs)
+    alpha_prior_shape = optional_float_arg(args, "alpha-prior-shape", "prox-alpha-prior-shape")
+    alpha_prior_rate = optional_float_arg(args, "alpha-prior-rate", "prox-alpha-prior-rate")
     reject_removed_args!(
         args,
         (
@@ -258,7 +278,7 @@ function main()
             run_dir = joinpath(outdir, "runs", label)
             coef_path = joinpath(tables_dir, "coef_$label.csv")
             should_plot = !plot_first_rep_only || rep == 1
-            expected_metadata = Dict(
+            expected_metadata = merge(Dict(
                 "baseline_rate" => sim.baseline_rate,
                 "baseline_scale" => sim.baseline_scale,
                 "baseline_shape" => sim.baseline_shape,
@@ -276,13 +296,15 @@ function main()
                 "constraint" => string(constraint),
                 "use_car" => actual_use_car,
                 "car_distance" => string(car_distance),
+                "alpha_prior_shape" => alpha_prior_shape,
+                "alpha_prior_rate" => alpha_prior_rate,
                 "pseudocount" => pseudocount,
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
                 "tau_scale_mode" => tau_scale_mode,
                 "seed" => sim_seed,
                 "git_commit_hash" => BayesCox4Micro._git_commit_hash(),
-            )
+            ), prior_metadata)
             if resume && simulation_run_recoverable(run_dir) && simulation_metadata_matches(run_dir, expected_metadata)
                 try
                     recovered = load_or_recover_simulation_run(
@@ -356,6 +378,8 @@ function main()
                 soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = alpha_prior_shape,
+                alpha_prior_rate = alpha_prior_rate,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
                 mala_step_size = mala_step_size,
@@ -363,6 +387,7 @@ function main()
                 mala_adapt_every = mala_adapt_every,
                 mala_min_step = mala_min_step,
                 mala_max_step = mala_max_step,
+                prior_kwargs...,
                 progress = progress,
             )
             summary = copy(fit.summary)
@@ -382,6 +407,7 @@ function main()
                 baseline = baseline,
                 prior = prior,
             )
+            add_prior_hyperparameter_columns!(metrics, prior_kwargs)
             fd_table = simulation_false_discovery_table(
                 sim,
                 summary;
@@ -399,69 +425,76 @@ function main()
             write_table(joinpath(run_dir, "metrics.csv"), metrics)
             write_table(joinpath(run_dir, "false_discovery.csv"), fd_table)
             saved_sample_thin = should_plot ? first_rep_sample_thin : sample_thin
+            metadata = merge(Dict(
+                "simulation_id" => label,
+                "replicate_id" => rep,
+                "method_name" => prior,
+                "prior" => prior,
+                "prior_name" => prior,
+                "sampler" => string(sampler),
+                "nuts_backend" => string(nuts_backend),
+                "baseline" => string(baseline),
+                "baseline_rate" => sim.baseline_rate,
+                "baseline_scale" => sim.baseline_scale,
+                "baseline_shape" => sim.baseline_shape,
+                "n" => n,
+                "p" => p,
+                "nonzero_count" => nonzero,
+                "p0" => p0_value,
+                "pseudocount" => pseudocount,
+                "standardize" => standardize,
+                "tie_method" => string(tie_method),
+                "tau_scale_mode" => tau_scale_mode,
+                "censoring_distribution" => string(sim.censoring_distribution),
+                "censoring_upper" => sim.censoring_upper,
+                "observed_censoring_rate" => mean(sim.event .== 0),
+                "observed_event_rate" => mean(sim.event .!= 0),
+            ), prior_metadata, Dict(
+                "alpha_prior_shape" => alpha_prior_shape,
+                "alpha_prior_rate" => alpha_prior_rate,
+            ))
+            settings = merge(Dict(
+                "samples" => n_samples,
+                "n_samples" => n_samples,
+                "warmup" => warmup,
+                "chains" => chains,
+                "multichains" => multichains,
+                "target_accept" => target_accept,
+                "seed" => sim_seed,
+                "thin" => thin,
+                "saved_sample_thin" => saved_sample_thin,
+                "constraint" => string(constraint),
+                "soft_center_scale" => soft_center_scale,
+                "prox_sum0_lambda" => prox_sum0_lambda,
+                "prox_l1_lambda" => prox_l1_lambda,
+                "alpha_prior_shape" => alpha_prior_shape,
+                "alpha_prior_rate" => alpha_prior_rate,
+                "prox_root_tol" => prox_root_tol,
+                "prox_root_maxiter" => prox_root_maxiter,
+                "mala_step_size" => mala_step_size,
+                "mala_target_accept" => mala_target_accept,
+                "mala_adapt_every" => mala_adapt_every,
+                "mala_min_step" => mala_min_step,
+                "mala_max_step" => mala_max_step,
+                "use_car" => actual_use_car,
+                "car_distance" => string(car_distance),
+                "pseudocount" => pseudocount,
+                "standardize" => standardize,
+                "tie_method" => string(tie_method),
+                "tau_scale_mode" => tau_scale_mode,
+                "p0_alpha" => p0_alpha,
+                "baseline_rate" => sim.baseline_rate,
+                "baseline_scale" => sim.baseline_scale,
+                "baseline_shape" => sim.baseline_shape,
+                "censoring_distribution" => string(sim.censoring_distribution),
+                "censoring_upper" => sim.censoring_upper,
+            ), prior_metadata)
             save_run_outputs(
                 fit.result;
                 output_dir = run_dir,
                 run_id = label,
-                metadata = Dict(
-                    "simulation_id" => label,
-                    "replicate_id" => rep,
-                    "method_name" => prior,
-                    "prior" => prior,
-                    "prior_name" => prior,
-                    "sampler" => string(sampler),
-                    "nuts_backend" => string(nuts_backend),
-                    "baseline" => string(baseline),
-                    "baseline_rate" => sim.baseline_rate,
-                    "baseline_scale" => sim.baseline_scale,
-                    "baseline_shape" => sim.baseline_shape,
-                    "n" => n,
-                    "p" => p,
-                    "nonzero_count" => nonzero,
-                    "p0" => p0_value,
-                    "pseudocount" => pseudocount,
-                    "standardize" => standardize,
-                    "tie_method" => string(tie_method),
-                    "tau_scale_mode" => tau_scale_mode,
-                    "censoring_distribution" => string(sim.censoring_distribution),
-                    "censoring_upper" => sim.censoring_upper,
-                    "observed_censoring_rate" => mean(sim.event .== 0),
-                    "observed_event_rate" => mean(sim.event .!= 0),
-                ),
-                settings = Dict(
-                    "samples" => n_samples,
-                    "n_samples" => n_samples,
-                    "warmup" => warmup,
-                    "chains" => chains,
-                    "multichains" => multichains,
-                    "target_accept" => target_accept,
-                    "seed" => sim_seed,
-                    "thin" => thin,
-                    "saved_sample_thin" => saved_sample_thin,
-                    "constraint" => string(constraint),
-                    "soft_center_scale" => soft_center_scale,
-                    "prox_sum0_lambda" => prox_sum0_lambda,
-                    "prox_l1_lambda" => prox_l1_lambda,
-                    "prox_root_tol" => prox_root_tol,
-                    "prox_root_maxiter" => prox_root_maxiter,
-                    "mala_step_size" => mala_step_size,
-                    "mala_target_accept" => mala_target_accept,
-                    "mala_adapt_every" => mala_adapt_every,
-                    "mala_min_step" => mala_min_step,
-                    "mala_max_step" => mala_max_step,
-                    "use_car" => actual_use_car,
-                    "car_distance" => string(car_distance),
-                    "pseudocount" => pseudocount,
-                    "standardize" => standardize,
-                    "tie_method" => string(tie_method),
-                    "tau_scale_mode" => tau_scale_mode,
-                    "p0_alpha" => p0_alpha,
-                    "baseline_rate" => sim.baseline_rate,
-                    "baseline_scale" => sim.baseline_scale,
-                    "baseline_shape" => sim.baseline_shape,
-                    "censoring_distribution" => string(sim.censoring_distribution),
-                    "censoring_upper" => sim.censoring_upper,
-                ),
+                metadata = metadata,
+                settings = settings,
                 posterior_summary = summary,
                 save_wide_csv = save_wide_csv,
                 save_jld2 = save_jld2,

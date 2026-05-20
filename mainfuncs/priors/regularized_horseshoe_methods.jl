@@ -23,8 +23,8 @@ function _resolved_tau_scale(
     formula = _resolved_tau_formula(prior)
     default_sigma = prior.sample_pseudo_sigma ? sqrt(prior.pseudo_sigma_scale) : 1.0
     n_linear = n_obs === nothing ? n_events : n_obs
-    return formula == :cox ? cox_tau0(p, prior.p0, n_events) :
-           formula == :linear ? linear_tau0(p, prior.p0, n_linear, something(prior.pseudo_sigma, default_sigma)) :
+    return formula == :cox ? prior.tau_scale * cox_tau0(p, prior.p0, n_events) :
+           formula == :linear ? prior.tau_scale * linear_tau0(p, prior.p0, n_linear, something(prior.pseudo_sigma, default_sigma)) :
            prior.tau_scale
 end
 
@@ -35,8 +35,8 @@ function _resolved_tau_scale(
 )
     p = size(data.z, 2)
     formula = _resolved_tau_formula(prior)
-    return formula == :cox ? cox_tau0(p, prior.p0, count(!=(0), data.event)) :
-           formula == :linear ? linear_tau0(p, prior.p0, size(data.z, 1), something(pseudo_sigma, 1.0)) :
+    return formula == :cox ? prior.tau_scale * cox_tau0(p, prior.p0, count(!=(0), data.event)) :
+           formula == :linear ? prior.tau_scale * linear_tau0(p, prior.p0, size(data.z, 1), something(pseudo_sigma, 1.0)) :
            prior.tau_scale
 end
 

@@ -11,6 +11,19 @@ include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
         @test sum(beta) ≈ 0.0 atol = 1e-12
     end
 
+    @testset "paper covariance only correlates true nonzeros" begin
+        p = 50
+        _, idx = true_beta(p, 6)
+        sigma = Matrix(paper_covariance(p, idx))
+        @test diag(sigma) == ones(p)
+        @test sigma[18, 20] ≈ 0.75 - 0.015 * abs(18 - 20)
+        @test sigma[18, 28] ≈ 0.75 - 0.015 * abs(18 - 28)
+        @test sigma[1, 2] == 0.0
+        @test sigma[18, 19] == 0.0
+        @test sigma[17, 20] == 0.0
+        @test isposdef(Symmetric(sigma))
+    end
+
     @testset "generated event process $baseline" for baseline in (:weibull, :exponential, :gompertz)
         sim = generate_simulation_data(200, 50, 6; baseline = baseline, seed = 11)
         @test all(isapprox.(vec(sum(sim.X; dims = 2)), 1.0; atol = 1e-12, rtol = 1e-12))
