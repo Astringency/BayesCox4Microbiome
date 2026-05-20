@@ -264,14 +264,15 @@ results/simulation/
 The long posterior sample CSV is not written. Diagnostics and recovery use
 `result_bundle.jld2` when present, otherwise `samples_wide.csv`.
 
-For focused MSE tuning, use the hyperparameter grid runner:
+For focused C-index tuning, use the hyperparameter grid runner:
 
 ```powershell
 julia --project=. scripts\tune_prior_hyperparams.jl --priors rhs,lasso,sslasso --samples 200 --warmup 100 --chains 2 --p0 truth
 ```
 
-It writes `hyperparam_tuning_metrics.csv` and a sorted
-`hyperparam_tuning_summary.csv` under the selected `--outdir`.
+It writes `hyperparam_tuning_metrics.csv` and a `Cindex_mean`-sorted
+`hyperparam_tuning_summary.csv` under the selected `--outdir`. MSE is kept as
+a simulation-only reference column when the true coefficients are available.
 The tuning runner also accepts grid options such as `--hs-p0-grid`,
 `--rhs-local-scale-grid`, `--prox-l1-lambda-grid`, and
 `--alpha-prior-shape-grid` for CoxHS/CoxRHS and proximal priors.

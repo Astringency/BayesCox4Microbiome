@@ -292,8 +292,8 @@ function main()
                     add_config_columns!(metrics, config)
                     append!(rows, metrics; cols = :union)
                     CSV.write(outpath, rows)
-                    best = minimum(skipmissing(metrics.MSE))
-                    println("prior=$prior config=$(config.label) best_mse=$best")
+                    best = maximum(skipmissing(metrics.Cindex))
+                    println("prior=$prior config=$(config.label) best_cindex=$best")
                 catch err
                     append_error_row!(
                         rows;
@@ -316,19 +316,27 @@ function main()
         end
     end
 
-    if nrow(rows) > 0 && :MSE in propertynames(rows)
+    if nrow(rows) > 0 && :Cindex in propertynames(rows)
         ok = rows[rows.estimate .!= "error", :]
         if nrow(ok) > 0
             group_cols = [c for c in [:prior, :config_label, :estimate, :n, :p, :nonzero_count, :baseline] if c in propertynames(ok)]
-            summary = combine(
-                groupby(ok, group_cols),
-                :MSE => mean => :MSE_mean,
-                :MSE => std => :MSE_sd,
+            summary_specs = Any[
                 :Cindex => mean => :Cindex_mean,
+                :Cindex => std => :Cindex_sd,
                 :LPML => mean => :LPML_mean,
                 :ELPD_LOO => mean => :ELPD_LOO_mean,
-            )
-            sort!(summary, :MSE_mean)
+            ]
+            if :MSE in propertynames(ok)
+                append!(
+                    summary_specs,
+                    Any[
+                        :MSE => mean => :MSE_mean,
+                        :MSE => std => :MSE_sd,
+                    ],
+                )
+            end
+            summary = combine(groupby(ok, group_cols), summary_specs...)
+            sort!(summary, :Cindex_mean; rev = true)
             CSV.write(summary_path, summary)
             show(first(summary, min(20, nrow(summary))); allrows = true, allcols = true)
             println()

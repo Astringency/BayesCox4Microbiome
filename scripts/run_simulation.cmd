@@ -23,7 +23,7 @@ julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --p "%test_p%" ^
     --nonzero "%test_nonzero%" ^
     --baseline "%test_baseline%" ^
-    --priors prox-lasso,prox-sslasso ^
+    --priors prox-lasso ^
     --constraint prox ^
     --target-accept 0.95 ^
     --seed 1 ^
@@ -32,6 +32,8 @@ julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --p0 truth ^
     --p0-alpha 0.05 ^
     --standardize false ^
+    --alpha-prior-shape 28 ^
+    --alpha-prior-rate 1 ^
     --outdir "results/simulation/test_n%test_n%_p%test_p%_non%test_nonzero%_%test_baseline%_%timestamp%"
 
 REM explicit turing 
