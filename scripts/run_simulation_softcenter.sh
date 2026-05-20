@@ -48,47 +48,48 @@ status=0
 n_vals=(200 400)
 p_vals=(50 150)
 non_vals=(6 12)
-# p_vals=(50 150 300)
 baseline_vals=("weibull" "exponential" "gompertz")
 
+pids=()
+
 for n in "${n_vals[@]}"; do
-    for p in "${p_vals[@]}"; do
+  for p in "${p_vals[@]}"; do
+    for nonzero in "${non_vals[@]}"; do
+
+      (
         for baseline in "${baseline_vals[@]}"; do
-            for nonzero in "${non_vals[@]}"; do
+          echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
 
-                echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coefs with ${baseline} baseline."
-
-                julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
-                    --sampler nuts \
-                    --nuts-backend explicit \
-                    --samples 5000 \
-                    --warmup 4000 \
-                    --chains 4 \
-                    --reps 50 \
-                    --n $n \
-                    --p $p \
-                    --nonzero $nonzero \
-                    --baseline $baseline \
-                    --constraint soft_center \
-                    --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso \
-                    --target-accept 0.9 \
-                    --seed 1 \
-                    --use-car true \
-                    --car-distance bray \
-                    --p0 truth \
-                    --p0-alpha 0.05 \
-                    --outdir /large_storage/zhangxf/BayesCox/results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline} &
-                pids+=("$!")
-            done
+          julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
+            --sampler nuts \
+            --nuts-backend explicit \
+            --samples 5000 \
+            --warmup 2000 \
+            --chains 4 \
+            --reps 50 \
+            --n "$n" \
+            --p "$p" \
+            --nonzero "$nonzero" \
+            --baseline "$baseline" \
+            --constraint soft_center \
+            --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso \
+            --target-accept 0.95 \
+            --seed 1 \
+            --use-car true \
+            --car-distance bray \
+            --p0 truth \
+            --p0-alpha 0.05 \
+            --outdir "/large_storage/zhangxf/BayesCox/results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}"
         done
+      ) &
+
+      pids+=("$!")
+
     done
+  done
 done
 
-for pid in "${pids[@]}"; do
-    if ! wait "$pid"; then
-        status=1
-    fi
-done
+wait "${pids[@]}"
 
 if [[ "$status" -ne 0 ]]; then
     echo "SIMULATION FAILED!" >&2
