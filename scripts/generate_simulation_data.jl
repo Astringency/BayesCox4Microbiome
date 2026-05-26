@@ -88,6 +88,22 @@ end
 
 function main()
     args = parse_cli_args()
+    require_known_args!(
+        args,
+        vcat(
+            (
+                "outdir",
+                "reps",
+                "n",
+                "p",
+                "nonzero",
+                "baseline",
+                "seed",
+                "save-data",
+            ),
+            BASELINE_PARAMETER_CLI_KEYS,
+        ),
+    )
     outdir = arg(args, "outdir", joinpath("results", "simulation_data"))
     reps = arg(args, "reps", 1)
     ns = split_ints(arg(args, "n", "200"))
@@ -95,20 +111,6 @@ function main()
     nonzeros = split_ints(arg(args, "nonzero", "6"))
     baselines = split_symbols(arg(args, "baseline", "weibull"))
     seed0 = arg(args, "seed", 1)
-    reject_removed_args!(
-        args,
-        (
-            "tmax",
-            "censoring-distribution",
-            "censoring-upper",
-            "censoring-ratio",
-            "censor-ratio",
-            "cencor-ratio",
-            "cencor_ratio",
-            "cencor-upper",
-            "cencor_upper",
-        ),
-    )
     save_data = arg(args, "save-data", false)
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))

@@ -126,7 +126,6 @@ function _full_logposterior_gradient_beta(
     data::CoxPreparedData,
     prior::AbstractCoxPrior;
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
 )
     p = size(data.z, 2)
@@ -136,7 +135,6 @@ function _full_logposterior_gradient_beta(
         grad,
         beta;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
     )
 
@@ -201,7 +199,6 @@ function _hybrid_beta_mala(
     min_step::Real,
     max_step::Real,
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     car_weights,
     use_car::Bool,
@@ -242,7 +239,6 @@ function _hybrid_beta_mala(
         data,
         prior;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         car_weights = car_weights,
         use_car = use_car,
@@ -253,7 +249,6 @@ function _hybrid_beta_mala(
         data,
         prior;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
     )
     beta_logpost = b -> begin
@@ -369,7 +364,6 @@ function _hybrid_beta_ula(
     mala_step_size::Real,
     initial_step::Union{Real,AbstractVector{<:Real}},
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     car_weights,
     use_car::Bool,
@@ -404,7 +398,6 @@ function _hybrid_beta_ula(
         data,
         prior;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         car_weights = car_weights,
         use_car = use_car,
@@ -415,7 +408,6 @@ function _hybrid_beta_ula(
         data,
         prior;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
     )
 
@@ -478,175 +470,6 @@ function _hybrid_beta_ula(
     return MHSamples(draws, lps, names, sample_rate, warmup_rate, vcat(fill(gamma_L, p), hyper_step))
 end
 
-function _lasso_prox_logposterior(
-    u::AbstractVector,
-    data::CoxPreparedData,
-    prior::BayesianLassoPrior;
-    constraint::Symbol,
-    soft_center_scale::Real,
-    prox_sum0_lambda::Real,
-    prox_l1_lambda::Real,
-    alpha_prior_shape::Real,
-    alpha_prior_rate::Real,
-    prox_root_tol::Real,
-    prox_root_maxiter::Integer,
-)
-    p = size(data.z, 2)
-    beta = view(u, 1:p)
-    eta = u[p + 1]
-    alpha = exp(clamp(eta, -700.0, 700.0))
-    lp = cox_logpartiallikelihood(data, beta)
-    lp += _constraint_logpenalty(
-        beta;
-        constraint = constraint,
-        soft_center_scale = soft_center_scale,
-        prox_sum0_lambda = prox_sum0_lambda,
-    )
-    lp -= l1_moreau(beta, alpha, prox_l1_lambda; prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
-    lp += -Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) * eta
-    return lp
-end
-
-mutable struct ProxGradientWorkspace
-    cox::CoxGradientWorkspace
-    prox_beta::Vector{Float64}
-    weights::Vector{Float64}
-end
-
-function ProxGradientWorkspace(data::CoxPreparedData)
-    p = size(data.z, 2)
-    return ProxGradientWorkspace(CoxGradientWorkspace(data), Vector{Float64}(undef, p), Vector{Float64}(undef, p))
-end
-
-function _lasso_prox_gradient(
-    u::AbstractVector,
-    data::CoxPreparedData;
-    constraint::Symbol,
-    soft_center_scale::Real,
-    prox_sum0_lambda::Real,
-    prox_l1_lambda::Real,
-    alpha_prior_shape::Real,
-    alpha_prior_rate::Real,
-    prox_root_tol::Real,
-    prox_root_maxiter::Integer,
-)
-    grad = zeros(Float64, length(u))
-    work = ProxGradientWorkspace(data)
-    return _lasso_prox_gradient!(
-        grad,
-        u,
-        data,
-        work;
-        constraint = constraint,
-        soft_center_scale = soft_center_scale,
-        prox_sum0_lambda = prox_sum0_lambda,
-        prox_l1_lambda = prox_l1_lambda,
-        alpha_prior_shape = alpha_prior_shape,
-        alpha_prior_rate = alpha_prior_rate,
-        prox_root_tol = prox_root_tol,
-        prox_root_maxiter = prox_root_maxiter,
-    )
-end
-
-function _lasso_prox_gradient!(
-    grad::AbstractVector{Float64},
-    u::AbstractVector,
-    data::CoxPreparedData,
-    work::ProxGradientWorkspace;
-    constraint::Symbol,
-    soft_center_scale::Real,
-    prox_sum0_lambda::Real,
-    prox_l1_lambda::Real,
-    alpha_prior_shape::Real,
-    alpha_prior_rate::Real,
-    prox_root_tol::Real,
-    prox_root_maxiter::Integer,
-)
-    p = size(data.z, 2)
-    length(u) == p + 1 || throw(DimensionMismatch("u length must be p + 1 for prox LASSO."))
-    length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox LASSO."))
-    beta = view(u, 1:p)
-    eta = u[p + 1]
-    alpha, alpha_deriv = _clamped_exp_with_derivative(eta, -700.0, 700.0)
-    lambda_l1 = _check_positive(prox_l1_lambda, "prox_l1_lambda")
-    prox = project_l1_epigraph!(
-        work.prox_beta,
-        beta,
-        alpha;
-        prox_root_tol = prox_root_tol,
-        prox_root_maxiter = prox_root_maxiter,
-    )
-    cox_score_gradient!(view(grad, 1:p), data, beta, work.cox)
-    _constraint_gradient_penalty!(
-        view(grad, 1:p),
-        beta;
-        constraint = constraint,
-        soft_center_scale = soft_center_scale,
-        prox_sum0_lambda = prox_sum0_lambda,
-    )
-    @inbounds for j in 1:p
-        grad[j] -= (Float64(beta[j]) - prox.beta[j]) / lambda_l1
-    end
-    grad[p + 1] = Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) -
-        alpha_deriv * (alpha - prox.alpha) / lambda_l1
-    return grad
-end
-
-function _lasso_prox_logposterior_and_gradient!(
-    grad::AbstractVector{Float64},
-    u::AbstractVector,
-    data::CoxPreparedData,
-    work::ProxGradientWorkspace;
-    constraint::Symbol,
-    soft_center_scale::Real,
-    prox_sum0_lambda::Real,
-    prox_l1_lambda::Real,
-    alpha_prior_shape::Real,
-    alpha_prior_rate::Real,
-    prox_root_tol::Real,
-    prox_root_maxiter::Integer,
-)
-    p = size(data.z, 2)
-    length(u) == p + 1 || throw(DimensionMismatch("u length must be p + 1 for prox LASSO."))
-    length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox LASSO."))
-    beta = view(u, 1:p)
-    eta = u[p + 1]
-    alpha, alpha_deriv = _clamped_exp_with_derivative(eta, -700.0, 700.0)
-    lambda_l1 = _check_positive(prox_l1_lambda, "prox_l1_lambda")
-    prox = project_l1_epigraph!(
-        work.prox_beta,
-        beta,
-        alpha;
-        prox_root_tol = prox_root_tol,
-        prox_root_maxiter = prox_root_maxiter,
-    )
-    lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work.cox)
-    lp += _constraint_logpenalty(
-        beta;
-        constraint = constraint,
-        soft_center_scale = soft_center_scale,
-        prox_sum0_lambda = prox_sum0_lambda,
-    )
-    _constraint_gradient_penalty!(
-        view(grad, 1:p),
-        beta;
-        constraint = constraint,
-        soft_center_scale = soft_center_scale,
-        prox_sum0_lambda = prox_sum0_lambda,
-    )
-    dist2 = (Float64(alpha) - Float64(prox.alpha))^2
-    @inbounds for j in 1:p
-        residual = Float64(beta[j]) - Float64(prox.beta[j])
-        dist2 += residual^2
-        grad[j] -= residual / lambda_l1
-    end
-    lp -= 0.5 * dist2 / lambda_l1
-    lp += -Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) * eta
-    grad[p + 1] = Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) -
-        alpha_deriv * (Float64(alpha) - Float64(prox.alpha)) / lambda_l1
-    return lp, grad
-end
-
 function _sample_lasso_prox_mala(
     data::CoxPreparedData,
     prior::BayesianLassoPrior;
@@ -661,7 +484,6 @@ function _sample_lasso_prox_mala(
     mala_min_step::Real,
     mala_max_step::Real,
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
@@ -681,7 +503,6 @@ function _sample_lasso_prox_mala(
         data,
         prior;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
@@ -693,7 +514,6 @@ function _sample_lasso_prox_mala(
         u,
         data;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
@@ -708,7 +528,6 @@ function _sample_lasso_prox_mala(
         data,
         work;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
@@ -840,204 +659,6 @@ function _run_full_ula(
     return MHSamples(draws, lps, names, NaN, NaN, fill(gamma_L, d))
 end
 
-function _ssl_weights(prior::SpikeSlabLassoPrior, gamma::AbstractVector{Bool})
-    weights = Vector{Float64}(undef, length(gamma))
-    return _ssl_weights!(weights, prior, gamma)
-end
-
-function _ssl_weights!(
-    weights::AbstractVector{Float64},
-    prior::SpikeSlabLassoPrior,
-    gamma::AbstractVector{Bool},
-)
-    length(weights) == length(gamma) ||
-        throw(DimensionMismatch("weights length must match gamma."))
-    spike_weight = inv(prior.spike_scale)
-    slab_weight = inv(prior.slab_scale)
-    @inbounds for j in eachindex(gamma)
-        weights[j] = gamma[j] ? slab_weight : spike_weight
-    end
-    return weights
-end
-
-function _ssl_prox_logposterior(
-    u::AbstractVector,
-    data::CoxPreparedData,
-    prior::SpikeSlabLassoPrior,
-    gamma::AbstractVector{Bool},
-    theta::Real;
-    constraint::Symbol,
-    soft_center_scale::Real,
-    prox_sum0_lambda::Real,
-    prox_l1_lambda::Real,
-    alpha_prior_shape::Real,
-    alpha_prior_rate::Real,
-    prox_root_tol::Real,
-    prox_root_maxiter::Integer,
-)
-    p = size(data.z, 2)
-    beta = view(u, 1:p)
-    eta = u[p + 1]
-    alpha = exp(clamp(eta, -700.0, 700.0))
-    weights = _ssl_weights(prior, gamma)
-    lp = cox_logpartiallikelihood(data, beta)
-    lp += _constraint_logpenalty(
-        beta;
-        constraint = constraint,
-        soft_center_scale = soft_center_scale,
-        prox_sum0_lambda = prox_sum0_lambda,
-    )
-    lp -= weighted_l1_moreau(beta, alpha, weights, prox_l1_lambda; prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
-    lp += -Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) * eta
-    theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
-    lp += sum(gamma) * log(theta_clamped) + (length(gamma) - sum(gamma)) * log1p(-theta_clamped)
-    return lp
-end
-
-function _ssl_prox_gradient(
-    u::AbstractVector,
-    data::CoxPreparedData,
-    prior::SpikeSlabLassoPrior,
-    gamma::AbstractVector{Bool};
-    constraint::Symbol,
-    soft_center_scale::Real,
-    prox_sum0_lambda::Real,
-    prox_l1_lambda::Real,
-    alpha_prior_shape::Real,
-    alpha_prior_rate::Real,
-    prox_root_tol::Real,
-    prox_root_maxiter::Integer,
-)
-    grad = zeros(Float64, length(u))
-    work = ProxGradientWorkspace(data)
-    return _ssl_prox_gradient!(
-        grad,
-        u,
-        data,
-        prior,
-        gamma,
-        work;
-        constraint = constraint,
-        soft_center_scale = soft_center_scale,
-        prox_sum0_lambda = prox_sum0_lambda,
-        prox_l1_lambda = prox_l1_lambda,
-        alpha_prior_shape = alpha_prior_shape,
-        alpha_prior_rate = alpha_prior_rate,
-        prox_root_tol = prox_root_tol,
-        prox_root_maxiter = prox_root_maxiter,
-    )
-end
-
-function _ssl_prox_gradient!(
-    grad::AbstractVector{Float64},
-    u::AbstractVector,
-    data::CoxPreparedData,
-    prior::SpikeSlabLassoPrior,
-    gamma::AbstractVector{Bool},
-    work::ProxGradientWorkspace;
-    constraint::Symbol,
-    soft_center_scale::Real,
-    prox_sum0_lambda::Real,
-    prox_l1_lambda::Real,
-    alpha_prior_shape::Real,
-    alpha_prior_rate::Real,
-    prox_root_tol::Real,
-    prox_root_maxiter::Integer,
-)
-    p = size(data.z, 2)
-    length(u) == p + 1 || throw(DimensionMismatch("u length must be p + 1 for prox SSLASSO."))
-    length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox SSLASSO."))
-    beta = view(u, 1:p)
-    eta = u[p + 1]
-    alpha, alpha_deriv = _clamped_exp_with_derivative(eta, -700.0, 700.0)
-    weights = _ssl_weights!(work.weights, prior, gamma)
-    lambda_l1 = _check_positive(prox_l1_lambda, "prox_l1_lambda")
-    prox = project_weighted_l1_epigraph!(
-        work.prox_beta,
-        beta,
-        alpha,
-        weights;
-        prox_root_tol = prox_root_tol,
-        prox_root_maxiter = prox_root_maxiter,
-    )
-    cox_score_gradient!(view(grad, 1:p), data, beta, work.cox)
-    _constraint_gradient_penalty!(
-        view(grad, 1:p),
-        beta;
-        constraint = constraint,
-        soft_center_scale = soft_center_scale,
-        prox_sum0_lambda = prox_sum0_lambda,
-    )
-    @inbounds for j in 1:p
-        grad[j] -= (Float64(beta[j]) - prox.beta[j]) / lambda_l1
-    end
-    grad[p + 1] = Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) -
-        alpha_deriv * (alpha - prox.alpha) / lambda_l1
-    return grad
-end
-
-function _ssl_prox_logposterior_and_gradient!(
-    grad::AbstractVector{Float64},
-    u::AbstractVector,
-    data::CoxPreparedData,
-    prior::SpikeSlabLassoPrior,
-    gamma::AbstractVector{Bool},
-    theta::Real,
-    work::ProxGradientWorkspace;
-    constraint::Symbol,
-    soft_center_scale::Real,
-    prox_sum0_lambda::Real,
-    prox_l1_lambda::Real,
-    alpha_prior_shape::Real,
-    alpha_prior_rate::Real,
-    prox_root_tol::Real,
-    prox_root_maxiter::Integer,
-)
-    p = size(data.z, 2)
-    length(u) == p + 1 || throw(DimensionMismatch("u length must be p + 1 for prox SSLASSO."))
-    length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox SSLASSO."))
-    beta = view(u, 1:p)
-    eta = u[p + 1]
-    alpha, alpha_deriv = _clamped_exp_with_derivative(eta, -700.0, 700.0)
-    weights = _ssl_weights!(work.weights, prior, gamma)
-    lambda_l1 = _check_positive(prox_l1_lambda, "prox_l1_lambda")
-    prox = project_weighted_l1_epigraph!(
-        work.prox_beta,
-        beta,
-        alpha,
-        weights;
-        prox_root_tol = prox_root_tol,
-        prox_root_maxiter = prox_root_maxiter,
-    )
-    lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work.cox)
-    lp += _constraint_logpenalty(
-        beta;
-        constraint = constraint,
-        soft_center_scale = soft_center_scale,
-        prox_sum0_lambda = prox_sum0_lambda,
-    )
-    _constraint_gradient_penalty!(
-        view(grad, 1:p),
-        beta;
-        constraint = constraint,
-        soft_center_scale = soft_center_scale,
-        prox_sum0_lambda = prox_sum0_lambda,
-    )
-    dist2 = (Float64(alpha) - Float64(prox.alpha))^2
-    @inbounds for j in 1:p
-        residual = Float64(beta[j]) - Float64(prox.beta[j])
-        dist2 += residual^2
-        grad[j] -= residual / lambda_l1
-    end
-    lp -= 0.5 * dist2 / lambda_l1
-    lp += -Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) * eta
-    theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
-    lp += sum(gamma) * log(theta_clamped) + (length(gamma) - sum(gamma)) * log1p(-theta_clamped)
-    grad[p + 1] = Float64(alpha_prior_rate) * exp(-eta) - Float64(alpha_prior_shape) -
-        alpha_deriv * (Float64(alpha) - Float64(prox.alpha)) / lambda_l1
-    return lp, grad
-end
-
 function _sample_ssl_prox_mala(
     data::CoxPreparedData,
     prior::SpikeSlabLassoPrior;
@@ -1052,7 +673,6 @@ function _sample_ssl_prox_mala(
     mala_min_step::Real,
     mala_max_step::Real,
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
@@ -1089,7 +709,6 @@ function _sample_ssl_prox_mala(
         gamma,
         theta;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
@@ -1109,7 +728,6 @@ function _sample_ssl_prox_mala(
         gamma,
         prox_work;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
@@ -1130,7 +748,6 @@ function _sample_ssl_prox_mala(
             gamma,
             theta;
             constraint = constraint,
-            soft_center_scale = soft_center_scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = alpha_prior_shape,
@@ -1186,7 +803,6 @@ function _sample_ssl_prox_mala(
                 gamma,
                 theta;
                 constraint = constraint,
-                soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = alpha_prior_shape,
@@ -1224,8 +840,6 @@ function _sample_mala(
     mala_max_step::Real = 1.0,
     mala_precondition::Bool = false,
     constraint::Symbol = :soft_center,
-    soft_center = nothing,
-    soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
     prox_l1_lambda::Real = 1e-3,
     alpha_prior_shape = nothing,
@@ -1244,8 +858,7 @@ function _sample_mala(
     _validate_prior(prior)
     p = size(data.z, 2)
     n_events = count(!=(0), data.event)
-    resolved_constraint = _resolve_constraint(constraint, soft_center)
-    scale = soft_center_scale === nothing ? _default_soft_center_scale(p) : Float64(soft_center_scale)
+    resolved_constraint = _resolve_constraint(constraint)
     _check_positive(prox_sum0_lambda, "prox_sum0_lambda")
     _check_positive(prox_l1_lambda, "prox_l1_lambda")
     _check_positive(prox_root_tol, "prox_root_tol")
@@ -1271,7 +884,6 @@ function _sample_mala(
             mala_min_step = mala_min_step,
             mala_max_step = mala_max_step,
             constraint = resolved_constraint,
-            soft_center_scale = scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
@@ -1297,7 +909,6 @@ function _sample_mala(
             mala_min_step = mala_min_step,
             mala_max_step = mala_max_step,
             constraint = resolved_constraint,
-            soft_center_scale = scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
@@ -1337,7 +948,6 @@ function _sample_mala(
         min_step = min_step,
         max_step = max_step,
         constraint = resolved_constraint,
-        soft_center_scale = scale,
         prox_sum0_lambda = prox_sum0_lambda,
         car_weights = car_weights,
         use_car = use_car,
@@ -1359,8 +969,6 @@ function _sample_ula(
     initial_step::Union{Real,AbstractVector{<:Real}} = 0.05,
     mala_step_size::Real = 1e-4,
     constraint::Symbol = :soft_center,
-    soft_center = nothing,
-    soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
     prox_l1_lambda::Real = 1e-3,
     alpha_prior_shape = nothing,
@@ -1378,8 +986,7 @@ function _sample_ula(
     _validate_prior(prior)
     p = size(data.z, 2)
     n_events = count(!=(0), data.event)
-    resolved_constraint = _resolve_constraint(constraint, soft_center)
-    scale = soft_center_scale === nothing ? _default_soft_center_scale(p) : Float64(soft_center_scale)
+    resolved_constraint = _resolve_constraint(constraint)
     _check_positive(prox_sum0_lambda, "prox_sum0_lambda")
     _check_positive(prox_l1_lambda, "prox_l1_lambda")
     _check_positive(prox_root_tol, "prox_root_tol")
@@ -1396,7 +1003,6 @@ function _sample_ula(
             data,
             prior;
             constraint = resolved_constraint,
-            soft_center_scale = scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
@@ -1408,7 +1014,6 @@ function _sample_ula(
             u,
             data;
             constraint = resolved_constraint,
-            soft_center_scale = scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
@@ -1423,7 +1028,6 @@ function _sample_ula(
             data,
             work;
             constraint = resolved_constraint,
-            soft_center_scale = scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
@@ -1445,7 +1049,6 @@ function _sample_ula(
             initial = initial,
             mala_step_size = mala_step_size,
             constraint = resolved_constraint,
-            soft_center_scale = scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
@@ -1477,7 +1080,6 @@ function _sample_ula(
         mala_step_size = mala_step_size,
         initial_step = initial_step,
         constraint = resolved_constraint,
-        soft_center_scale = scale,
         prox_sum0_lambda = prox_sum0_lambda,
         car_weights = car_weights,
         use_car = use_car,
@@ -1498,7 +1100,6 @@ function _sample_ssl_prox_ula(
     initial,
     mala_step_size::Real,
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
@@ -1530,7 +1131,6 @@ function _sample_ssl_prox_ula(
         gamma,
         theta;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
@@ -1549,7 +1149,6 @@ function _sample_ssl_prox_ula(
         gamma,
         prox_work;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
@@ -1567,7 +1166,6 @@ function _sample_ssl_prox_ula(
             gamma,
             theta;
             constraint = constraint,
-            soft_center_scale = soft_center_scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = alpha_prior_shape,
@@ -1604,7 +1202,6 @@ function _sample_ssl_prox_ula(
             gamma,
             theta;
             constraint = constraint,
-            soft_center_scale = soft_center_scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = alpha_prior_shape,

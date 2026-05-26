@@ -120,7 +120,6 @@ struct GLMPosteriorTarget <: B.AbstractCoxTarget
     fake_cox_data::B.CoxPreparedData
     prior::B.AbstractCoxPrior
     constraint::Symbol
-    soft_center_scale::Float64
     prox_sum0_lambda::Float64
     car_weights
     use_car::Bool
@@ -142,7 +141,6 @@ struct GLMProxLassoTarget <: B.AbstractCoxTarget
     data::BCGLMData
     prior::B.BayesianLassoPrior
     constraint::Symbol
-    soft_center_scale::Float64
     prox_sum0_lambda::Float64
     prox_l1_lambda::Float64
     alpha_prior_shape::Float64
@@ -159,7 +157,6 @@ struct GLMProxSSLassoTarget <: B.AbstractCoxTarget
     gamma::Vector{Bool}
     theta::Base.RefValue{Float64}
     constraint::Symbol
-    soft_center_scale::Float64
     prox_sum0_lambda::Float64
     prox_l1_lambda::Float64
     alpha_prior_shape::Float64
@@ -337,7 +334,6 @@ function make_prior(
     lasso_lambda = nothing,
     lasso_lambda2_shape::Real = 1.0,
     lasso_lambda2_rate::Real = 0.1,
-    lasso_tau2_shape::Real = 1.0,
     sslasso_spike_scale::Real = 0.04,
     sslasso_slab_scale::Real = 0.5,
     sslasso_theta_a::Real = 1.0,
@@ -423,14 +419,12 @@ function make_prior(
             lambda = lasso_lambda === nothing ? nothing : Float64(lasso_lambda),
             lambda2_shape = Float64(lasso_lambda2_shape),
             lambda2_rate = Float64(lasso_lambda2_rate),
-            tau2_shape = Float64(lasso_tau2_shape),
         )
     elseif key in ("prox-lasso", "proximal-lasso")
         return B.BayesianLassoPrior(
             lambda = lasso_lambda === nothing ? nothing : Float64(lasso_lambda),
             lambda2_shape = Float64(lasso_lambda2_shape),
             lambda2_rate = Float64(lasso_lambda2_rate),
-            tau2_shape = Float64(lasso_tau2_shape),
             proximal = true,
         )
     elseif key in ("sslasso", "spike-slab", "spike-and-slab")
@@ -456,7 +450,6 @@ function GLMPosteriorTarget(
     data::BCGLMData,
     prior::B.AbstractCoxPrior;
     constraint::Symbol,
-    soft_center_scale::Union{Nothing,Real},
     prox_sum0_lambda::Real,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
@@ -469,7 +462,6 @@ function GLMPosteriorTarget(
         fake,
         prior,
         constraint,
-        soft_center_scale === nothing ? B._default_soft_center_scale(p) : Float64(soft_center_scale),
         Float64(prox_sum0_lambda),
         car_weights,
         use_car,
@@ -487,7 +479,6 @@ function GLMProxLassoTarget(
     data::BCGLMData,
     prior::B.BayesianLassoPrior;
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
@@ -500,7 +491,6 @@ function GLMProxLassoTarget(
         data,
         prior,
         constraint,
-        Float64(soft_center_scale),
         Float64(prox_sum0_lambda),
         Float64(prox_l1_lambda),
         Float64(alpha_prior_shape),
@@ -518,7 +508,6 @@ function GLMProxSSLassoTarget(
     gamma::AbstractVector{Bool},
     theta::Base.RefValue{Float64};
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
@@ -533,7 +522,6 @@ function GLMProxSSLassoTarget(
         collect(Bool, gamma),
         theta,
         constraint,
-        Float64(soft_center_scale),
         Float64(prox_sum0_lambda),
         Float64(prox_l1_lambda),
         Float64(alpha_prior_shape),
@@ -569,7 +557,6 @@ function B.logdensity(target::GLMPosteriorTarget, u::AbstractVector)
     lp += B._constraint_logpenalty(
         beta;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
     )
     lp += B._prior_logposterior(
@@ -591,7 +578,6 @@ function B.gradient!(grad::AbstractVector{Float64}, target::GLMPosteriorTarget, 
         view(grad, 1:p),
         beta;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
     )
     B._prior_logposterior_and_gradient!(
@@ -617,14 +603,12 @@ function B.logdensity_and_gradient!(
     lp += B._constraint_logpenalty(
         beta;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
     )
     B._constraint_gradient_penalty!(
         view(grad, 1:p),
         beta;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
     )
     lp += B._prior_logposterior_and_gradient!(
@@ -650,7 +634,6 @@ function glm_prox_lasso_logposterior(
     u::AbstractVector,
     data::BCGLMData;
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
@@ -667,7 +650,6 @@ function glm_prox_lasso_logposterior(
     lp += B._constraint_logpenalty(
         beta;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
     )
     lp -= B.l1_moreau(
@@ -687,7 +669,6 @@ function glm_prox_lasso_logposterior_and_gradient!(
     data::BCGLMData,
     work::GLMProxWork;
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
@@ -714,14 +695,12 @@ function glm_prox_lasso_logposterior_and_gradient!(
     lp += B._constraint_logpenalty(
         beta;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
     )
     B._constraint_gradient_penalty!(
         view(grad, 1:p),
         beta;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
     )
     dist2 = (Float64(alpha) - Float64(prox.alpha))^2
@@ -744,7 +723,6 @@ function glm_prox_ssl_logposterior(
     gamma::AbstractVector{Bool},
     theta::Real;
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
@@ -762,7 +740,6 @@ function glm_prox_ssl_logposterior(
     lp += B._constraint_logpenalty(
         beta;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
     )
     lp -= B.weighted_l1_moreau(
@@ -788,7 +765,6 @@ function glm_prox_ssl_logposterior_and_gradient!(
     theta::Real,
     work::GLMProxWork;
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
@@ -817,14 +793,12 @@ function glm_prox_ssl_logposterior_and_gradient!(
     lp += B._constraint_logpenalty(
         beta;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
     )
     B._constraint_gradient_penalty!(
         view(grad, 1:p),
         beta;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
     )
     dist2 = (Float64(alpha) - Float64(prox.alpha))^2
@@ -847,7 +821,6 @@ B.logdensity(target::GLMProxLassoTarget, u::AbstractVector) =
         u,
         target.data;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
@@ -864,7 +837,6 @@ B.logdensity(target::GLMProxSSLassoTarget, u::AbstractVector) =
         target.gamma,
         target.theta[];
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
@@ -884,7 +856,6 @@ function B.logdensity_and_gradient!(
         target.data,
         target.work;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
@@ -908,7 +879,6 @@ function B.logdensity_and_gradient!(
         target.theta[],
         target.work;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
@@ -933,7 +903,6 @@ function sample_glm_ssl_prox_nuts_gibbs_one(
     target_accept::Real,
     max_depth::Integer,
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
@@ -967,7 +936,6 @@ function sample_glm_ssl_prox_nuts_gibbs_one(
             gamma,
             theta_ref;
             constraint = constraint,
-            soft_center_scale = soft_center_scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = alpha_prior_shape,
@@ -1035,7 +1003,6 @@ function sample_glm_ssl_prox_nuts_gibbs_one(
                 gamma,
                 theta;
                 constraint = constraint,
-                soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = alpha_prior_shape,
@@ -1137,7 +1104,6 @@ function sample_one_fit(;
     max_depth::Integer,
     progress::Bool,
     constraint::Symbol,
-    soft_center_scale,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape,
@@ -1155,7 +1121,6 @@ function sample_one_fit(;
             threshold_quantile = car_weight_quantile,
         )) : nothing
     p = size(train.z, 2)
-    soft_scale = soft_center_scale === nothing ? B._default_soft_center_scale(p) : Float64(soft_center_scale)
     if prior isa B.SpikeSlabLassoPrior && prior.proximal
         a_shape, a_rate = prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
         out = B.MHSamples[]
@@ -1171,7 +1136,6 @@ function sample_one_fit(;
                     target_accept = target_accept,
                     max_depth = max_depth,
                     constraint = constraint,
-                    soft_center_scale = soft_scale,
                     prox_sum0_lambda = prox_sum0_lambda,
                     prox_l1_lambda = prox_l1_lambda,
                     alpha_prior_shape = a_shape,
@@ -1192,7 +1156,6 @@ function sample_one_fit(;
                 train,
                 prior;
                 constraint = constraint,
-                soft_center_scale = soft_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = a_shape,
@@ -1205,7 +1168,6 @@ function sample_one_fit(;
             train,
             prior;
             constraint = constraint,
-            soft_center_scale = soft_center_scale,
             prox_sum0_lambda = prox_sum0_lambda,
             car_weights = car_weights,
             use_car = use_car,
@@ -1245,7 +1207,6 @@ function summarize_fit(;
     warmup::Integer,
     chains::Integer,
     use_car::Bool,
-    tau_scale_mode::AbstractString,
 )
     draws = beta_draws(posterior)
     beta_hat = vec(mean(draws; dims = 1))
@@ -1271,7 +1232,6 @@ function summarize_fit(;
             warmup = warmup,
             chains = chains,
             use_car = use_car,
-            tau_scale_mode = String(tau_scale_mode),
             y_mean = mean(train.y),
             ll_true_minus_zero = ll_true - ll_zero,
             coef_mse = mean((beta_hat .- beta_true) .^ 2),
@@ -1315,12 +1275,10 @@ function main()
     max_depth = arg(args, "max-depth", 8)
     progress = arg(args, "progress", false)
     constraint = Symbol(arg(args, "constraint", "soft_center"))
-    soft_center_scale_arg = arg(args, "soft-center-scale", "auto")
-    soft_center_scale = lowercase(soft_center_scale_arg) == "auto" ? nothing : parse(Float64, soft_center_scale_arg)
     prox_sum0_lambda = arg(args, "prox-sum0-lambda", 1e-3)
     prox_l1_lambda = arg(args, "prox-l1-lambda", 0.1)
-    alpha_prior_shape = optional_float_arg(args, "alpha-prior-shape", "prox-alpha-prior-shape")
-    alpha_prior_rate = optional_float_arg(args, "alpha-prior-rate", "prox-alpha-prior-rate")
+    alpha_prior_shape = optional_float_arg(args, "alpha-prior-shape")
+    alpha_prior_rate = optional_float_arg(args, "alpha-prior-rate")
     prox_root_tol = arg(args, "prox-root-tol", 1e-10)
     prox_root_maxiter = arg(args, "prox-root-maxiter", 100)
     use_cars = [lowercase(x) in ("true", "1", "yes", "y") for x in split_strings(arg(args, "use-car", "false"))]
@@ -1331,16 +1289,15 @@ function main()
         hs_local_scale = something(optional_float_arg(args, "hs-local-scale"), 1.0),
         rhs_tau_scale = something(optional_float_arg(args, "rhs-tau-scale"), 1.0),
         rhs_local_scale = something(optional_float_arg(args, "rhs-local-scale"), 1.0),
-        rhs_slab_df = something(optional_float_arg(args, "rhs-slab-df", "rhs-c2-df"), 4.0),
-        rhs_slab_s2 = something(optional_float_arg(args, "rhs-slab-s2", "rhs-c2-s2"), 2.0),
+        rhs_slab_df = something(optional_float_arg(args, "rhs-slab-df"), 4.0),
+        rhs_slab_s2 = something(optional_float_arg(args, "rhs-slab-s2"), 2.0),
         rhs_pseudo_sigma_df = something(optional_float_arg(args, "rhs-pseudo-sigma-df"), 3.0),
         rhs_pseudo_sigma_scale = something(optional_float_arg(args, "rhs-pseudo-sigma-scale"), 10.0),
         lasso_lambda = optional_float_arg(args, "lasso-lambda"),
         lasso_lambda2_shape = something(optional_float_arg(args, "lasso-lambda2-shape"), 1.0),
         lasso_lambda2_rate = something(optional_float_arg(args, "lasso-lambda2-rate"), 0.1),
-        lasso_tau2_shape = something(optional_float_arg(args, "lasso-tau2-shape", "lasso-local-shape"), 1.0),
-        sslasso_spike_scale = something(optional_float_arg(args, "sslasso-spike-scale", "sslasso-s0"), 0.04),
-        sslasso_slab_scale = something(optional_float_arg(args, "sslasso-slab-scale", "sslasso-s1"), 0.5),
+        sslasso_spike_scale = something(optional_float_arg(args, "sslasso-spike-scale"), 0.04),
+        sslasso_slab_scale = something(optional_float_arg(args, "sslasso-slab-scale"), 0.5),
         sslasso_theta_a = something(optional_float_arg(args, "sslasso-theta-a"), 1.0),
         sslasso_theta_b = something(optional_float_arg(args, "sslasso-theta-b"), 1.0),
     )
@@ -1353,10 +1310,6 @@ function main()
             alpha_prior_rate = alpha_prior_rate === nothing ? missing : alpha_prior_rate,
         ),
     )
-    haskey(args, "tau-scale-mode") &&
-        throw(ArgumentError("--tau-scale-mode was removed; HS/RHS tau scale is fixed at tau0."))
-    tau_mode = "tau0"
-
     rows = DataFrame()
     for family in families, n in ns, p in ps, nonzero in nonzeros
         nonzero <= p || continue
@@ -1398,7 +1351,6 @@ function main()
                     max_depth = max_depth,
                     progress = progress,
                     constraint = constraint,
-                    soft_center_scale = soft_center_scale,
                     prox_sum0_lambda = prox_sum0_lambda,
                     prox_l1_lambda = prox_l1_lambda,
                     alpha_prior_shape = alpha_prior_shape,
@@ -1425,14 +1377,13 @@ function main()
                     warmup = warmup,
                     chains = chains,
                     use_car = use_car,
-                    tau_scale_mode = tau_mode,
                 )
                 row = merge(row, prior_hypermeta)
                 push!(rows, row; cols = :union)
                 CSV.write(joinpath(outdir, "bcglm_mse_metrics.csv"), rows)
                 println(
                     "BCGLM row family=$family n=$n p=$p nz=$nonzero prior=$prior_name " *
-                    "p0=$p0 car=$use_car tau=$tau_mode coef_mse=$(row.coef_mse)",
+                    "p0=$p0 car=$use_car coef_mse=$(row.coef_mse)",
                 )
             end
         end
@@ -1440,7 +1391,7 @@ function main()
 
     if !isempty(rows)
         hyper_cols = [k for k in keys(prior_hypermeta) if k in propertynames(rows)]
-        group_cols = vcat([:family, :prior, :n, :p, :nonzero, :p0, :use_car, :tau_scale_mode], hyper_cols)
+        group_cols = vcat([:family, :prior, :n, :p, :nonzero, :p0, :use_car], hyper_cols)
         summary = combine(
             groupby(rows, group_cols),
             :coef_mse => mean => :coef_mse_mean,

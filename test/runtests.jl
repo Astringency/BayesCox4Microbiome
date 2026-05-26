@@ -1,4 +1,4 @@
-﻿using Test
+using Test
 using Random
 using BayesCox4Micro
 using CSV
@@ -125,7 +125,7 @@ end
         ("cox-hs", cox_paper_prior("cox-hs"; p0 = 1.0)),
         ("cox-rhs", cox_paper_prior("cox-rhs"; p0 = 1.0)),
         ("lasso", cox_paper_prior("lasso"; p0 = 1.0)),
-        ("lasso-tuned", cox_paper_prior("lasso"; p0 = 1.0, lasso_tau2_shape = 0.75)),
+        ("lasso-tuned", cox_paper_prior("lasso"; p0 = 1.0, lasso_lambda2_shape = 0.75)),
         ("sslasso", cox_paper_prior("sslasso"; p0 = 1.0)),
     ]
     @test !cox_paper_prior("lasso").proximal
@@ -141,11 +141,10 @@ end
     tuned_rhs_local = cox_paper_prior("cox-rhs"; p0 = 2.0, rhs_local_scale = 0.25)
     @test tuned_rhs_local.p0 == 2.0
     @test tuned_rhs_local.local_scale == 0.25
-    tuned_lasso = cox_paper_prior("lasso"; lasso_lambda2_shape = 2.0, lasso_lambda2_rate = 0.5, lasso_tau2_shape = 0.75)
+    tuned_lasso = cox_paper_prior("lasso"; lasso_lambda2_shape = 2.0, lasso_lambda2_rate = 0.5)
     @test tuned_lasso.lambda2_shape == 2.0
     @test tuned_lasso.lambda2_rate == 0.5
-    @test tuned_lasso.tau2_shape == 0.75
-    tuned_ssl = cox_paper_prior("sslasso"; sslasso_s0 = 0.02, sslasso_s1 = 1.0, sslasso_theta_a = 2.0, sslasso_theta_b = 8.0)
+    tuned_ssl = cox_paper_prior("sslasso"; sslasso_spike_scale = 0.02, sslasso_slab_scale = 1.0, sslasso_theta_a = 2.0, sslasso_theta_b = 8.0)
     @test tuned_ssl.spike_scale == 0.02
     @test tuned_ssl.slab_scale == 1.0
     @test tuned_ssl.theta_a == 2.0
@@ -155,7 +154,6 @@ end
             data,
             prior;
             constraint = :soft_center,
-            soft_center_scale = 0.5,
             prox_sum0_lambda = 1e-3,
             prox_l1_lambda = 1e-3,
             alpha_prior_shape = 1.0,
@@ -178,7 +176,6 @@ end
         data,
         prior;
         constraint = :none,
-        soft_center_scale = 0.5,
         prox_sum0_lambda = 1e-3,
         prox_l1_lambda = 1e-3,
         alpha_prior_shape = 1.0,
@@ -398,7 +395,7 @@ end
         time,
         event;
         prior = HorseshoePrior(p0 = 1.0),
-        sampler = :nuts_explict,
+        sampler = :nuts_explicit,
         constraint = :soft_center,
         n_samples = 1,
         warmup = 1,

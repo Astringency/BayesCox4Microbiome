@@ -43,17 +43,17 @@ function prior_family(name::AbstractString)
 end
 
 is_cox_hs_prior(name::AbstractString) = lowercase(replace(name, "_" => "-", " " => "-")) in ("cox-hs", "coxhs")
-is_prox_l1_prior_name(name::AbstractString) = lowercase(replace(name, "_" => "-", " " => "-")) in ("prox-lasso", "prox-sslasso")
+is_proximal_l1_prior_name(name::AbstractString) = lowercase(replace(name, "_" => "-", " " => "-")) in ("prox-lasso", "prox-sslasso")
 
 function prox_configs(prior::AbstractString, args)
-    is_prox_l1_prior_name(prior) || return [(
+    is_proximal_l1_prior_name(prior) || return [(
         suffix = "",
         kwargs = NamedTuple(),
         params = NamedTuple(),
     )]
     lambdas = split_floats(arg(args, "prox-l1-lambda-grid", string(arg(args, "prox-l1-lambda", 1e-3))))
-    alpha_shapes = split_floats(arg(args, "alpha-prior-shape-grid", arg(args, "prox-alpha-prior-shape-grid", "0.5,1,2")))
-    alpha_rates = split_floats(arg(args, "alpha-prior-rate-grid", arg(args, "prox-alpha-prior-rate-grid", "0.05,0.1,0.2")))
+    alpha_shapes = split_floats(arg(args, "alpha-prior-shape-grid", "0.5,1,2"))
+    alpha_rates = split_floats(arg(args, "alpha-prior-rate-grid", "0.05,0.1,0.2"))
     out = NamedTuple[]
     for lambda in lambdas, shape in alpha_shapes, rate in alpha_rates
         push!(out, (
@@ -91,8 +91,8 @@ function hyperparameter_configs(prior::AbstractString, args, nonzero::Integer)
     elseif family == :rhs
         p0s = split_float_or_truth_grid(arg(args, "rhs-p0-grid", "truth"), nonzero)
         local_scales = split_floats(arg(args, "rhs-local-scale-grid", "0.5,1,2"))
-        dfs = split_floats(arg(args, "rhs-slab-df-grid", arg(args, "rhs-c2-df-grid", "2,4,8")))
-        s2s = split_floats(arg(args, "rhs-slab-s2-grid", arg(args, "rhs-c2-s2-grid", "0.25,0.5,1,2")))
+        dfs = split_floats(arg(args, "rhs-slab-df-grid", "2,4,8"))
+        s2s = split_floats(arg(args, "rhs-slab-s2-grid", "0.25,0.5,1,2"))
         for p0 in p0s, local_scale in local_scales, df in dfs, s2 in s2s
             push!(configs, (
                 label = "rhs_p0$(compact_value(p0))_local$(compact_value(local_scale))_df$(compact_value(df))_s2$(compact_value(s2))",
@@ -101,27 +101,24 @@ function hyperparameter_configs(prior::AbstractString, args, nonzero::Integer)
             ))
         end
     elseif family == :lasso
-        tau2_shapes = split_floats(arg(args, "lasso-tau2-shape-grid", arg(args, "lasso-local-shape-grid", "0.5,1,2")))
         lambda2_shapes = split_floats(arg(args, "lasso-lambda2-shape-grid", "0.5,1,2"))
         lambda2_rates = split_floats(arg(args, "lasso-lambda2-rate-grid", "0.05,0.1,0.2"))
-        for tau2_shape in tau2_shapes, lambda2_shape in lambda2_shapes, lambda2_rate in lambda2_rates
+        for lambda2_shape in lambda2_shapes, lambda2_rate in lambda2_rates
             push!(configs, (
-                label = "lasso_tshape$(compact_value(tau2_shape))_lshape$(compact_value(lambda2_shape))_lrate$(compact_value(lambda2_rate))",
+                label = "lasso_lshape$(compact_value(lambda2_shape))_lrate$(compact_value(lambda2_rate))",
                 kwargs = (
-                    lasso_tau2_shape = tau2_shape,
                     lasso_lambda2_shape = lambda2_shape,
                     lasso_lambda2_rate = lambda2_rate,
                 ),
                 params = (
-                    lasso_tau2_shape = tau2_shape,
                     lasso_lambda2_shape = lambda2_shape,
                     lasso_lambda2_rate = lambda2_rate,
                 ),
             ))
         end
     elseif family == :sslasso
-        s0s = split_floats(arg(args, "sslasso-s0-grid", arg(args, "sslasso-spike-scale-grid", "0.01,0.02,0.04,0.08")))
-        s1s = split_floats(arg(args, "sslasso-s1-grid", arg(args, "sslasso-slab-scale-grid", "0.5,1,2")))
+        s0s = split_floats(arg(args, "sslasso-spike-scale-grid", "0.01,0.02,0.04,0.08"))
+        s1s = split_floats(arg(args, "sslasso-slab-scale-grid", "0.5,1,2"))
         theta_as = split_floats(arg(args, "sslasso-theta-a-grid", "1"))
         theta_bs = split_floats(arg(args, "sslasso-theta-b-grid", "1,4"))
         for s0 in s0s, s1 in s1s, theta_a in theta_as, theta_b in theta_bs
@@ -186,6 +183,59 @@ end
 
 function main()
     args = parse_cli_args()
+    require_known_args!(
+        args,
+        vcat(
+            (
+                "outdir",
+                "reps",
+                "n",
+                "p",
+                "nonzero",
+                "baseline",
+                "priors",
+                "sampler",
+                "nuts-backend",
+                "samples",
+                "warmup",
+                "chains",
+                "target-accept",
+                "seed",
+                "p0",
+                "p0-alpha",
+                "use-car",
+                "car-distance",
+                "pseudocount",
+                "tie-method",
+                "progress",
+                "constraint",
+                "prox-sum0-lambda",
+                "prox-l1-lambda",
+                "prox-l1-lambda-grid",
+                "alpha-prior-shape",
+                "alpha-prior-rate",
+                "alpha-prior-shape-grid",
+                "alpha-prior-rate-grid",
+                "prox-root-tol",
+                "prox-root-maxiter",
+                "max-configs-per-prior",
+                "hs-p0-grid",
+                "hs-local-scale-grid",
+                "hs-tau-scale-grid",
+                "rhs-p0-grid",
+                "rhs-local-scale-grid",
+                "rhs-slab-df-grid",
+                "rhs-slab-s2-grid",
+                "lasso-lambda2-shape-grid",
+                "lasso-lambda2-rate-grid",
+                "sslasso-spike-scale-grid",
+                "sslasso-slab-scale-grid",
+                "sslasso-theta-a-grid",
+                "sslasso-theta-b-grid",
+            ),
+            BASELINE_PARAMETER_CLI_KEYS,
+        ),
+    )
     outdir = ensure_dir(arg(args, "outdir", joinpath("results", "prior_hyperparam_tuning")))
     outpath = joinpath(outdir, "hyperparam_tuning_metrics.csv")
     summary_path = joinpath(outdir, "hyperparam_tuning_summary.csv")
@@ -211,11 +261,10 @@ function main()
     tie_method = parse_tie_method(args)
     progress = arg(args, "progress", false)
     constraint = Symbol(arg(args, "constraint", "soft_center"))
-    soft_center_scale = haskey(args, "soft-center-scale") ? parse(Float64, args["soft-center-scale"]) : nothing
     prox_sum0_lambda = arg(args, "prox-sum0-lambda", 1e-3)
     prox_l1_lambda = arg(args, "prox-l1-lambda", 1e-3)
-    alpha_prior_shape = optional_float_arg(args, "alpha-prior-shape", "prox-alpha-prior-shape")
-    alpha_prior_rate = optional_float_arg(args, "alpha-prior-rate", "prox-alpha-prior-rate")
+    alpha_prior_shape = optional_float_arg(args, "alpha-prior-shape")
+    alpha_prior_rate = optional_float_arg(args, "alpha-prior-rate")
     prox_root_tol = arg(args, "prox-root-tol", 1e-10)
     prox_root_maxiter = arg(args, "prox-root-maxiter", 100)
 
@@ -265,7 +314,6 @@ function main()
                         pseudocount = pseudocount,
                         tie_method = tie_method,
                         constraint = constraint,
-                        soft_center_scale = soft_center_scale,
                         prox_sum0_lambda = prox_sum0_lambda,
                         prox_root_tol = prox_root_tol,
                         prox_root_maxiter = prox_root_maxiter,

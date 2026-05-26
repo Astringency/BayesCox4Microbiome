@@ -17,6 +17,45 @@ using Statistics
 
 const DEFAULT_BETA6 = [2.08, 1.31, -1.39, -1.86, 2.12, -2.26]
 const DEFAULT_BETA12 = [2.08, -1.41, -1.39, -1.15, 2.12, 2.51, 1.31, -1.95, -1.86, 1.93, -1.34, -0.85]
+const PRIOR_HYPERPARAMETER_CLI_KEYS = (
+    "rhs-slab-df",
+    "rhs-slab-s2",
+    "hs-tau-scale",
+    "hs-local-scale",
+    "rhs-tau-scale",
+    "rhs-local-scale",
+    "rhs-pseudo-sigma-df",
+    "rhs-pseudo-sigma-scale",
+    "lasso-lambda",
+    "lasso-lambda2-shape",
+    "lasso-lambda2-rate",
+    "sslasso-spike-scale",
+    "sslasso-slab-scale",
+    "sslasso-theta-a",
+    "sslasso-theta-b",
+)
+const BASELINE_PARAMETER_CLI_KEYS = (
+    "weibull-rate",
+    "weibull-lambda",
+    "weibull-scale",
+    "weibull-shape",
+    "weibull-nu",
+    "gompertz-rate",
+    "gompertz-lambda",
+    "gompertz-scale",
+    "gompertz-shape",
+    "gompertz-alpha",
+    "exponential-rate",
+    "exponential-lambda",
+    "exponential-scale",
+    "exponential-shape",
+    "baseline-rate",
+    "baseline-lambda",
+    "baseline-scale",
+    "baseline-shape",
+    "baseline-nu",
+    "baseline-alpha",
+)
 
 function parse_cli_args(args = ARGS)
     out = Dict{String,String}()
@@ -40,19 +79,30 @@ function parse_cli_args(args = ARGS)
     return out
 end
 
+function _collect_cli_key!(allowed::Set{String}, key::AbstractString)
+    push!(allowed, String(key))
+    return allowed
+end
+
+function _collect_cli_key!(allowed::Set{String}, keys)
+    for key in keys
+        _collect_cli_key!(allowed, key)
+    end
+    return allowed
+end
+
+function require_known_args!(args, valid_keys)
+    allowed = _collect_cli_key!(Set{String}(), valid_keys)
+    unknown = sort([key for key in keys(args) if !(key in allowed)])
+    isempty(unknown) && return nothing
+    formatted = join("--" .* unknown, ", ")
+    throw(ArgumentError("unknown command line argument(s): $formatted"))
+end
+
 arg(args, key, default::String) = get(args, key, default)
 arg(args, key, default::Int) = parse(Int, get(args, key, string(default)))
 arg(args, key, default::Float64) = parse(Float64, get(args, key, string(default)))
 arg(args, key, default::Bool) = lowercase(get(args, key, string(default))) in ("true", "1", "yes", "y")
-
-function reject_removed_args!(args, keys)
-    for key in keys
-        if haskey(args, key)
-            throw(ArgumentError("--$key was removed; censoring now uses the baseline-specific Uniform(0, upper) defaults."))
-        end
-    end
-    return nothing
-end
 
 function optional_float_arg(args, keys...)
     for key in keys
@@ -63,8 +113,8 @@ end
 
 function prior_hyperparameter_kwargs(args)
     return (
-        rhs_slab_df = something(optional_float_arg(args, "rhs-slab-df", "rhs-c2-df"), 4.0),
-        rhs_slab_s2 = something(optional_float_arg(args, "rhs-slab-s2", "rhs-c2-s2"), 2.0),
+        rhs_slab_df = something(optional_float_arg(args, "rhs-slab-df"), 4.0),
+        rhs_slab_s2 = something(optional_float_arg(args, "rhs-slab-s2"), 2.0),
         hs_tau_scale = something(optional_float_arg(args, "hs-tau-scale"), 1.0),
         hs_local_scale = something(optional_float_arg(args, "hs-local-scale"), 1.0),
         rhs_tau_scale = something(optional_float_arg(args, "rhs-tau-scale"), 1.0),
@@ -74,9 +124,8 @@ function prior_hyperparameter_kwargs(args)
         lasso_lambda = optional_float_arg(args, "lasso-lambda"),
         lasso_lambda2_shape = something(optional_float_arg(args, "lasso-lambda2-shape"), 1.0),
         lasso_lambda2_rate = something(optional_float_arg(args, "lasso-lambda2-rate"), 0.1),
-        lasso_tau2_shape = something(optional_float_arg(args, "lasso-tau2-shape", "lasso-local-shape"), 1.0),
-        sslasso_spike_scale = optional_float_arg(args, "sslasso-spike-scale", "sslasso-s0"),
-        sslasso_slab_scale = optional_float_arg(args, "sslasso-slab-scale", "sslasso-s1"),
+        sslasso_spike_scale = optional_float_arg(args, "sslasso-spike-scale"),
+        sslasso_slab_scale = optional_float_arg(args, "sslasso-slab-scale"),
         sslasso_theta_a = something(optional_float_arg(args, "sslasso-theta-a"), 1.0),
         sslasso_theta_b = something(optional_float_arg(args, "sslasso-theta-b"), 1.0),
     )
@@ -95,7 +144,6 @@ function prior_hyperparameter_metadata(kwargs)
         "lasso_lambda" => kwargs.lasso_lambda,
         "lasso_lambda2_shape" => kwargs.lasso_lambda2_shape,
         "lasso_lambda2_rate" => kwargs.lasso_lambda2_rate,
-        "lasso_tau2_shape" => kwargs.lasso_tau2_shape,
         "sslasso_spike_scale" => kwargs.sslasso_spike_scale,
         "sslasso_slab_scale" => kwargs.sslasso_slab_scale,
         "sslasso_theta_a" => kwargs.sslasso_theta_a,
@@ -131,9 +179,9 @@ function option_value(args, default::AbstractString, keys::AbstractString...)
 end
 
 function parse_tie_method(args; default::AbstractString = "efron")
-    value = lowercase(strip(option_value(args, default, "tie_method", "tie-method")))
+    value = lowercase(strip(option_value(args, default, "tie-method")))
     value in ("efron", "breslow") ||
-        throw(ArgumentError("--tie_method must be efron or breslow."))
+        throw(ArgumentError("--tie-method must be efron or breslow."))
     return Symbol(value)
 end
 
@@ -404,7 +452,6 @@ function prior_from_name(
     lasso_lambda = nothing,
     lasso_lambda2_shape::Real = 1.0,
     lasso_lambda2_rate::Real = 0.1,
-    lasso_tau2_shape::Real = 1.0,
     sslasso_spike_scale = nothing,
     sslasso_slab_scale = nothing,
     sslasso_theta_a::Real = 1.0,
@@ -430,7 +477,6 @@ function prior_from_name(
         lasso_lambda = lasso_lambda,
         lasso_lambda2_shape = lasso_lambda2_shape,
         lasso_lambda2_rate = lasso_lambda2_rate,
-        lasso_tau2_shape = lasso_tau2_shape,
         sslasso_spike_scale = sslasso_spike_scale,
         sslasso_slab_scale = sslasso_slab_scale,
         sslasso_theta_a = sslasso_theta_a,
@@ -678,7 +724,6 @@ function fit_and_evaluate(
     p0 = nothing,
     p0_alpha::Real = 0.05,
     constraint::Symbol = :soft_center,
-    soft_center_scale = nothing,
     prox_sum0_lambda::Real = 1e-3,
     prox_l1_lambda::Real = 1e-3,
     prox_root_tol::Real = 1e-10,
@@ -703,7 +748,6 @@ function fit_and_evaluate(
     lasso_lambda = nothing,
     lasso_lambda2_shape::Real = 1.0,
     lasso_lambda2_rate::Real = 0.1,
-    lasso_tau2_shape::Real = 1.0,
     sslasso_spike_scale = nothing,
     sslasso_slab_scale = nothing,
     sslasso_theta_a::Real = 1.0,
@@ -733,14 +777,13 @@ function fit_and_evaluate(
         lasso_lambda = lasso_lambda,
         lasso_lambda2_shape = lasso_lambda2_shape,
         lasso_lambda2_rate = lasso_lambda2_rate,
-        lasso_tau2_shape = lasso_tau2_shape,
         sslasso_spike_scale = sslasso_spike_scale,
         sslasso_slab_scale = sslasso_slab_scale,
         sslasso_theta_a = sslasso_theta_a,
         sslasso_theta_b = sslasso_theta_b,
     )
     result =
-        if sampler in (:nuts, :nuts_turing, :nuts_explicit, :nuts_explict)
+        if sampler in (:nuts, :nuts_turing, :nuts_explicit)
             sample_bayes_cox(
                 X,
                 time,
@@ -761,7 +804,6 @@ function fit_and_evaluate(
                 standardize = standardize,
                 tie_method = tie_method,
                 constraint = constraint,
-                soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = alpha_prior_shape,
@@ -791,7 +833,6 @@ function fit_and_evaluate(
                     standardize = standardize,
                     tie_method = tie_method,
                     constraint = constraint,
-                    soft_center_scale = soft_center_scale,
                     prox_sum0_lambda = prox_sum0_lambda,
                     prox_l1_lambda = prox_l1_lambda,
                     alpha_prior_shape = alpha_prior_shape,
@@ -825,7 +866,6 @@ function fit_and_evaluate(
                     standardize = standardize,
                     tie_method = tie_method,
                     constraint = constraint,
-                    soft_center_scale = soft_center_scale,
                     prox_sum0_lambda = prox_sum0_lambda,
                     progress = progress,
                 )
@@ -850,7 +890,6 @@ function fit_and_evaluate(
                 standardize = standardize,
                 tie_method = tie_method,
                 constraint = constraint,
-                soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = alpha_prior_shape,
@@ -860,7 +899,7 @@ function fit_and_evaluate(
                 progress = progress,
             )
         else
-            throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :nuts_explict, :mh, :mala, :ula, or :gibbs."))
+            throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :mh, :mala, :ula, or :gibbs."))
     end
     model_draws = posterior_beta_draws(result)
     layout = posterior_draw_layout(result, size(model_draws, 1))

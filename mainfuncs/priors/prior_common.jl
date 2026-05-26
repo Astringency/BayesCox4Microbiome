@@ -288,10 +288,7 @@ end
 
 _default_soft_center_scale(p::Integer) = 0.001 * p
 
-function _resolve_constraint(constraint::Symbol, soft_center)
-    if soft_center !== nothing
-        return Bool(soft_center) ? :soft_center : :none
-    end
+function _resolve_constraint(constraint::Symbol)
     constraint in (:soft_center, :prox, :none) ||
         throw(ArgumentError("constraint must be :soft_center, :prox, or :none."))
     return constraint
@@ -300,11 +297,10 @@ end
 function _constraint_logpenalty(
     beta::AbstractVector;
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
 )
     if constraint == :soft_center
-        return _soft_center_logpdf(beta, soft_center_scale)
+        return _soft_center_logpdf(beta, _default_soft_center_scale(length(beta)))
     elseif constraint == :prox
         lambda_sum0 = _check_positive(prox_sum0_lambda, "prox_sum0_lambda")
         s = sum(beta)
@@ -319,11 +315,10 @@ function _constraint_gradient_penalty!(
     grad::AbstractVector,
     beta::AbstractVector;
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
 )
     if constraint == :soft_center
-        scale = _check_positive(soft_center_scale, "soft_center_scale")
+        scale = _default_soft_center_scale(length(beta))
         grad .-= sum(beta) / scale^2
     elseif constraint == :prox
         lambda_sum0 = _check_positive(prox_sum0_lambda, "prox_sum0_lambda")

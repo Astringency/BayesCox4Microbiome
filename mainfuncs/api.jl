@@ -22,17 +22,11 @@ function _p0_prior_name(name)
     key = lowercase(replace(string(name), "_" => "-", " " => "-"))
     return key in (
         "hs",
-        "horseshoe",
         "rhs",
-        "regularized-horseshoe",
         "new-rhs",
-        "newrhs",
         "est-rhs",
-        "estrhs",
         "cox-hs",
-        "coxhs",
         "cox-rhs",
-        "coxrhs",
     )
 end
 
@@ -190,8 +184,6 @@ function cox_paper_prior(
     p0_max = nothing,
     rhs_slab_df::Real = 4.0,
     rhs_slab_s2::Real = 2.0,
-    rhs_c2_df = nothing,
-    rhs_c2_s2 = nothing,
     hs_tau_scale::Real = 1.0,
     hs_local_scale::Real = 1.0,
     rhs_tau_scale::Real = 1.0,
@@ -201,22 +193,19 @@ function cox_paper_prior(
     lasso_lambda = nothing,
     lasso_lambda2_shape::Real = 1.0,
     lasso_lambda2_rate::Real = 0.1,
-    lasso_tau2_shape::Real = 1.0,
     sslasso_spike_scale = nothing,
     sslasso_slab_scale = nothing,
-    sslasso_s0 = nothing,
-    sslasso_s1 = nothing,
     sslasso_theta_a::Real = 1.0,
     sslasso_theta_b::Real = 1.0,
 )
     key = lowercase(replace(string(name), "_" => "-", " " => "-"))
-    rhs_df = Float64(something(rhs_c2_df, rhs_slab_df))
-    rhs_s2 = Float64(something(rhs_c2_s2, rhs_slab_s2))
+    rhs_df = Float64(rhs_slab_df)
+    rhs_s2 = Float64(rhs_slab_s2)
     lasso_lambda_value = lasso_lambda === nothing ? nothing : Float64(lasso_lambda)
     ssl_spike_default = realdata ? 1.0 : 0.04
     ssl_slab_default = realdata ? 10.0 : 0.5
-    ssl_spike = Float64(something(sslasso_spike_scale, sslasso_s0, ssl_spike_default))
-    ssl_slab = Float64(something(sslasso_slab_scale, sslasso_s1, ssl_slab_default))
+    ssl_spike = Float64(something(sslasso_spike_scale, ssl_spike_default))
+    ssl_slab = Float64(something(sslasso_slab_scale, ssl_slab_default))
     p0_value = _resolve_p0(
         name,
         p0,
@@ -230,14 +219,14 @@ function cox_paper_prior(
         p0_min = p0_min,
         p0_max = p0_max,
     )
-    if key in ("hs", "horseshoe")
+    if key == "hs"
         return HorseshoePrior(
             tau_scale = Float64(hs_tau_scale),
             use_cox_tau0 = false,
             p0 = p0_value,
             local_scale = Float64(hs_local_scale),
         )
-    elseif key in ("rhs", "regularized-horseshoe")
+    elseif key == "rhs"
         return RegularizedHorseshoePrior(
             tau_scale = Float64(rhs_tau_scale),
             use_cox_tau0 = false,
@@ -251,7 +240,7 @@ function cox_paper_prior(
             slab_df = rhs_df,
             slab_s2 = rhs_s2,
         )
-    elseif key in ("new-rhs", "newrhs")
+    elseif key == "new-rhs"
         return RegularizedHorseshoePrior(
             tau_scale = Float64(rhs_tau_scale),
             use_cox_tau0 = false,
@@ -262,7 +251,7 @@ function cox_paper_prior(
             slab_df = rhs_df,
             slab_s2 = rhs_s2,
         )
-    elseif key in ("est-rhs", "estrhs")
+    elseif key == "est-rhs"
         (X === nothing || time === nothing || event === nothing) &&
             throw(ArgumentError("est-rhs requires X, time, and event to estimate pseudo_sigma."))
         data = prepare_cox_data(
@@ -289,14 +278,14 @@ function cox_paper_prior(
             slab_df = rhs_df,
             slab_s2 = rhs_s2,
         )
-    elseif key in ("cox-hs", "coxhs")
+    elseif key == "cox-hs"
         return HorseshoePrior(
             tau_scale = Float64(hs_tau_scale),
             use_cox_tau0 = true,
             p0 = p0_value,
             local_scale = Float64(hs_local_scale),
         )
-    elseif key in ("cox-rhs", "coxrhs")
+    elseif key == "cox-rhs"
         return RegularizedHorseshoePrior(
             tau_scale = Float64(rhs_tau_scale),
             use_cox_tau0 = true,
@@ -306,22 +295,20 @@ function cox_paper_prior(
             slab_df = rhs_df,
             slab_s2 = rhs_s2,
         )
-    elseif key in ("lasso", "bayesian-lasso")
+    elseif key == "lasso"
         return BayesianLassoPrior(
             lambda = lasso_lambda_value,
             lambda2_shape = Float64(lasso_lambda2_shape),
             lambda2_rate = Float64(lasso_lambda2_rate),
-            tau2_shape = Float64(lasso_tau2_shape),
         )
     elseif key == "prox-lasso"
         return BayesianLassoPrior(
             lambda = lasso_lambda_value,
             lambda2_shape = Float64(lasso_lambda2_shape),
             lambda2_rate = Float64(lasso_lambda2_rate),
-            tau2_shape = Float64(lasso_tau2_shape),
             proximal = true,
         )
-    elseif key in ("sslasso", "spike-slab", "spike-and-slab")
+    elseif key == "sslasso"
         return SpikeSlabLassoPrior(
             spike_scale = ssl_spike,
             slab_scale = ssl_slab,
@@ -338,16 +325,6 @@ function cox_paper_prior(
         )
     end
     throw(ArgumentError("unsupported paper prior name: $name"))
-end
-
-function _reject_removed_sample_keywords(kwargs)
-    if :prox_l1_prior in keys(kwargs)
-        throw(ArgumentError(
-            "prox_l1_prior was removed. Use cox_paper_prior(\"prox-lasso\") or " *
-            "cox_paper_prior(\"prox-sslasso\") to select the proximal L1 prior.",
-        ))
-    end
-    return nothing
 end
 
 function _validate_prox_prior_sampler(prior::AbstractCoxPrior, sampler::Symbol)
@@ -381,7 +358,6 @@ function sample_bayes_cox(
     car_weight_quantile::Real = 0.75,
     kwargs...,
 )
-    _reject_removed_sample_keywords(kwargs)
     car_weights !== nothing && car_distance !== nothing && use_car &&
         throw(ArgumentError("pass either car_weights or car_distance, not both."))
     resolved_car_weights =
@@ -431,7 +407,6 @@ function sample_bayes_cox(
     car_weight_quantile::Real = 0.75,
     kwargs...,
 )
-    _reject_removed_sample_keywords(kwargs)
     car_weights !== nothing && car_distance !== nothing && use_car &&
         throw(ArgumentError("pass either car_weights or car_distance, not both."))
     resolved_car_weights =
@@ -453,9 +428,9 @@ function sample_bayes_cox(
         end
     rng = seed === nothing ? Random.default_rng() : MersenneTwister(seed)
     effective_sampler =
-        sampler in (:nuts_explicit, :nuts_explict, :nuts_turing) ? :nuts : sampler
+        sampler in (:nuts_explicit, :nuts_turing) ? :nuts : sampler
     effective_nuts_backend =
-        sampler in (:nuts_explicit, :nuts_explict) ? :explicit :
+        sampler == :nuts_explicit ? :explicit :
         sampler == :nuts_turing ? :turing : nuts_backend
     effective_nuts_backend in (:turing, :explicit) ||
         throw(ArgumentError("nuts_backend must be :turing or :explicit."))
@@ -569,7 +544,7 @@ function sample_bayes_cox(
             gc_percent,
         )
     else
-        throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :nuts_explict, :mh, :mala, :ula, or :gibbs."))
+        throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :mh, :mala, :ula, or :gibbs."))
     end
     return CoxSamplerResult(samples, data, prior, effective_sampler, diagnostics)
 end
@@ -720,8 +695,6 @@ function _sample_gibbs_chains(
     thin::Integer = 1,
     target_accept::Real = 0.8,
     constraint::Symbol = :soft_center,
-    soft_center = nothing,
-    soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
     prox_l1_lambda::Real = 1e-3,
     alpha_prior_shape = nothing,
@@ -730,7 +703,7 @@ function _sample_gibbs_chains(
     prox_root_maxiter::Integer = 100,
     kwargs...,
 )
-    resolved_constraint = _resolve_constraint(constraint, soft_center)
+    resolved_constraint = _resolve_constraint(constraint)
     if _is_proximal_l1_prior(prior)
         return _sample_ssl_prox_nuts_gibbs(
             data,
@@ -742,7 +715,6 @@ function _sample_gibbs_chains(
             target_accept = target_accept,
             rng = rng,
             constraint = resolved_constraint,
-            soft_center_scale = soft_center_scale === nothing ? _default_soft_center_scale(size(data.z, 2)) : Float64(soft_center_scale),
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = alpha_prior_shape,
@@ -753,7 +725,7 @@ function _sample_gibbs_chains(
             kwargs...,
         ).samples
     end
-    chains == 1 && return _sample_ssl_gibbs(data, prior; rng = rng, chains = 1, progress = progress, n_samples = n_samples, warmup = warmup, thin = thin, target_accept = target_accept, constraint = resolved_constraint, soft_center_scale = soft_center_scale, prox_sum0_lambda = prox_sum0_lambda, kwargs...)
+    chains == 1 && return _sample_ssl_gibbs(data, prior; rng = rng, chains = 1, progress = progress, n_samples = n_samples, warmup = warmup, thin = thin, target_accept = target_accept, constraint = resolved_constraint, prox_sum0_lambda = prox_sum0_lambda, kwargs...)
     samples = Vector{MHSamples}(undef, chains)
     rngs = [_independent_rng(rng) for _ in 1:chains]
     if multichains
@@ -773,7 +745,6 @@ function _sample_gibbs_chains(
                 thin = thin,
                 target_accept = target_accept,
                 constraint = resolved_constraint,
-                soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 kwargs...,
             )
@@ -781,7 +752,7 @@ function _sample_gibbs_chains(
     else
         for c in 1:chains
             @info "Running Gibbs chain $c/$chains"
-            samples[c] = _sample_ssl_gibbs(data, prior; rng = rngs[c], chains = 1, progress = progress, n_samples = n_samples, warmup = warmup, thin = thin, target_accept = target_accept, constraint = resolved_constraint, soft_center_scale = soft_center_scale, prox_sum0_lambda = prox_sum0_lambda, kwargs...)
+            samples[c] = _sample_ssl_gibbs(data, prior; rng = rngs[c], chains = 1, progress = progress, n_samples = n_samples, warmup = warmup, thin = thin, target_accept = target_accept, constraint = resolved_constraint, prox_sum0_lambda = prox_sum0_lambda, kwargs...)
         end
     end
     return MultiMHSamples(samples)

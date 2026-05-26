@@ -89,7 +89,6 @@ struct CoxPosteriorTarget <: AbstractCoxTarget
     data::CoxPreparedData
     prior::AbstractCoxPrior
     constraint::Symbol
-    soft_center_scale::Float64
     prox_sum0_lambda::Float64
     car_weights
     use_car::Bool
@@ -105,7 +104,6 @@ function CoxPosteriorTarget(
     data::CoxPreparedData,
     prior::AbstractCoxPrior;
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
@@ -116,7 +114,6 @@ function CoxPosteriorTarget(
         data,
         prior,
         constraint,
-        Float64(soft_center_scale),
         Float64(prox_sum0_lambda),
         car_weights,
         use_car,
@@ -132,7 +129,6 @@ function logdensity(target::CoxPosteriorTarget, u::AbstractVector)
         target.data,
         target.prior;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
         car_weights = target.car_weights,
         use_car = target.use_car,
@@ -148,7 +144,6 @@ function gradient!(grad::AbstractVector{Float64}, target::CoxPosteriorTarget, u:
         target.prior,
         target.work;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
         car_weights = target.car_weights,
         use_car = target.use_car,
@@ -169,7 +164,6 @@ function logdensity_and_gradient!(
         target.prior,
         target.work;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
         car_weights = target.car_weights,
         use_car = target.use_car,
@@ -192,7 +186,6 @@ function _make_explicit_nuts_target(
     data::CoxPreparedData,
     prior::BayesianLassoPrior;
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
@@ -209,7 +202,6 @@ function _make_explicit_nuts_target(
             data,
             prior;
             constraint = constraint,
-            soft_center_scale = soft_center_scale,
             prox_sum0_lambda = prox_sum0_lambda,
             car_weights = car_weights,
             use_car = use_car,
@@ -220,7 +212,6 @@ function _make_explicit_nuts_target(
         data,
         prior;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
@@ -234,7 +225,6 @@ function _make_explicit_nuts_target(
     data::CoxPreparedData,
     prior::AbstractCoxPrior;
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
@@ -245,7 +235,6 @@ function _make_explicit_nuts_target(
         data,
         prior;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         car_weights = car_weights,
         use_car = use_car,
@@ -264,7 +253,6 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
     max_depth::Integer,
     rng::AbstractRNG,
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape,
@@ -286,7 +274,6 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
                 target_accept = target_accept,
                 max_depth = max_depth,
                 constraint = constraint,
-                soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = alpha_prior_shape,
@@ -313,7 +300,6 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
                         target_accept = target_accept,
                         max_depth = max_depth,
                         constraint = constraint,
-                        soft_center_scale = soft_center_scale,
                         prox_sum0_lambda = prox_sum0_lambda,
                         prox_l1_lambda = prox_l1_lambda,
                         alpha_prior_shape = alpha_prior_shape,
@@ -338,7 +324,6 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
                         target_accept = target_accept,
                         max_depth = max_depth,
                         constraint = constraint,
-                        soft_center_scale = soft_center_scale,
                         prox_sum0_lambda = prox_sum0_lambda,
                         prox_l1_lambda = prox_l1_lambda,
                         alpha_prior_shape = alpha_prior_shape,
@@ -367,7 +352,6 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
     target_accept::Real,
     max_depth::Integer,
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape,
@@ -403,7 +387,6 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
             gamma,
             theta_ref;
             constraint = constraint,
-            soft_center_scale = soft_center_scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
@@ -458,7 +441,6 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
                 gamma,
                 theta;
                 constraint = constraint,
-                soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = a_shape,
@@ -487,8 +469,6 @@ function _sample_nuts_explicit(
     rng::AbstractRNG = Random.default_rng(),
     initial = nothing,
     constraint::Symbol = :soft_center,
-    soft_center = nothing,
-    soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
     prox_l1_lambda::Real = 1e-3,
     alpha_prior_shape = nothing,
@@ -508,8 +488,7 @@ function _sample_nuts_explicit(
     chains > 0 || throw(ArgumentError("chains must be positive."))
     _validate_prior(prior)
     p = size(data.z, 2)
-    resolved_constraint = _resolve_constraint(constraint, soft_center)
-    scale = soft_center_scale === nothing ? _default_soft_center_scale(p) : Float64(soft_center_scale)
+    resolved_constraint = _resolve_constraint(constraint)
     _check_positive(prox_sum0_lambda, "prox_sum0_lambda")
     _check_positive(prox_l1_lambda, "prox_l1_lambda")
     _check_positive(prox_root_tol, "prox_root_tol")
@@ -532,7 +511,6 @@ function _sample_nuts_explicit(
                 max_depth = max_depth,
                 rng = rng,
                 constraint = resolved_constraint,
-                soft_center_scale = scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = a_shape,
@@ -548,7 +526,6 @@ function _sample_nuts_explicit(
                 data,
                 prior;
                 constraint = resolved_constraint,
-                soft_center_scale = scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = a_shape,
@@ -580,7 +557,6 @@ function _sample_nuts_explicit(
                         data,
                         prior;
                         constraint = resolved_constraint,
-                        soft_center_scale = scale,
                         prox_sum0_lambda = prox_sum0_lambda,
                         prox_l1_lambda = prox_l1_lambda,
                         alpha_prior_shape = a_shape,
@@ -611,7 +587,6 @@ function _sample_nuts_explicit(
                         data,
                         prior;
                         constraint = resolved_constraint,
-                        soft_center_scale = scale,
                         prox_sum0_lambda = prox_sum0_lambda,
                         prox_l1_lambda = prox_l1_lambda,
                         alpha_prior_shape = a_shape,

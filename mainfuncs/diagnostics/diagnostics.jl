@@ -148,7 +148,6 @@ function _base_metadata(result::CoxSamplerResult; run_id = "run", metadata = Dic
         "thin" => get(settings, "thin", get(settings, :thin, missing)),
         "use_car" => get(settings, "use_car", get(settings, :use_car, missing)),
         "car_distance" => get(settings, "car_distance", get(settings, :car_distance, missing)),
-        "tau_scale_mode" => get(settings, "tau_scale_mode", get(settings, :tau_scale_mode, "tau0")),
         "tie_method" => String(data.tie_method),
         "pseudocount" => data.pseudocount,
         "runtime" => result.diagnostics.total_seconds,

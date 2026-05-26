@@ -44,7 +44,6 @@ function _target_for(prior_name::AbstractString, prior, data)
             trues(p),
             Ref(0.5);
             constraint = :soft_center,
-            soft_center_scale = B._default_soft_center_scale(p),
             prox_sum0_lambda = 1e-3,
             prox_l1_lambda = 1e-3,
             alpha_prior_shape = 1.0,
@@ -57,7 +56,6 @@ function _target_for(prior_name::AbstractString, prior, data)
         data,
         prior;
         constraint = :soft_center,
-        soft_center_scale = B._default_soft_center_scale(size(data.z, 2)),
         prox_sum0_lambda = 1e-3,
         prox_l1_lambda = 1e-3,
         alpha_prior_shape = 1.0,

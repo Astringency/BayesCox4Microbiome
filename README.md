@@ -115,7 +115,7 @@ select the L1 prior implementation.
 
 | Value | Effect |
 |---|---|
-| `:soft_center` | Adds a Gaussian penalty on `sum(beta)`. If `soft_center_scale` is omitted, the scale is `0.001 * p`. |
+| `:soft_center` | Adds a Gaussian penalty on `sum(beta)` with scale `0.001 * p`. |
 | `:prox` | Adds the zero-sum Moreau-Yosida penalty using `prox_sum0_lambda`. |
 | `:none` | Disables the zero-sum penalty. |
 
@@ -160,7 +160,7 @@ Zero-sum proximal control is used only when `--constraint prox`:
 |---|---|
 | `:nuts` | NUTS with `nuts_backend = :turing` or `:explicit`. |
 | `:nuts_turing` | Alias for `sampler = :nuts, nuts_backend = :turing`. |
-| `:nuts_explicit` | Alias for `sampler = :nuts, nuts_backend = :explicit`. The typo `:nuts_explict` is still accepted. |
+| `:nuts_explicit` | Alias for `sampler = :nuts, nuts_backend = :explicit`. |
 | `:mh` | Adaptive random-walk Metropolis. Proximal L1 priors are not implemented for this sampler. |
 | `:mala` | MALA for continuous states, including `prox-lasso` and `prox-sslasso`. |
 | `:ula` | Unadjusted Langevin updates using `mala_step_size`, including proximal L1 priors. |
@@ -219,21 +219,19 @@ Common options:
 | `--car-distance` | `bray` | CAR distance. |
 | `--p0` | `auto` | `auto`, numeric, or `truth` for simulation. |
 | `--p0-alpha` | `0.05` | Screening threshold for automatic `p0`. |
-| `--tie_method` | `efron` | Cox tied-event method: `efron` or `breslow`. Alias: `--tie-method`. |
+| `--tie-method` | `efron` | Cox tied-event method: `efron` or `breslow`. |
 | `--constraint` | `soft_center` | Zero-sum constraint mode. |
-| `--soft-center-scale` | automatic | Scale for `soft_center`. |
 | `--prox-sum0-lambda` | `1e-3` | Zero-sum Moreau smoothing parameter. |
 | `--prox-l1-lambda` | `1e-3` | L1 Moreau smoothing parameter for proximal L1 priors. |
 | `--prox-root-tol` | `1e-10` | Projection root tolerance for proximal L1 priors. |
 | `--prox-root-maxiter` | `100` | Projection root iteration limit for proximal L1 priors. |
 | `--hs-local-scale`, `--hs-tau-scale` | `1`, `1` | HS/CoxHS local shrinkage scale and fixed HS global scale. `--hs-tau-scale` is only active when the prior does not use Cox `tau0`. |
 | `--rhs-local-scale`, `--rhs-tau-scale` | `1`, `1` | RHS/CoxRHS local shrinkage scale and fixed RHS global scale. `--rhs-tau-scale` is only active for fixed `tau_formula`. |
-| `--rhs-slab-df`, `--rhs-slab-s2` | `4`, `2` | RHS slab `c2 ~ InverseGamma(df/2, df*s2/2)` hyperparameters. Aliases: `--rhs-c2-df`, `--rhs-c2-s2`. |
+| `--rhs-slab-df`, `--rhs-slab-s2` | `4`, `2` | RHS slab `c2 ~ InverseGamma(df/2, df*s2/2)` hyperparameters. |
 | `--lasso-lambda2-shape`, `--lasso-lambda2-rate` | `1`, `0.1` | Hyperprior for BLASSO global `lambda^2`. |
-| `--lasso-tau2-shape` | `1` | Shape of the BLASSO local variance prior `tau_j^2 | lambda^2`. Alias: `--lasso-local-shape`. |
-| `--sslasso-s0`, `--sslasso-s1` | simulation `0.04`, `0.5`; real data `1`, `10` | SSLASSO spike and slab Laplace scales. Aliases: `--sslasso-spike-scale`, `--sslasso-slab-scale`. |
+| `--sslasso-spike-scale`, `--sslasso-slab-scale` | simulation `0.04`, `0.5`; real data `1`, `10` | SSLASSO spike and slab Laplace scales. |
 | `--sslasso-theta-a`, `--sslasso-theta-b` | `1`, `1` | Beta prior hyperparameters for SSLASSO inclusion probability. |
-| `--alpha-prior-shape`, `--alpha-prior-rate` | prior-specific | Proximal L1 epigraph `alpha` prior hyperparameters for `prox-lasso` and `prox-sslasso`. Aliases: `--prox-alpha-prior-shape`, `--prox-alpha-prior-rate`. |
+| `--alpha-prior-shape`, `--alpha-prior-rate` | prior-specific | Proximal L1 epigraph `alpha` prior hyperparameters for `prox-lasso` and `prox-sslasso`. |
 | `--mala-step-size` | `1e-4` | MALA/ULA step size. |
 | `--mala-target-accept` | `0.574` | MALA step-size adaptation target. |
 | `--mala-adapt-every` | `50` | MALA adaptation interval. |
@@ -330,7 +328,7 @@ Common options:
 | `--warmup` | `200` | Warmup/adaptation iterations. |
 | `--chains` | `4` | Number of chains. |
 | `--p0` | `auto` | `auto` or numeric. `truth` is rejected for real data. |
-| `--tie_method` | `efron` | Cox tied-event method: `efron` or `breslow`. Alias: `--tie-method`. |
+| `--tie-method` | `efron` | Cox tied-event method: `efron` or `breslow`. |
 | `--constraint` | `soft_center` | Zero-sum constraint mode. |
 | `--diagnose` | `true` | Generate diagnostics after each fit. |
 

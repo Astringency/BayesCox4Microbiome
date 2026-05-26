@@ -2,7 +2,6 @@ Turing.@model function _bayes_cox_turing_model(
     data::CoxPreparedData,
     prior::AbstractCoxPrior,
     constraint::Symbol,
-    soft_center_scale::Float64,
     prox_sum0_lambda::Float64,
     car_weights,
     use_car::Bool,
@@ -73,7 +72,6 @@ Turing.@model function _bayes_cox_turing_model(
     Turing.@addlogprob! _constraint_logpenalty(
         beta;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
     )
     Turing.@addlogprob! cox_logpartiallikelihood(data, beta)
@@ -84,7 +82,6 @@ Turing.@model function _lasso_prox_turing_model(
     data::CoxPreparedData,
     prior::BayesianLassoPrior,
     constraint::Symbol,
-    soft_center_scale::Float64,
     prox_sum0_lambda::Float64,
     prox_l1_lambda::Float64,
     alpha_prior_shape::Float64,
@@ -101,7 +98,6 @@ Turing.@model function _lasso_prox_turing_model(
         data,
         prior;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
@@ -119,7 +115,6 @@ Turing.@model function _ssl_prox_turing_block_model(
     gamma::AbstractVector{Bool},
     theta::Float64,
     constraint::Symbol,
-    soft_center_scale::Float64,
     prox_sum0_lambda::Float64,
     prox_l1_lambda::Float64,
     alpha_prior_shape::Float64,
@@ -138,7 +133,6 @@ Turing.@model function _ssl_prox_turing_block_model(
         gamma,
         theta;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
@@ -168,8 +162,6 @@ function _sample_nuts(
     target_accept::Real = 0.8,
     rng::AbstractRNG = Random.default_rng(),
     constraint::Symbol = :soft_center,
-    soft_center = nothing,
-    soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
@@ -189,8 +181,7 @@ function _sample_nuts(
     _validate_prior(prior)
 
     p = size(data.z, 2)
-    resolved_constraint = _resolve_constraint(constraint, soft_center)
-    scale = soft_center_scale === nothing ? _default_soft_center_scale(p) : Float64(soft_center_scale)
+    resolved_constraint = _resolve_constraint(constraint)
     resolved_car_weights = use_car ? _prepare_car_weights(car_weights, p) : nothing
     use_proximal_prior = _is_proximal_l1_prior(prior)
     if use_proximal_prior && prior isa BayesianLassoPrior
@@ -203,7 +194,6 @@ function _sample_nuts(
             target_accept = target_accept,
             rng = rng,
             constraint = resolved_constraint,
-            soft_center_scale = scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = alpha_prior_shape,
@@ -224,7 +214,6 @@ function _sample_nuts(
             target_accept = target_accept,
             rng = rng,
             constraint = resolved_constraint,
-            soft_center_scale = scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = alpha_prior_shape,
@@ -238,7 +227,6 @@ function _sample_nuts(
         data,
         prior,
         resolved_constraint,
-        scale,
         Float64(prox_sum0_lambda),
         resolved_car_weights,
         use_car && resolved_car_weights !== nothing,
@@ -338,7 +326,6 @@ function _sample_lasso_prox_nuts(
     target_accept::Real,
     rng::AbstractRNG,
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape,
@@ -354,7 +341,6 @@ function _sample_lasso_prox_nuts(
         data,
         prior,
         constraint,
-        Float64(soft_center_scale),
         Float64(prox_sum0_lambda),
         Float64(prox_l1_lambda),
         a_shape,
@@ -378,7 +364,6 @@ function _sample_lasso_prox_nuts(
             data,
             prior;
             constraint = constraint,
-            soft_center_scale = soft_center_scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
@@ -403,7 +388,6 @@ function _sample_ssl_prox_nuts_gibbs(
     target_accept::Real,
     rng::AbstractRNG,
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape,
@@ -425,7 +409,6 @@ function _sample_ssl_prox_nuts_gibbs(
                 rng = rng,
                 target_accept = target_accept,
                 constraint = constraint,
-                soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = alpha_prior_shape,
@@ -450,7 +433,6 @@ function _sample_ssl_prox_nuts_gibbs(
                     rng = rngs[c],
                     target_accept = target_accept,
                     constraint = constraint,
-                    soft_center_scale = soft_center_scale,
                     prox_sum0_lambda = prox_sum0_lambda,
                     prox_l1_lambda = prox_l1_lambda,
                     alpha_prior_shape = alpha_prior_shape,
@@ -479,7 +461,6 @@ function _sample_ssl_prox_nuts_gibbs_one(
     rng::AbstractRNG,
     target_accept::Real,
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape,
@@ -508,7 +489,6 @@ function _sample_ssl_prox_nuts_gibbs_one(
             gamma,
             theta,
             constraint,
-            Float64(soft_center_scale),
             Float64(prox_sum0_lambda),
             Float64(prox_l1_lambda),
             a_shape,
@@ -547,7 +527,6 @@ function _sample_ssl_prox_nuts_gibbs_one(
                 gamma,
                 theta;
                 constraint = constraint,
-                soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = a_shape,

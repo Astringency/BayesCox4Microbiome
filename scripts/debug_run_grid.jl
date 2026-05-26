@@ -117,7 +117,7 @@ end
 
 function debug_row_from_fit(; sim, data, fit, summary, rep, n, p, nonzero, baseline, prior,
     sampler, nuts_backend, samples, warmup, chains, use_car, car_distance, pseudocount,
-    p0, tau_scale_mode, seed)
+    p0, seed)
     beta_hat = Float64.(summary.mean)
     truth = Float64.(sim.beta)
     nz = truth .!= 0.0
@@ -145,7 +145,6 @@ function debug_row_from_fit(; sim, data, fit, summary, rep, n, p, nonzero, basel
         use_car = use_car,
         car_distance = string(car_distance),
         pseudocount = pseudocount,
-        tau_scale_mode = tau_scale_mode,
         event_rate = mean(sim.event .!= 0),
         censor_rate = mean(sim.event .== 0),
         ll_true_minus_zero = ll_true - ll_zero,
@@ -189,9 +188,6 @@ function main()
     use_cars = split_bools(arg(args, "use-car", "true"))
     car_distance = Symbol(arg(args, "car-distance", "bray"))
     pseudocounts = split_floats(arg(args, "pseudocount", "0.0"))
-    haskey(args, "tau-scale-mode") &&
-        throw(ArgumentError("--tau-scale-mode was removed; HS/RHS tau scale is fixed at tau0."))
-    tau_mode = "tau0"
     p0_arg = parse_optional_p0(args; default = :truth)
     p0_alpha = arg(args, "p0-alpha", 0.05)
     progress = arg(args, "progress", false)
@@ -250,7 +246,6 @@ function main()
                     car_distance = car_distance,
                     pseudocount = pseudocount,
                     p0 = p0,
-                    tau_scale_mode = tau_mode,
                     seed = sim_seed,
                 )
                 append_row!(outpath, row)
@@ -275,7 +270,6 @@ function main()
                     use_car = actual_use_car,
                     car_distance = string(car_distance),
                     pseudocount = pseudocount,
-                    tau_scale_mode = tau_mode,
                     event_rate = mean(sim.event .!= 0),
                     censor_rate = mean(sim.event .== 0),
                     ll_true_minus_zero = missing,

@@ -676,7 +676,6 @@ function process_run(run_dir::AbstractString; read_samples::Bool)
         :lasso_lambda => finite_or_missing(get_any(meta, "lasso_lambda"; default = missing)),
         :lasso_lambda2_shape => finite_or_missing(get_any(meta, "lasso_lambda2_shape"; default = 1.0)),
         :lasso_lambda2_rate => finite_or_missing(get_any(meta, "lasso_lambda2_rate"; default = 0.1)),
-        :lasso_tau2_shape => finite_or_missing(get_any(meta, "lasso_tau2_shape"; default = 1.0)),
         :sslasso_spike_scale => finite_or_missing(get_any(meta, "sslasso_spike_scale"; default = 0.04)),
         :sslasso_slab_scale => finite_or_missing(get_any(meta, "sslasso_slab_scale"; default = 0.5)),
         :sslasso_theta_a => finite_or_missing(get_any(meta, "sslasso_theta_a"; default = 1.0)),
@@ -972,7 +971,7 @@ function write_experiment_commands(output::AbstractString)
 
     ```powershell
     foreach ($s1 in "0.5","1","2","5") {
-      julia --project=. scripts/run_simulation.jl --outdir "results/diagnosis/sslasso_s1_$s1" --reps 3 --n 200 --p 50,150 --nonzero 6 --baseline weibull --priors sslasso --samples 300 --warmup 200 --chains 2 --p0 truth --use-car false --sslasso-s1 $s1 --diagnose false --save-wide-csv true --progress false
+      julia --project=. scripts/run_simulation.jl --outdir "results/diagnosis/sslasso_slab_scale_$s1" --reps 3 --n 200 --p 50,150 --nonzero 6 --baseline weibull --priors sslasso --samples 300 --warmup 200 --chains 2 --p0 truth --use-car false --sslasso-slab-scale $s1 --diagnose false --save-wide-csv true --progress false
     }
     foreach ($lambda in "0.1","0.2","0.5","1.0") {
       julia --project=. scripts/run_simulation.jl --outdir "results/diagnosis/lasso_lambda_$lambda" --reps 3 --n 200 --p 50,150 --nonzero 6 --baseline weibull --priors lasso --samples 300 --warmup 200 --chains 2 --p0 truth --use-car false --lasso-lambda $lambda --diagnose false --save-wide-csv true --progress false

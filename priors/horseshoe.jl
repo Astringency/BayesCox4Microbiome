@@ -1,3 +1,11 @@
+"""
+    Horseshoe Prior:
+    
+    βⱼ∣ τ,λⱼ∼ N(0, τ²λⱼ²), j=1,2,…,p,
+    λⱼ∼ C⁺(0,1),
+    τ ∼ C⁺(0,1).
+"""
+
 Base.@kwdef struct HorseshoePrior <: AbstractCoxPrior
     tau_scale::Float64 = 1.0
     use_cox_tau0::Bool = false

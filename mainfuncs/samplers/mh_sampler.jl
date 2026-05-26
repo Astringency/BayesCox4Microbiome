@@ -115,8 +115,6 @@ function _sample_mh(
     min_step::Real = 1e-5,
     max_step::Real = 1.0,
     constraint::Symbol = :soft_center,
-    soft_center = nothing,
-    soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
     center_beta_proposal::Bool = true,
     car_weights = nothing,
@@ -137,14 +135,12 @@ function _sample_mh(
             initial_state(prior, p, n_events)
     end
     names = _state_names(prior, p)
-    resolved_constraint = _resolve_constraint(constraint, soft_center)
-    sc_scale = soft_center_scale === nothing ? _default_soft_center_scale(p) : Float64(soft_center_scale)
+    resolved_constraint = _resolve_constraint(constraint)
     logpost = u -> logposterior(
         u,
         data,
         prior;
         constraint = resolved_constraint,
-        soft_center_scale = sc_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         car_weights = car_weights,
         use_car = use_car,
@@ -164,7 +160,7 @@ function _sample_mh(
         min_step = min_step,
         max_step = max_step,
         center_first = center_beta_proposal ? p : 0,
-        sum_step = resolved_constraint == :soft_center ? sc_scale : 0.0,
+        sum_step = resolved_constraint == :soft_center ? _default_soft_center_scale(p) : 0.0,
         progress = progress,
         progress_desc = progress_desc,
         progress_offset = progress_offset,

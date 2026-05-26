@@ -37,6 +37,46 @@ end
 
 function main()
     args = parse_cli_args()
+    require_known_args!(
+        args,
+        (
+            "input",
+            "outdir",
+            "time-col",
+            "status-col",
+            "exclude-cols",
+            "priors",
+            "sampler",
+            "nuts-backend",
+            "samples",
+            "warmup",
+            "chains",
+            "multichains",
+            "target-accept",
+            "seed",
+            "use-car",
+            "progress",
+            "car-distance",
+            "pseudocount",
+            "tie-method",
+            "p0",
+            "p0-alpha",
+            "constraint",
+            "prox-sum0-lambda",
+            "prox-l1-lambda",
+            "prox-root-tol",
+            "prox-root-maxiter",
+            "mala-step-size",
+            "mala-target-accept",
+            "mala-adapt-every",
+            "mala-min-step",
+            "mala-max-step",
+            "diagnose",
+            "diagnose-format",
+            "diagnose-top-k-beta",
+            "diagnose-max-lag",
+        ),
+    )
     input = arg(args, "input", joinpath("data", "T1D.csv"))
     outdir = arg(args, "outdir", joinpath("results", "realdata", "T1D"))
     time_col = Symbol(arg(args, "time-col", "time"))
@@ -60,7 +100,6 @@ function main()
     p0_arg === :truth && throw(ArgumentError("--p0 truth is only valid for simulation."))
     p0_alpha = arg(args, "p0-alpha", 0.05)
     constraint = Symbol(arg(args, "constraint", "soft_center"))
-    soft_center_scale = haskey(args, "soft-center-scale") ? parse(Float64, args["soft-center-scale"]) : nothing
     prox_sum0_lambda = arg(args, "prox-sum0-lambda", 1e-3)
     prox_l1_lambda = arg(args, "prox-l1-lambda", 1e-3)
     prox_root_tol = arg(args, "prox-root-tol", 1e-10)
@@ -74,7 +113,6 @@ function main()
     diagnose_formats = get(args, "diagnose-format", "pdf")
     diagnose_top_k_beta = arg(args, "diagnose-top-k-beta", 10)
     diagnose_max_lag = arg(args, "diagnose-max-lag", 50)
-    tau_scale_mode = get(ENV, "BAYESCOX_TAU_CAUCHY_SCALE", "tau0_squared")
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
     figs_dir = ensure_dir(joinpath(outdir, "figures"))
@@ -114,7 +152,6 @@ function main()
             p0 = p0_arg,
             p0_alpha = p0_alpha,
             constraint = constraint,
-            soft_center_scale = soft_center_scale,
             prox_sum0_lambda = prox_sum0_lambda,
             prox_l1_lambda = prox_l1_lambda,
             prox_root_tol = prox_root_tol,
@@ -146,7 +183,6 @@ function main()
                 "p0" => fit.p0,
                 "pseudocount" => pseudocount,
                 "tie_method" => string(tie_method),
-                "tau_scale_mode" => tau_scale_mode,
                 "input" => input,
             ),
             settings = Dict(
@@ -158,7 +194,6 @@ function main()
                 "seed" => seed,
                 "thin" => 1,
                 "constraint" => string(constraint),
-                "soft_center_scale" => soft_center_scale,
                 "prox_sum0_lambda" => prox_sum0_lambda,
                 "prox_l1_lambda" => prox_l1_lambda,
                 "prox_root_tol" => prox_root_tol,
@@ -172,7 +207,6 @@ function main()
                 "car_distance" => string(car_distance),
                 "pseudocount" => pseudocount,
                 "tie_method" => string(tie_method),
-                "tau_scale_mode" => tau_scale_mode,
                 "p0_alpha" => p0_alpha,
             ),
             posterior_summary = summary,

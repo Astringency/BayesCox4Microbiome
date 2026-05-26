@@ -172,8 +172,62 @@ end
 
 function main()
     args = parse_cli_args()
-    haskey(args, "save-long-csv") &&
-        throw(ArgumentError("--save-long-csv was removed; long posterior sample CSV files are no longer written."))
+    require_known_args!(
+        args,
+        vcat(
+            (
+                "outdir",
+                "reps",
+                "n",
+                "p",
+                "nonzero",
+                "baseline",
+                "priors",
+                "sampler",
+                "nuts-backend",
+                "samples",
+                "warmup",
+                "thin",
+                "chains",
+                "multichains",
+                "target-accept",
+                "seed",
+                "use-car",
+                "progress",
+                "car-distance",
+                "p0",
+                "p0-alpha",
+                "constraint",
+                "prox-sum0-lambda",
+                "prox-l1-lambda",
+                "prox-root-tol",
+                "prox-root-maxiter",
+                "mala-step-size",
+                "mala-target-accept",
+                "mala-adapt-every",
+                "mala-min-step",
+                "mala-max-step",
+                "diagnose",
+                "debug",
+                "diagnose-format",
+                "diagnose-top-k-beta",
+                "diagnose-max-lag",
+                "resume",
+                "pseudocount",
+                "standardize",
+                "tie-method",
+                "plot-first-rep-only",
+                "sample-thin",
+                "first-rep-sample-thin",
+                "save-wide-csv",
+                "save-jld2",
+                "alpha-prior-shape",
+                "alpha-prior-rate",
+            ),
+            PRIOR_HYPERPARAMETER_CLI_KEYS,
+            BASELINE_PARAMETER_CLI_KEYS,
+        ),
+    )
     outdir = arg(args, "outdir", joinpath("results", "simulation"))
     reps = arg(args, "reps", 1)
     ns = split_ints(arg(args, "n", "200"))
@@ -196,7 +250,6 @@ function main()
     p0_arg = parse_optional_p0(args; default = nothing)
     p0_alpha = arg(args, "p0-alpha", 0.05)
     constraint = Symbol(arg(args, "constraint", "soft_center"))
-    soft_center_scale = haskey(args, "soft-center-scale") ? parse(Float64, args["soft-center-scale"]) : nothing
     prox_sum0_lambda = arg(args, "prox-sum0-lambda", 1e-3)
     prox_l1_lambda = arg(args, "prox-l1-lambda", 1e-3)
     prox_root_tol = arg(args, "prox-root-tol", 1e-10)
@@ -216,7 +269,6 @@ function main()
     pseudocount = arg(args, "pseudocount", 0.0)
     standardize = arg(args, "standardize", false)
     tie_method = parse_tie_method(args)
-    tau_scale_mode = get(ENV, "BAYESCOX_TAU_CAUCHY_SCALE", "tau0_squared")
     plot_first_rep_only = arg(args, "plot-first-rep-only", true)
     sample_thin = max(1, arg(args, "sample-thin", 10))
     first_rep_sample_thin = max(1, arg(args, "first-rep-sample-thin", 1))
@@ -224,22 +276,8 @@ function main()
     save_jld2 = arg(args, "save-jld2", false)
     prior_kwargs = prior_hyperparameter_kwargs(args)
     prior_metadata = prior_hyperparameter_metadata(prior_kwargs)
-    alpha_prior_shape = optional_float_arg(args, "alpha-prior-shape", "prox-alpha-prior-shape")
-    alpha_prior_rate = optional_float_arg(args, "alpha-prior-rate", "prox-alpha-prior-rate")
-    reject_removed_args!(
-        args,
-        (
-            "tmax",
-            "censoring-distribution",
-            "censoring-upper",
-            "censoring-ratio",
-            "censor-ratio",
-            "cencor-ratio",
-            "cencor_ratio",
-            "cencor-upper",
-            "cencor_upper",
-        ),
-    )
+    alpha_prior_shape = optional_float_arg(args, "alpha-prior-shape")
+    alpha_prior_rate = optional_float_arg(args, "alpha-prior-rate")
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
     figs_dir = ensure_dir(joinpath(outdir, "figures"))
@@ -301,7 +339,6 @@ function main()
                 "pseudocount" => pseudocount,
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
-                "tau_scale_mode" => tau_scale_mode,
                 "seed" => sim_seed,
                 "git_commit_hash" => BayesCox4Micro._git_commit_hash(),
             ), prior_metadata)
@@ -375,7 +412,6 @@ function main()
                 p0 = p0_value,
                 p0_alpha = p0_alpha,
                 constraint = constraint,
-                soft_center_scale = soft_center_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = alpha_prior_shape,
@@ -444,7 +480,6 @@ function main()
                 "pseudocount" => pseudocount,
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
-                "tau_scale_mode" => tau_scale_mode,
                 "censoring_distribution" => string(sim.censoring_distribution),
                 "censoring_upper" => sim.censoring_upper,
                 "observed_censoring_rate" => mean(sim.event .== 0),
@@ -464,7 +499,6 @@ function main()
                 "thin" => thin,
                 "saved_sample_thin" => saved_sample_thin,
                 "constraint" => string(constraint),
-                "soft_center_scale" => soft_center_scale,
                 "prox_sum0_lambda" => prox_sum0_lambda,
                 "prox_l1_lambda" => prox_l1_lambda,
                 "alpha_prior_shape" => alpha_prior_shape,
@@ -481,7 +515,6 @@ function main()
                 "pseudocount" => pseudocount,
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
-                "tau_scale_mode" => tau_scale_mode,
                 "p0_alpha" => p0_alpha,
                 "baseline_rate" => sim.baseline_rate,
                 "baseline_scale" => sim.baseline_scale,

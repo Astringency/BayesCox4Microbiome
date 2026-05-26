@@ -171,48 +171,48 @@ end
 
 function sslasso_outputs(outdir::AbstractString)
     specs = [
-        ("0.5", joinpath(outdir, "sslasso_s1_0p5_summary")),
-        ("1", joinpath(outdir, "sslasso_s1_1_summary")),
-        ("2", joinpath(outdir, "sslasso_s1_2_summary")),
-        ("5", joinpath(outdir, "sslasso_s1_5_summary")),
+        ("0.5", joinpath(outdir, "sslasso_slab_scale_0p5_summary")),
+        ("1", joinpath(outdir, "sslasso_slab_scale_1_summary")),
+        ("2", joinpath(outdir, "sslasso_slab_scale_2_summary")),
+        ("5", joinpath(outdir, "sslasso_slab_scale_5_summary")),
     ]
     rows = DataFrame()
     for (label, dir) in specs
         df = load_summary_dir(dir)
         isempty(df) && continue
-        df[!, :s1_setting] = fill(parse(Float64, label), nrow(df))
+        df[!, :slab_scale_setting] = fill(parse(Float64, label), nrow(df))
         append!(rows, df; cols = :union)
     end
     if !isempty(rows)
-        sort!(rows, :s1_setting)
-        CSV.write(joinpath(outdir, "sslasso_s1_sensitivity_combined.csv"), rows)
+        sort!(rows, :slab_scale_setting)
+        CSV.write(joinpath(outdir, "sslasso_slab_scale_sensitivity_combined.csv"), rows)
     end
 
     io = IOBuffer()
-    println(io, "# SSLASSO s1 Sensitivity Report")
+    println(io, "# SSLASSO Slab Scale Sensitivity Report")
     println(io)
     println(io, "Generated: $(now())")
     println(io)
-    println(io, "Scope: p=50, reps=1, chains=1, samples=150, warmup=100, s0=0.04 pilot. This is directional only.")
+    println(io, "Scope: p=50, reps=1, chains=1, samples=150, warmup=100, spike scale=0.04 pilot. This is directional only.")
     println(io)
     println(io, "## Summary")
     println(io)
-    print(io, markdown_table(rows, [:s1_setting, :MSE, :shrinkage_ratio_nonzero, :nonzero_MSE, :zero_MSE, :FP, :FN, :sign_prob_nonzero_mean, :beta_rank_recovery_topk, :beta_rank_recovery_top2k, :coverage_zero_nonzero]))
+    print(io, markdown_table(rows, [:slab_scale_setting, :MSE, :shrinkage_ratio_nonzero, :nonzero_MSE, :zero_MSE, :FP, :FN, :sign_prob_nonzero_mean, :beta_rank_recovery_topk, :beta_rank_recovery_top2k, :coverage_zero_nonzero]))
     println(io)
     println(io, "## Answers")
     println(io)
     if !isempty(rows)
-        base = rows[rows.s1_setting .== minimum(rows.s1_setting), :][1, :]
+        base = rows[rows.slab_scale_setting .== minimum(rows.slab_scale_setting), :][1, :]
         best_idx = findmin([as_float(x) for x in rows.nonzero_MSE])[2]
         best = rows[best_idx, :]
-        println(io, "1. Relative to s1=$(fmt(base.s1_setting)), the best pilot nonzero_MSE occurred at s1=$(fmt(best.s1_setting)) with shrinkage_ratio_nonzero=$(fmt(best.shrinkage_ratio_nonzero)) and nonzero_MSE=$(fmt(best.nonzero_MSE)).")
-        println(io, "2. s1=2 improved coefficient scale with only modest zero_MSE increase. s1=5 did not continue that improvement and had worse rank recovery in this one-chain pilot. FP stayed zero in this pilot, so FP inflation is not established.")
-        println(io, "3. Top-k recovery stayed reasonably high at s1=0.5-2, suggesting the ranking problem is less severe than the coefficient-scale problem, but short-chain instability is visible.")
-        println(io, "4. Evidence supports testing s1 above 0.5, with s1=1-2 as the safer follow-up range before trying s1=5 in the main grid.")
+        println(io, "1. Relative to slab scale=$(fmt(base.slab_scale_setting)), the best pilot nonzero_MSE occurred at slab scale=$(fmt(best.slab_scale_setting)) with shrinkage_ratio_nonzero=$(fmt(best.shrinkage_ratio_nonzero)) and nonzero_MSE=$(fmt(best.nonzero_MSE)).")
+        println(io, "2. Slab scale=2 improved coefficient scale with only modest zero_MSE increase. Slab scale=5 did not continue that improvement and had worse rank recovery in this one-chain pilot. FP stayed zero in this pilot, so FP inflation is not established.")
+        println(io, "3. Top-k recovery stayed reasonably high at slab scale=0.5-2, suggesting the ranking problem is less severe than the coefficient-scale problem, but short-chain instability is visible.")
+        println(io, "4. Evidence supports testing slab scale above 0.5, with slab scale=1-2 as the safer follow-up range before trying slab scale=5 in the main grid.")
     else
         println(io, "No SSLASSO pilot rows were available.")
     end
-    write(joinpath(outdir, "sslasso_s1_sensitivity_report.md"), String(take!(io)))
+    write(joinpath(outdir, "sslasso_slab_scale_sensitivity_report.md"), String(take!(io)))
     return rows
 end
 
@@ -337,7 +337,7 @@ end
 function write_updated_reports(outdir::AbstractString)
     tau_report = joinpath(outdir, "tau_scale_sensitivity_report.md")
     car_report = joinpath(outdir, "car_sensitivity_report.md")
-    ssl_report = joinpath(outdir, "sslasso_s1_sensitivity_report.md")
+    ssl_report = joinpath(outdir, "sslasso_slab_scale_sensitivity_report.md")
     prox_report = joinpath(outdir, "prox_anomaly_report.md")
 
     io = IOBuffer()
@@ -376,7 +376,7 @@ function write_updated_reports(outdir::AbstractString)
     println(io, "- `hs_rhs_parameter_diagnostics_report.md`")
     println(io, "- `rhs_slab_sensitivity_report.md`")
     println(io, "- `car_sensitivity_report.md`")
-    println(io, "- `sslasso_s1_sensitivity_report.md`")
+    println(io, "- `sslasso_slab_scale_sensitivity_report.md`")
     println(io, "- `prox_anomaly_report.md`")
     write(joinpath(outdir, "overshrinkage_report.md"), String(take!(io)))
 

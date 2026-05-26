@@ -4,7 +4,6 @@ struct CoxProxLassoTarget <: AbstractCoxTarget
     data::CoxPreparedData
     prior::BayesianLassoPrior
     constraint::Symbol
-    soft_center_scale::Float64
     prox_sum0_lambda::Float64
     prox_l1_lambda::Float64
     alpha_prior_shape::Float64
@@ -18,7 +17,6 @@ function CoxProxLassoTarget(
     data::CoxPreparedData,
     prior::BayesianLassoPrior;
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
@@ -30,7 +28,6 @@ function CoxProxLassoTarget(
         data,
         prior,
         constraint,
-        Float64(soft_center_scale),
         Float64(prox_sum0_lambda),
         Float64(prox_l1_lambda),
         Float64(alpha_prior_shape),
@@ -47,7 +44,6 @@ struct CoxProxSSLassoTarget <: AbstractCoxTarget
     gamma::Vector{Bool}
     theta::Base.RefValue{Float64}
     constraint::Symbol
-    soft_center_scale::Float64
     prox_sum0_lambda::Float64
     prox_l1_lambda::Float64
     alpha_prior_shape::Float64
@@ -63,7 +59,6 @@ function CoxProxSSLassoTarget(
     gamma::AbstractVector{Bool},
     theta::Base.RefValue{Float64};
     constraint::Symbol,
-    soft_center_scale::Real,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
@@ -77,7 +72,6 @@ function CoxProxSSLassoTarget(
         collect(Bool, gamma),
         theta,
         constraint,
-        Float64(soft_center_scale),
         Float64(prox_sum0_lambda),
         Float64(prox_l1_lambda),
         Float64(alpha_prior_shape),
@@ -102,7 +96,6 @@ function logdensity(target::CoxProxLassoTarget, u::AbstractVector)
         target.data,
         target.prior;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
@@ -120,7 +113,6 @@ function logdensity(target::CoxProxSSLassoTarget, u::AbstractVector)
         target.gamma,
         target.theta[];
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
@@ -137,7 +129,6 @@ function gradient!(grad::AbstractVector{Float64}, target::CoxProxLassoTarget, u:
         target.data,
         target.work;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
@@ -156,7 +147,6 @@ function gradient!(grad::AbstractVector{Float64}, target::CoxProxSSLassoTarget, 
         target.gamma,
         target.work;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
@@ -177,7 +167,6 @@ function logdensity_and_gradient!(
         target.data,
         target.work;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
@@ -201,7 +190,6 @@ function logdensity_and_gradient!(
         target.theta[],
         target.work;
         constraint = target.constraint,
-        soft_center_scale = target.soft_center_scale,
         prox_sum0_lambda = target.prox_sum0_lambda,
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,

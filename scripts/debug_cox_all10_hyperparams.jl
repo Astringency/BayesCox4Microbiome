@@ -47,12 +47,11 @@ function selected_hyperparams(prior::AbstractString, nonzero::Integer)
     elseif key == "cox-rhs"
         return (p0 = p0x(1), rhs_local_scale = 1.0, rhs_slab_df = 2.0, rhs_slab_s2 = 2.0)
     elseif key == "lasso"
-        return (lasso_tau2_shape = 0.5, lasso_lambda2_shape = 0.5, lasso_lambda2_rate = 0.05)
+        return (lasso_lambda2_shape = 0.5, lasso_lambda2_rate = 0.05)
     elseif key == "sslasso"
         return (sslasso_spike_scale = 0.04, sslasso_slab_scale = 1.0, sslasso_theta_a = 1.0, sslasso_theta_b = 1.0)
     elseif key == "prox-lasso"
         return (
-            lasso_tau2_shape = 0.5,
             lasso_lambda2_shape = 0.5,
             lasso_lambda2_rate = 0.05,
             prox_l1_lambda = 0.001,

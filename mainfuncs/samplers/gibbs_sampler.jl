@@ -14,7 +14,6 @@ function _ssl_joint_logposterior(
     tau2::AbstractVector,
     theta::Real;
     constraint::Symbol,
-    soft_center_scale::Float64,
     prox_sum0_lambda::Real,
 )
     0 < theta < 1 || return -Inf
@@ -23,7 +22,6 @@ function _ssl_joint_logposterior(
     lp += _constraint_logpenalty(
         beta;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
     )
     lp += logpdf(Beta(prior.theta_a, prior.theta_b), theta)
@@ -41,14 +39,12 @@ function _ssl_beta_logtarget(
     beta::AbstractVector,
     tau2::AbstractVector;
     constraint::Symbol,
-    soft_center_scale::Float64,
     prox_sum0_lambda::Real,
 )
     lp = cox_logpartiallikelihood(data, beta) + _ssl_normal_prior_logpdf(beta, tau2)
     lp += _constraint_logpenalty(
         beta;
         constraint = constraint,
-        soft_center_scale = soft_center_scale,
         prox_sum0_lambda = prox_sum0_lambda,
     )
     return lp
@@ -78,8 +74,6 @@ function _sample_ssl_gibbs(
     min_step::Real = 1e-5,
     max_step::Real = 1.0,
     constraint::Symbol = :soft_center,
-    soft_center = nothing,
-    soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
     center_beta_proposal::Bool = true,
     chains::Integer = 1,
@@ -101,8 +95,7 @@ function _sample_ssl_gibbs(
     theta = 0.5
     gamma = trues(p)
     tau2 = [_sample_ssl_tau2(rng, beta[j], prior.slab_scale) for j in 1:p]
-    resolved_constraint = _resolve_constraint(constraint, soft_center)
-    sc_scale = soft_center_scale === nothing ? _default_soft_center_scale(p) : Float64(soft_center_scale)
+    resolved_constraint = _resolve_constraint(constraint)
 
     d = p
     step = initial_step isa Real ? fill(Float64(initial_step), d) : collect(Float64, initial_step)
@@ -124,7 +117,6 @@ function _sample_ssl_gibbs(
         beta,
         tau2;
         constraint = resolved_constraint,
-        soft_center_scale = sc_scale,
         prox_sum0_lambda = prox_sum0_lambda,
     )
     isfinite(current_beta_lp) || throw(ArgumentError("initial beta has non-finite log posterior."))
@@ -144,7 +136,7 @@ function _sample_ssl_gibbs(
         if center_beta_proposal && p > 1
             noise .-= mean(noise)
             if resolved_constraint == :soft_center
-                noise .+= sc_scale * randn(rng) / p
+                noise .+= _default_soft_center_scale(p) * randn(rng) / p
             end
         end
         beta_prop = beta .+ global_scale .* noise
@@ -153,7 +145,6 @@ function _sample_ssl_gibbs(
             beta_prop,
             tau2;
             constraint = resolved_constraint,
-            soft_center_scale = sc_scale,
             prox_sum0_lambda = prox_sum0_lambda,
         )
         accepted = isfinite(prop_lp) && log(rand(rng)) < prop_lp - current_beta_lp
@@ -184,7 +175,6 @@ function _sample_ssl_gibbs(
             beta,
             tau2;
             constraint = resolved_constraint,
-            soft_center_scale = sc_scale,
             prox_sum0_lambda = prox_sum0_lambda,
         )
 
@@ -214,7 +204,6 @@ function _sample_ssl_gibbs(
                 tau2,
                 theta;
                 constraint = resolved_constraint,
-                soft_center_scale = sc_scale,
                 prox_sum0_lambda = prox_sum0_lambda,
             )
         end
@@ -244,8 +233,6 @@ function _sample_coordinate_gibbs(
     min_step::Real = 1e-5,
     max_step::Real = 1.0,
     constraint::Symbol = :soft_center,
-    soft_center = nothing,
-    soft_center_scale::Union{Nothing,Real} = nothing,
     prox_sum0_lambda::Real = 1e-3,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
@@ -281,14 +268,12 @@ function _sample_coordinate_gibbs(
     min_s = _check_positive(min_step, "min_step")
     max_s = _check_positive(max_step, "max_step")
 
-    resolved_constraint = _resolve_constraint(constraint, soft_center)
-    sc_scale = soft_center_scale === nothing ? _default_soft_center_scale(p) : Float64(soft_center_scale)
+    resolved_constraint = _resolve_constraint(constraint)
     logpost = uu -> logposterior(
         uu,
         data,
         prior;
         constraint = resolved_constraint,
-        soft_center_scale = sc_scale,
         prox_sum0_lambda = prox_sum0_lambda,
         car_weights = car_weights,
         use_car = use_car,
