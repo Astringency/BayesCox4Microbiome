@@ -8,14 +8,15 @@ for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss
 
 set test_n=200
 set test_p=150
-set test_nonzero=12
-set test_baseline=weibull
+set test_nonzero=6
+set test_baseline=exponential
 
 set /a test_p_plus_1=test_p+1
 
-REM explicit turing 
-REM soft_center prox none
-REM hs,rhs,new-rhs,est-rhs,cox-rhs,cox-hs
+REM explicit,turing 
+REM soft_center,prox,none
+REM hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso,prox-lasso,prox-sslasso
+REM weibull,exponential,gompertz
 
 julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --outdir "results/simulation/test_n%test_n%_p%test_p%_non%test_nonzero%_%test_baseline%_%timestamp%" ^
@@ -24,7 +25,7 @@ julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --p "%test_p%" ^
     --nonzero "%test_nonzero%" ^
     --baseline "%test_baseline%" ^
-    --priors cox-rhs ^
+    --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs ^
     --sampler nuts ^
     --nuts-backend explicit ^
     --samples 5000 ^
@@ -39,7 +40,7 @@ julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --progress true ^
     --car-weight-quantile 0.99 ^
     --car-precision 1 ^
-    --sample-car-strength false ^
+    --sample-car-strength true ^
     --car-strength-prior-a 1 ^
     --car-strength-prior-b 1 ^
     --car-distance "bray" ^

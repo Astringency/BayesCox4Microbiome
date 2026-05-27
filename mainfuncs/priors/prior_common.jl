@@ -120,9 +120,8 @@ function car_weight_matrix(
         for i in 1:(j - 1)
             w = abs(K[i, j])
             if w > cutoff
-            # if w < cutoff
-                W[i, j] = K[i, j]
-                W[j, i] = K[i, j]
+                W[i, j] = w
+                W[j, i] = w
             end
         end
     end
