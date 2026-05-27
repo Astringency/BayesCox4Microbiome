@@ -170,6 +170,10 @@ Turing NUTS supports threaded chains through `Turing.MCMCThreads()` when
 `chains > 1`. Explicit NUTS runs chain-level threading by default when
 `chains > 1`; pass `parallel_chains = false` to force serial chains. Built-in
 MH/MALA/ULA/Gibbs use `multichains = true` for chain-level threading.
+For HS/RHS-family priors (`hs`, `rhs`, `new-rhs`, `est-rhs`, `cox-hs`,
+`cox-rhs`), NUTS also supports `noncentered = true` / `--noncentered true`.
+The sampler then uses latent `beta_raw` variables internally but saves the
+usual `beta[...]` draws.
 
 ## CAR Smoothing
 
@@ -180,6 +184,24 @@ Supported `car_distance` values:
 
 ```text
 bray,jaccard,jsd
+```
+
+CAR uses the Gaussian quadratic penalty on adjacent log-local scales:
+`-0.5 * rho * sum(w_ij * (loglambda_i - loglambda_j)^2)`.
+
+By default CAR uses the fixed `car_precision` value. To sample the CAR strength,
+enable `sample_car_strength`; the model samples `kappa ~ Beta(a, b)` and sets
+`rho = kappa / dbar_W`. Here `dbar_W` is computed only from the CAR weight
+matrix as the mean active weighted degree, excluding isolated nodes. `Beta(1,1)`
+is uniform on `kappa` in `(0, 1)`. When `rho` is sampled, the Gaussian CAR
+normalizing term is included.
+
+```powershell
+--sample-car-strength true
+--car-strength-prior-a 1.0
+--car-strength-prior-b 1.0
+--car-degree-scale mean_active
+--car-kappa-init 0.5
 ```
 
 ## Simulation Script
@@ -214,9 +236,17 @@ Common options:
 | `--chains` | `4` | Number of chains. |
 | `--multichains` | `false` | Parallelize non-NUTS chains. |
 | `--target-accept` | `0.8` | Target acceptance for NUTS or adaptive non-NUTS samplers. |
+| `--noncentered` | `false` | Use non-centered HS/RHS parameterization for NUTS. |
 | `--seed` | `1` | Base random seed. |
 | `--use-car` | `true` | Use CAR smoothing for HS/RHS-style priors. |
 | `--car-distance` | `bray` | CAR distance. |
+| `--car-weight-quantile` | `0.75` | Similarity quantile threshold used when building CAR weights. |
+| `--car-precision` | `1.0` | CAR smoothing precision. |
+| `--sample-car-strength` | `false` | Sample adaptive Gaussian CAR strength `kappa ~ Beta(a,b)` and use `rho = kappa / dbar_W`; when false, use fixed `--car-precision`. |
+| `--car-strength-prior-a` | `1.0` | Beta prior shape `a` for adaptive CAR `kappa`. |
+| `--car-strength-prior-b` | `1.0` | Beta prior shape `b` for adaptive CAR `kappa`. |
+| `--car-degree-scale` | `mean_active` | Scale for adaptive CAR degree normalization. Supported values: `mean_active`, `median_active`, `q90_active`. |
+| `--car-kappa-init` | `0.5` | Initial adaptive CAR `kappa` in `(0,1)`. |
 | `--p0` | `auto` | `auto`, numeric, or `truth` for simulation. |
 | `--p0-alpha` | `0.05` | Screening threshold for automatic `p0`. |
 | `--tie-method` | `efron` | Cox tied-event method: `efron` or `breslow`. |

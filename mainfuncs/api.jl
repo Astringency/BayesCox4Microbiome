@@ -5,6 +5,9 @@ Fit the Bayesian Cox model for compositional microbiome covariates.
 
 The default `sampler=:nuts` follows the PDF and uses Turing.jl's NUTS implementation.
 Use `sampler=:mh` for the dependency-light adaptive random-walk Metropolis fallback.
+For HS/RHS-family priors, pass `noncentered=true` with NUTS to sample latent
+standard-normal `beta_raw` variables internally while returning the usual
+`beta[...]` posterior draws.
 """
 function _estimate_cox_pseudo_mu(
     data::CoxPreparedData;
@@ -356,6 +359,13 @@ function sample_bayes_cox(
     car_weights = nothing,
     car_distance = nothing,
     car_weight_quantile::Real = 0.75,
+    car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
+    noncentered::Bool = false,
     kwargs...,
 )
     car_weights !== nothing && car_distance !== nothing && use_car &&
@@ -389,6 +399,13 @@ function sample_bayes_cox(
         nuts_backend = nuts_backend,
         use_car = use_car,
         car_weights = resolved_car_weights,
+        car_precision = car_precision,
+        sample_car_strength = sample_car_strength,
+        car_strength_prior_a = car_strength_prior_a,
+        car_strength_prior_b = car_strength_prior_b,
+        car_degree_scale = car_degree_scale,
+        car_kappa_init = car_kappa_init,
+        noncentered = noncentered,
         kwargs...,
     )
 end
@@ -405,6 +422,13 @@ function sample_bayes_cox(
     car_weights = nothing,
     car_distance = nothing,
     car_weight_quantile::Real = 0.75,
+    car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
+    noncentered::Bool = false,
     kwargs...,
 )
     car_weights !== nothing && car_distance !== nothing && use_car &&
@@ -426,6 +450,16 @@ function sample_bayes_cox(
                 threshold_quantile = car_weight_quantile,
             ))
         end
+    if sample_car_strength
+        prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ||
+            throw(ArgumentError("sample_car_strength requires a Horseshoe or RegularizedHorseshoe prior with CAR-on-log-lambda local scales."))
+        _validate_adaptive_car_options(
+            resolved_car_weights,
+            car_strength_prior_a,
+            car_strength_prior_b,
+            car_kappa_init,
+        )
+    end
     rng = seed === nothing ? Random.default_rng() : MersenneTwister(seed)
     effective_sampler =
         sampler in (:nuts_explicit, :nuts_turing) ? :nuts : sampler
@@ -441,20 +475,81 @@ function sample_bayes_cox(
         sampled =
             if effective_nuts_backend == :turing
                 if chain_count === nothing
-                    _sample_nuts(data, prior; rng = rng, car_weights = resolved_car_weights, kwargs...)
+                    _sample_nuts(
+                        data,
+                        prior;
+                        rng = rng,
+                        car_weights = resolved_car_weights,
+                        use_car = use_car,
+                        car_precision = car_precision,
+                        sample_car_strength = sample_car_strength,
+                        car_strength_prior_a = car_strength_prior_a,
+                        car_strength_prior_b = car_strength_prior_b,
+                        car_degree_scale = car_degree_scale,
+                        car_kappa_init = car_kappa_init,
+                        noncentered = noncentered,
+                        kwargs...,
+                    )
                 else
-                    _sample_nuts(data, prior; rng = rng, chains = chain_count, car_weights = resolved_car_weights, kwargs...)
+                    _sample_nuts(
+                        data,
+                        prior;
+                        rng = rng,
+                        chains = chain_count,
+                        car_weights = resolved_car_weights,
+                        use_car = use_car,
+                        car_precision = car_precision,
+                        sample_car_strength = sample_car_strength,
+                        car_strength_prior_a = car_strength_prior_a,
+                        car_strength_prior_b = car_strength_prior_b,
+                        car_degree_scale = car_degree_scale,
+                        car_kappa_init = car_kappa_init,
+                        noncentered = noncentered,
+                        kwargs...,
+                    )
                 end
             else
                 if chain_count === nothing
-                    _sample_nuts_explicit(data, prior; rng = rng, multichains = multichains, car_weights = resolved_car_weights, use_car = use_car, kwargs...)
+                    _sample_nuts_explicit(
+                        data,
+                        prior;
+                        rng = rng,
+                        multichains = multichains,
+                        car_weights = resolved_car_weights,
+                        use_car = use_car,
+                        car_precision = car_precision,
+                        sample_car_strength = sample_car_strength,
+                        car_strength_prior_a = car_strength_prior_a,
+                        car_strength_prior_b = car_strength_prior_b,
+                        car_degree_scale = car_degree_scale,
+                        car_kappa_init = car_kappa_init,
+                        noncentered = noncentered,
+                        kwargs...,
+                    )
                 else
-                    _sample_nuts_explicit(data, prior; rng = rng, chains = chain_count, multichains = multichains, car_weights = resolved_car_weights, use_car = use_car, kwargs...)
+                    _sample_nuts_explicit(
+                        data,
+                        prior;
+                        rng = rng,
+                        chains = chain_count,
+                        multichains = multichains,
+                        car_weights = resolved_car_weights,
+                        use_car = use_car,
+                        car_precision = car_precision,
+                        sample_car_strength = sample_car_strength,
+                        car_strength_prior_a = car_strength_prior_a,
+                        car_strength_prior_b = car_strength_prior_b,
+                        car_degree_scale = car_degree_scale,
+                        car_kappa_init = car_kappa_init,
+                        noncentered = noncentered,
+                        kwargs...,
+                    )
                 end
             end
         samples = sampled.samples
         diagnostics = sampled.diagnostics
     elseif effective_sampler == :mh
+        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts."))
         timed = @timed _sample_mh_chains(
             data,
             prior,
@@ -462,6 +557,13 @@ function sample_bayes_cox(
             rng = rng,
             multichains = multichains,
             car_weights = resolved_car_weights,
+            use_car = use_car,
+            car_precision = car_precision,
+            sample_car_strength = sample_car_strength,
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale,
+            car_kappa_init = car_kappa_init,
             kwargs...,
         )
         samples = timed.value
@@ -477,6 +579,7 @@ function sample_bayes_cox(
             gc_percent,
         )
     elseif effective_sampler == :mala
+        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts."))
         timed = @timed _sample_mala_chains(
             data,
             prior,
@@ -484,6 +587,13 @@ function sample_bayes_cox(
             rng = rng,
             multichains = multichains,
             car_weights = resolved_car_weights,
+            use_car = use_car,
+            car_precision = car_precision,
+            sample_car_strength = sample_car_strength,
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale,
+            car_kappa_init = car_kappa_init,
             kwargs...,
         )
         samples = timed.value
@@ -499,6 +609,7 @@ function sample_bayes_cox(
             gc_percent,
         )
     elseif effective_sampler == :ula
+        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts."))
         timed = @timed _sample_ula_chains(
             data,
             prior,
@@ -506,6 +617,13 @@ function sample_bayes_cox(
             rng = rng,
             multichains = multichains,
             car_weights = resolved_car_weights,
+            use_car = use_car,
+            car_precision = car_precision,
+            sample_car_strength = sample_car_strength,
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale,
+            car_kappa_init = car_kappa_init,
             kwargs...,
         )
         samples = timed.value
@@ -521,16 +639,37 @@ function sample_bayes_cox(
             gc_percent,
         )
     elseif effective_sampler == :gibbs
+        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts."))
         prior isa SpikeSlabLassoPrior && use_car && resolved_car_weights !== nothing &&
             throw(ArgumentError("sampler=:gibbs for SSLASSO does not support CAR weights."))
-        timed = @timed _sample_gibbs_chains(
-            data,
-            prior,
-            chain_count;
-            rng = rng,
-            multichains = multichains,
-            kwargs...,
-        )
+        timed =
+            if prior isa SpikeSlabLassoPrior
+                @timed _sample_gibbs_chains(
+                    data,
+                    prior,
+                    chain_count;
+                    rng = rng,
+                    multichains = multichains,
+                    kwargs...,
+                )
+            else
+                @timed _sample_gibbs_chains(
+                    data,
+                    prior,
+                    chain_count;
+                    rng = rng,
+                    multichains = multichains,
+                    car_weights = resolved_car_weights,
+                    use_car = use_car,
+                    car_precision = car_precision,
+                    sample_car_strength = sample_car_strength,
+                    car_strength_prior_a = car_strength_prior_a,
+                    car_strength_prior_b = car_strength_prior_b,
+                    car_degree_scale = car_degree_scale,
+                    car_kappa_init = car_kappa_init,
+                    kwargs...,
+                )
+            end
         samples = timed.value
         warmup_seconds = missing
         sample_seconds = missing

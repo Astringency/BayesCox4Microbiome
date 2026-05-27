@@ -6,6 +6,7 @@ using DataFrames
 using ForwardDiff
 using JLD2
 using MCMCChains
+using Statistics
 
 const B = BayesCox4Micro
 
@@ -103,6 +104,29 @@ end
     @test grad ≈ grad_ad atol=1e-8 rtol=1e-8
 end
 
+@testset "adaptive CAR graph helpers" begin
+    W = zeros(6, 6)
+    W[1, 2] = W[2, 1] = 2.0
+    W[2, 3] = W[3, 2] = 4.0
+    W[4, 5] = W[5, 4] = 1.0
+    weights = B._prepare_car_weights(W, 6)
+    degrees = B._car_weighted_degrees(weights)
+    @test degrees ≈ [2.0, 6.0, 4.0, 1.0, 1.0, 0.0]
+    active = [2.0, 6.0, 4.0, 1.0, 1.0]
+    @test B._car_degree_scale(weights; method = :mean_active) ≈ mean(active)
+    @test B._car_degree_scale(weights; method = :median_active) ≈ median(active)
+    @test B._car_degree_scale(weights; method = :q90_active) ≈ quantile(active, 0.9)
+    @test B._car_degree_scale(B._prepare_car_weights(zeros(3, 3), 3)) == 1.0
+    @test_throws ArgumentError B._car_degree_scale(weights; method = :unknown)
+
+    W3 = zeros(4, 4)
+    W3[1, 2] = W3[2, 1] = 1.0
+    W3[2, 3] = W3[3, 2] = 1.0
+    @test B._car_rank(B._prepare_car_weights(W3, 4)) == 2
+    @test B._car_rank(weights) == 3
+    @test B._car_rank(B._prepare_car_weights(zeros(4, 4), 4)) == 0
+end
+
 function _explicit_initial_for_test(prior, data)
     p = size(data.z, 2)
     n_events = count(!=(0), data.event)
@@ -191,6 +215,96 @@ end
     gradient!(grad, target, u)
     grad_ad = ForwardDiff.gradient(x -> logdensity(target, x), u)
     @test maximum(abs.(grad .- grad_ad)) < 1e-7
+
+    rhs_prior = cox_paper_prior("cox-rhs"; p0 = 1.0)
+    rhs_u = _explicit_initial_for_test(rhs_prior, data)
+    rhs_u .+= 0.05 .* randn(length(rhs_u))
+    rhs_grad = zeros(Float64, length(rhs_u))
+    rhs_work = CoxGradientWorkspace(data)
+    rhs_lp, _ = B.logposterior_and_gradient!(
+        rhs_grad,
+        rhs_u,
+        data,
+        rhs_prior,
+        rhs_work;
+        constraint = :none,
+        car_weights = car_weights,
+        use_car = true,
+        car_precision = 0.05,
+    )
+    @test isfinite(rhs_lp)
+    @test all(isfinite, rhs_grad)
+
+    adaptive_prior = HorseshoePrior(p0 = 1.0)
+    adaptive_target = B._make_explicit_nuts_target(
+        data,
+        adaptive_prior;
+        constraint = :none,
+        prox_sum0_lambda = 1e-3,
+        prox_l1_lambda = 1e-3,
+        alpha_prior_shape = 1.0,
+        alpha_prior_rate = 0.1,
+        prox_root_tol = 1e-10,
+        prox_root_maxiter = 100,
+        car_weights = car_weights,
+        use_car = true,
+        sample_car_strength = true,
+        car_strength_prior_a = 1.0,
+        car_strength_prior_b = 1.0,
+        car_degree_scale = :mean_active,
+        car_kappa_init = 0.5,
+    )
+    adaptive_u = initial_state(
+        adaptive_target.prior,
+        size(data.z, 2),
+        count(!=(0), data.event);
+        car_weights = car_weights,
+        sample_car_strength = true,
+        car_kappa_init = 0.5,
+    )
+    adaptive_u .+= 0.02 .* randn(length(adaptive_u))
+    adaptive_grad = zeros(Float64, length(adaptive_u))
+    adaptive_lp, _ = logdensity_and_gradient!(adaptive_grad, adaptive_target, adaptive_u)
+    adaptive_names = state_names(adaptive_target)
+    eta_idx = findfirst(==("logit_car_kappa"), adaptive_names)
+    @test eta_idx !== nothing
+    @test isfinite(adaptive_lp)
+    @test all(isfinite, adaptive_grad)
+    fd_eps = 1e-6
+    step = zeros(length(adaptive_u))
+    step[eta_idx] = fd_eps
+    fd_eta = (logdensity(adaptive_target, adaptive_u .+ step) -
+        logdensity(adaptive_target, adaptive_u .- step)) / (2fd_eps)
+    @test adaptive_grad[eta_idx] ≈ fd_eta atol=1e-5 rtol=1e-5
+
+    rhs_adaptive = cox_paper_prior("cox-rhs"; p0 = 1.0)
+    rhs_adaptive_u = initial_state(
+        rhs_adaptive,
+        size(data.z, 2),
+        count(!=(0), data.event);
+        car_weights = car_weights,
+        sample_car_strength = true,
+        car_kappa_init = 0.5,
+    )
+    rhs_adaptive_grad = zeros(Float64, length(rhs_adaptive_u))
+    rhs_adaptive_lp, _ = B.logposterior_and_gradient!(
+        rhs_adaptive_grad,
+        rhs_adaptive_u,
+        data,
+        rhs_adaptive,
+        CoxGradientWorkspace(data);
+        constraint = :none,
+        car_weights = car_weights,
+        use_car = true,
+        sample_car_strength = true,
+        car_strength_prior_a = 1.0,
+        car_strength_prior_b = 1.0,
+        car_degree_scale = :mean_active,
+        car_kappa_init = 0.5,
+    )
+    @test isfinite(rhs_adaptive_lp)
+    @test all(isfinite, rhs_adaptive_grad)
+    @test length(rhs_adaptive_grad) == length(B._state_names(rhs_adaptive, size(data.z, 2); sample_car_strength = true))
 end
 
 @testset "MALA samplers short chains" begin
@@ -280,6 +394,47 @@ end
         seed = 4,
     )
     @test size(posterior_beta_draws(mh)) == (3, 4)
+
+    car_gaussian = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = HorseshoePrior(p0 = 1.0),
+        sampler = :mh,
+        use_car = true,
+        car_precision = 0.05,
+        n_samples = 2,
+        warmup = 1,
+        chains = 1,
+        progress = false,
+        seed = 16,
+    )
+    @test size(posterior_beta_draws(car_gaussian)) == (2, 4)
+
+    W = zeros(4, 4)
+    W[1, 2] = W[2, 1] = 1.0
+    W[2, 3] = W[3, 2] = 0.5
+    car_adaptive = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = cox_paper_prior("cox-rhs"; p0 = 1.0),
+        sampler = :mh,
+        use_car = true,
+        car_weights = W,
+        sample_car_strength = true,
+        car_strength_prior_a = 1.0,
+        car_strength_prior_b = 1.0,
+        car_degree_scale = :mean_active,
+        car_kappa_init = 0.5,
+        n_samples = 2,
+        warmup = 1,
+        chains = 1,
+        progress = false,
+        seed = 18,
+    )
+    @test "logit_car_kappa" in car_adaptive.samples.names
+    @test size(posterior_beta_draws(car_adaptive)) == (2, 4)
 
     ula = sample_bayes_cox(
         X,
@@ -405,6 +560,43 @@ end
         seed = 9,
     )
     @test size(posterior_beta_draws(hs_explicit)) == (1, 3)
+
+    hs_explicit_nc = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = HorseshoePrior(p0 = 1.0),
+        sampler = :nuts_explicit,
+        noncentered = true,
+        constraint = :soft_center,
+        n_samples = 1,
+        warmup = 1,
+        chains = 1,
+        max_depth = 2,
+        progress = false,
+        seed = 91,
+    )
+    @test hs_explicit_nc.samples isa MHSamples
+    @test hs_explicit_nc.samples.names[1:3] == ["beta[1]", "beta[2]", "beta[3]"]
+    @test size(posterior_beta_draws(hs_explicit_nc)) == (1, 3)
+
+    rhs_turing_nc = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = cox_paper_prior("cox-rhs"; p0 = 1.0),
+        sampler = :nuts_turing,
+        noncentered = true,
+        constraint = :soft_center,
+        n_samples = 1,
+        warmup = 1,
+        chains = 1,
+        progress = false,
+        seed = 92,
+    )
+    @test rhs_turing_nc.samples isa MHSamples
+    @test rhs_turing_nc.samples.names[1:3] == ["beta[1]", "beta[2]", "beta[3]"]
+    @test size(posterior_beta_draws(rhs_turing_nc)) == (1, 3)
 
     hs_multi = sample_bayes_cox(
         X,
@@ -540,6 +732,30 @@ end
         @test isfile(joinpath(diag.output_dir, "rhat_scatter.png"))
         @test isfile(joinpath(diag.output_dir, "rhat_histogram.png"))
     end
+end
+
+@testset "run_simulation CLI CAR flags" begin
+    include(joinpath(@__DIR__, "..", "scripts", "run_simulation.jl"))
+    parsed = parse_cli_args([
+        "--car-precision", "0.05",
+        "--car-weight-quantile", "0.75",
+        "--sample-car-strength", "true",
+        "--car-strength-prior-a", "1.0",
+        "--car-strength-prior-b", "1.0",
+        "--car-degree-scale", "mean_active",
+        "--car-kappa-init", "0.5",
+    ])
+    @test isnothing(require_known_args!(parsed, simulation_cli_valid_keys()))
+    @test arg(parsed, "car-precision", 1.0) == 0.05
+    @test arg(parsed, "car-weight-quantile", 0.75) == 0.75
+    @test arg(parsed, "sample-car-strength", false)
+    @test arg(parsed, "car-strength-prior-a", 1.0) == 1.0
+    @test arg(parsed, "car-strength-prior-b", 1.0) == 1.0
+    @test Symbol(arg(parsed, "car-degree-scale", "mean_active")) == :mean_active
+    @test arg(parsed, "car-kappa-init", 0.5) == 0.5
+
+    removed = parse_cli_args(["--car-prior", "gaussian"])
+    @test_throws ArgumentError require_known_args!(removed, simulation_cli_valid_keys())
 end
 
 include("simulation_diagnostics_tests.jl")

@@ -203,6 +203,11 @@ function _hybrid_beta_mala(
     car_weights,
     use_car::Bool,
     car_precision::Real,
+    sample_car_strength::Bool,
+    car_strength_prior_a::Real,
+    car_strength_prior_b::Real,
+    car_degree_scale::Symbol,
+    car_kappa_init::Real,
     progress::Bool,
     progress_desc::AbstractString = "MALA sampling",
     progress_offset::Integer = 0,
@@ -218,7 +223,11 @@ function _hybrid_beta_mala(
 
     p = size(data.z, 2)
     init = collect(Float64, initial)
-    names = _state_names(prior, p)
+    names = _state_names(
+        prior,
+        p;
+        sample_car_strength = prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ? sample_car_strength : false,
+    )
     d = length(init)
     length(names) == d || throw(DimensionMismatch("initial state length does not match prior state."))
     hdim = d - p
@@ -243,6 +252,11 @@ function _hybrid_beta_mala(
         car_weights = car_weights,
         use_car = use_car,
         car_precision = car_precision,
+        sample_car_strength = sample_car_strength,
+        car_strength_prior_a = car_strength_prior_a,
+        car_strength_prior_b = car_strength_prior_b,
+        car_degree_scale = car_degree_scale,
+        car_kappa_init = car_kappa_init,
     )
     beta_grad = u -> _full_logposterior_gradient_beta(
         u,
@@ -368,6 +382,11 @@ function _hybrid_beta_ula(
     car_weights,
     use_car::Bool,
     car_precision::Real,
+    sample_car_strength::Bool,
+    car_strength_prior_a::Real,
+    car_strength_prior_b::Real,
+    car_degree_scale::Symbol,
+    car_kappa_init::Real,
     progress::Bool,
     progress_desc::AbstractString = "ULA sampling",
     progress_offset::Integer = 0,
@@ -379,7 +398,11 @@ function _hybrid_beta_ula(
 
     p = size(data.z, 2)
     init = collect(Float64, initial)
-    names = _state_names(prior, p)
+    names = _state_names(
+        prior,
+        p;
+        sample_car_strength = prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ? sample_car_strength : false,
+    )
     d = length(init)
     length(names) == d || throw(DimensionMismatch("initial state length does not match prior state."))
     hdim = d - p
@@ -402,6 +425,11 @@ function _hybrid_beta_ula(
         car_weights = car_weights,
         use_car = use_car,
         car_precision = car_precision,
+        sample_car_strength = sample_car_strength,
+        car_strength_prior_a = car_strength_prior_a,
+        car_strength_prior_b = car_strength_prior_b,
+        car_degree_scale = car_degree_scale,
+        car_kappa_init = car_kappa_init,
     )
     beta_grad = u -> _full_logposterior_gradient_beta(
         u,
@@ -849,6 +877,11 @@ function _sample_mala(
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
     progress::Bool = true,
     progress_desc::AbstractString = "MALA sampling",
     progress_offset::Integer = 0,
@@ -859,6 +892,15 @@ function _sample_mala(
     p = size(data.z, 2)
     n_events = count(!=(0), data.event)
     resolved_constraint = _resolve_constraint(constraint)
+    effective_car_weights = use_car ? car_weights : nothing
+    if sample_car_strength
+        _validate_adaptive_car_options(
+            effective_car_weights,
+            car_strength_prior_a,
+            car_strength_prior_b,
+            car_kappa_init,
+        )
+    end
     _check_positive(prox_sum0_lambda, "prox_sum0_lambda")
     _check_positive(prox_l1_lambda, "prox_l1_lambda")
     _check_positive(prox_root_tol, "prox_root_tol")
@@ -925,9 +967,28 @@ function _sample_mala(
         if initial !== nothing
             collect(Float64, initial)
         elseif prior isa RegularizedHorseshoePrior
-            initial_state(prior, p, n_events; n_obs = size(data.z, 1))
+            initial_state(
+                prior,
+                p,
+                n_events;
+                n_obs = size(data.z, 1),
+                car_weights = effective_car_weights,
+                sample_car_strength = sample_car_strength,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_kappa_init = car_kappa_init,
+            )
         else
-            initial_state(prior, p, n_events)
+            initial_state(
+                prior,
+                p,
+                n_events;
+                car_weights = effective_car_weights,
+                sample_car_strength = prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ? sample_car_strength : false,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_kappa_init = car_kappa_init,
+            )
         end
     return _hybrid_beta_mala(
         data,
@@ -952,6 +1013,11 @@ function _sample_mala(
         car_weights = car_weights,
         use_car = use_car,
         car_precision = car_precision,
+        sample_car_strength = sample_car_strength,
+        car_strength_prior_a = car_strength_prior_a,
+        car_strength_prior_b = car_strength_prior_b,
+        car_degree_scale = car_degree_scale,
+        car_kappa_init = car_kappa_init,
         progress = progress,
         progress_desc = progress_desc,
         progress_offset = progress_offset,
@@ -978,6 +1044,11 @@ function _sample_ula(
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
     progress::Bool = true,
     progress_desc::AbstractString = "ULA sampling",
     progress_offset::Integer = 0,
@@ -987,6 +1058,15 @@ function _sample_ula(
     p = size(data.z, 2)
     n_events = count(!=(0), data.event)
     resolved_constraint = _resolve_constraint(constraint)
+    effective_car_weights = use_car ? car_weights : nothing
+    if sample_car_strength
+        _validate_adaptive_car_options(
+            effective_car_weights,
+            car_strength_prior_a,
+            car_strength_prior_b,
+            car_kappa_init,
+        )
+    end
     _check_positive(prox_sum0_lambda, "prox_sum0_lambda")
     _check_positive(prox_l1_lambda, "prox_l1_lambda")
     _check_positive(prox_root_tol, "prox_root_tol")
@@ -1065,9 +1145,28 @@ function _sample_ula(
         if initial !== nothing
             collect(Float64, initial)
         elseif prior isa RegularizedHorseshoePrior
-            initial_state(prior, p, n_events; n_obs = size(data.z, 1))
+            initial_state(
+                prior,
+                p,
+                n_events;
+                n_obs = size(data.z, 1),
+                car_weights = effective_car_weights,
+                sample_car_strength = sample_car_strength,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_kappa_init = car_kappa_init,
+            )
         else
-            initial_state(prior, p, n_events)
+            initial_state(
+                prior,
+                p,
+                n_events;
+                car_weights = effective_car_weights,
+                sample_car_strength = prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ? sample_car_strength : false,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_kappa_init = car_kappa_init,
+            )
         end
     return _hybrid_beta_ula(
         data,
@@ -1084,6 +1183,11 @@ function _sample_ula(
         car_weights = car_weights,
         use_car = use_car,
         car_precision = car_precision,
+        sample_car_strength = sample_car_strength,
+        car_strength_prior_a = car_strength_prior_a,
+        car_strength_prior_b = car_strength_prior_b,
+        car_degree_scale = car_degree_scale,
+        car_kappa_init = car_kappa_init,
         progress = progress,
         progress_desc = progress_desc,
         progress_offset = progress_offset,

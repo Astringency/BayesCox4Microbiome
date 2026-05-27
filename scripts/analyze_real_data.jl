@@ -53,6 +53,7 @@ function main()
             "chains",
             "multichains",
             "target-accept",
+            "noncentered",
             "seed",
             "use-car",
             "progress",
@@ -90,6 +91,7 @@ function main()
     chains = arg(args, "chains", 4)
     multichains = arg(args, "multichains", false)
     target_accept = arg(args, "target-accept", 0.8)
+    noncentered = arg(args, "noncentered", false)
     seed = arg(args, "seed", 1)
     use_car = arg(args, "use-car", true)
     progress = arg(args, "progress", true)
@@ -144,6 +146,7 @@ function main()
             chains = chains,
             multichains = multichains,
             target_accept = target_accept,
+            noncentered = noncentered,
             seed = seed,
             use_car = use_car && occursin("hs", lowercase(prior)),
             car_distance = car_distance,
@@ -180,6 +183,7 @@ function main()
                 "prior_name" => prior,
                 "sampler" => string(sampler),
                 "nuts_backend" => string(nuts_backend),
+                "noncentered" => noncentered,
                 "p0" => fit.p0,
                 "pseudocount" => pseudocount,
                 "tie_method" => string(tie_method),

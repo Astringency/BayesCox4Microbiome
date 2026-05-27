@@ -43,7 +43,12 @@ end
 _resolved_tau_formula(prior::RegularizedHorseshoePrior) =
     prior.tau_formula == :auto ? (prior.use_cox_tau0 ? :cox : :fixed) : prior.tau_formula
 
-function _state_names(prior::RegularizedHorseshoePrior, p::Integer)
+function _state_names(
+    prior::RegularizedHorseshoePrior,
+    p::Integer;
+    sample_car_strength::Bool = false,
+    kwargs...,
+)
     names = vcat(
         ["beta[$j]" for j in 1:p],
         ["log_tau"],
@@ -53,6 +58,7 @@ function _state_names(prior::RegularizedHorseshoePrior, p::Integer)
     if prior.sample_pseudo_sigma
         push!(names, "log_pseudo_sigma2")
     end
+    sample_car_strength && push!(names, "logit_car_kappa")
     return names
 end
 
@@ -62,15 +68,30 @@ function initial_state(
     n_events::Integer;
     n_obs::Union{Nothing,Integer} = nothing,
     beta0 = zeros(Float64, p),
+    car_weights = nothing,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_kappa_init::Real = 0.5,
+    kwargs...,
 )
     _validate_prior(prior)
     length(beta0) == p || throw(DimensionMismatch("length(beta0) must be p."))
+    if sample_car_strength
+        _validate_adaptive_car_options(
+            car_weights,
+            car_strength_prior_a,
+            car_strength_prior_b,
+            car_kappa_init,
+        )
+    end
     tau0 = _resolved_tau_scale(prior, p, n_events; n_obs = n_obs)
     init = vcat(collect(Float64, beta0), [log(_global_tau_cauchy_scale(tau0))], zeros(p), [log(prior.slab_s2)])
     if prior.sample_pseudo_sigma
         pseudo_sigma2_init = prior.pseudo_sigma === nothing ? prior.pseudo_sigma_scale : prior.pseudo_sigma^2
         push!(init, log(pseudo_sigma2_init))
     end
+    sample_car_strength && push!(init, _logit_from_probability(car_kappa_init, "car_kappa_init"))
     return init
 end
 
@@ -80,9 +101,14 @@ function _prior_logposterior(
     prior::RegularizedHorseshoePrior;
     car_weights = nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
 )
     p = size(data.z, 2)
-    expected = prior.sample_pseudo_sigma ? 2p + 3 : 2p + 2
+    expected = (prior.sample_pseudo_sigma ? 2p + 3 : 2p + 2) + (sample_car_strength ? 1 : 0)
     length(u) == expected ||
         throw(DimensionMismatch("wrong state length for RegularizedHorseshoePrior."))
     beta = view(u, 1:p)
@@ -111,7 +137,25 @@ function _prior_logposterior(
         lp += _normal_zero_logpdf_from_logscale(beta[j], log_beta_scale)
     end
     lp += logpdf(InverseGamma(prior.slab_df / 2, prior.slab_df * prior.slab_s2 / 2), c2) + log_c2
-    lp += _car_logprior(log_lambda, car_weights, car_precision)
+    if sample_car_strength
+        prepared_weights = _prepare_car_weights(car_weights, p)
+        _validate_adaptive_car_options(
+            prepared_weights,
+            car_strength_prior_a,
+            car_strength_prior_b,
+            car_kappa_init,
+        )
+        lp += _adaptive_car_logprior(
+            log_lambda,
+            prepared_weights,
+            u[end];
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale,
+        )
+    else
+        lp += _car_logprior(log_lambda, car_weights, car_precision)
+    end
     return lp
 end
 
@@ -122,9 +166,14 @@ function _prior_logposterior_and_gradient!(
     prior::RegularizedHorseshoePrior;
     car_weights = nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
 )
     p = size(data.z, 2)
-    expected = prior.sample_pseudo_sigma ? 2p + 3 : 2p + 2
+    expected = (prior.sample_pseudo_sigma ? 2p + 3 : 2p + 2) + (sample_car_strength ? 1 : 0)
     length(u) == expected ||
         throw(DimensionMismatch("wrong state length for RegularizedHorseshoePrior."))
     length(grad) == length(u) || throw(DimensionMismatch("gradient length does not match state."))
@@ -190,7 +239,50 @@ function _prior_logposterior_and_gradient!(
     lp += logpdf(InverseGamma(slab_a, slab_b), c2) + log_c2
     grad[2p + 2] += -slab_a + slab_b / c2
 
-    lp += _car_logprior(log_lambda, car_weights, car_precision)
-    _car_logprior_gradient!(view(grad, (p + 2):(2p + 1)), log_lambda, car_weights, car_precision)
+    if sample_car_strength
+        prepared_weights = _prepare_car_weights(car_weights, p)
+        _validate_adaptive_car_options(
+            prepared_weights,
+            car_strength_prior_a,
+            car_strength_prior_b,
+            car_kappa_init,
+        )
+        logit_car_kappa = Float64(u[end])
+        _, rho, _ = _adaptive_car_precision(
+            logit_car_kappa,
+            prepared_weights;
+            car_degree_scale = car_degree_scale,
+        )
+        lp += _adaptive_car_logprior(
+            log_lambda,
+            prepared_weights,
+            logit_car_kappa;
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale,
+        )
+        _car_logprior_gradient!(
+            view(grad, (p + 2):(2p + 1)),
+            log_lambda,
+            prepared_weights,
+            rho,
+        )
+        grad[end] += _adaptive_car_logit_gradient(
+            log_lambda,
+            prepared_weights,
+            logit_car_kappa;
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale,
+        )
+    else
+        lp += _car_logprior(log_lambda, car_weights, car_precision)
+        _car_logprior_gradient!(
+            view(grad, (p + 2):(2p + 1)),
+            log_lambda,
+            car_weights,
+            car_precision,
+        )
+    end
     return lp
 end

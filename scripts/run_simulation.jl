@@ -170,64 +170,73 @@ function simulation_metadata_matches(run_dir::AbstractString, expected::Abstract
     return all(haskey(meta, string(k)) && metadata_value_matches(meta[string(k)], v) for (k, v) in pairs(expected))
 end
 
+function simulation_cli_valid_keys()
+    return vcat(
+        (
+            "outdir",
+            "reps",
+            "n",
+            "p",
+            "nonzero",
+            "baseline",
+            "priors",
+            "sampler",
+            "nuts-backend",
+            "samples",
+            "warmup",
+            "thin",
+            "chains",
+            "multichains",
+            "target-accept",
+            "noncentered",
+            "seed",
+            "use-car",
+            "progress",
+            "car-distance",
+            "car-weight-quantile",
+            "car-precision",
+            "sample-car-strength",
+            "car-strength-prior-a",
+            "car-strength-prior-b",
+            "car-degree-scale",
+            "car-kappa-init",
+            "p0",
+            "p0-alpha",
+            "constraint",
+            "prox-sum0-lambda",
+            "prox-l1-lambda",
+            "prox-root-tol",
+            "prox-root-maxiter",
+            "mala-step-size",
+            "mala-target-accept",
+            "mala-adapt-every",
+            "mala-min-step",
+            "mala-max-step",
+            "diagnose",
+            "debug",
+            "diagnose-format",
+            "diagnose-top-k-beta",
+            "diagnose-max-lag",
+            "resume",
+            "pseudocount",
+            "standardize",
+            "tie-method",
+            "plot-first-rep-only",
+            "sample-thin",
+            "first-rep-sample-thin",
+            "save-wide-csv",
+            "save-jld2",
+            "alpha-prior-shape",
+            "alpha-prior-rate",
+        ),
+        PRIOR_HYPERPARAMETER_CLI_KEYS,
+        BASELINE_PARAMETER_CLI_KEYS,
+    )
+end
+
 function main()
     args = parse_cli_args()
-    require_known_args!(
-        args,
-        vcat(
-            (
-                "outdir",
-                "reps",
-                "n",
-                "p",
-                "nonzero",
-                "baseline",
-                "priors",
-                "sampler",
-                "nuts-backend",
-                "samples",
-                "warmup",
-                "thin",
-                "chains",
-                "multichains",
-                "target-accept",
-                "seed",
-                "use-car",
-                "progress",
-                "car-distance",
-                "p0",
-                "p0-alpha",
-                "constraint",
-                "prox-sum0-lambda",
-                "prox-l1-lambda",
-                "prox-root-tol",
-                "prox-root-maxiter",
-                "mala-step-size",
-                "mala-target-accept",
-                "mala-adapt-every",
-                "mala-min-step",
-                "mala-max-step",
-                "diagnose",
-                "debug",
-                "diagnose-format",
-                "diagnose-top-k-beta",
-                "diagnose-max-lag",
-                "resume",
-                "pseudocount",
-                "standardize",
-                "tie-method",
-                "plot-first-rep-only",
-                "sample-thin",
-                "first-rep-sample-thin",
-                "save-wide-csv",
-                "save-jld2",
-                "alpha-prior-shape",
-                "alpha-prior-rate",
-            ),
-            PRIOR_HYPERPARAMETER_CLI_KEYS,
-            BASELINE_PARAMETER_CLI_KEYS,
-        ),
-    )
+    require_known_args!(args, simulation_cli_valid_keys())
     outdir = arg(args, "outdir", joinpath("results", "simulation"))
     reps = arg(args, "reps", 1)
     ns = split_ints(arg(args, "n", "200"))
@@ -243,10 +252,18 @@ function main()
     chains = arg(args, "chains", 4)
     multichains = arg(args, "multichains", false)
     target_accept = arg(args, "target-accept", 0.8)
+    noncentered = arg(args, "noncentered", false)
     seed0 = arg(args, "seed", 1)
     use_car = arg(args, "use-car", true)
     progress = arg(args, "progress", true)
     car_distance = Symbol(arg(args, "car-distance", "bray"))
+    car_weight_quantile = arg(args, "car-weight-quantile", 0.75)
+    car_precision = arg(args, "car-precision", 1.0)
+    sample_car_strength = arg(args, "sample-car-strength", false)
+    car_strength_prior_a = arg(args, "car-strength-prior-a", 1.0)
+    car_strength_prior_b = arg(args, "car-strength-prior-b", 1.0)
+    car_degree_scale = Symbol(arg(args, "car-degree-scale", "mean_active"))
+    car_kappa_init = arg(args, "car-kappa-init", 0.5)
     p0_arg = parse_optional_p0(args; default = nothing)
     p0_alpha = arg(args, "p0-alpha", 0.05)
     constraint = Symbol(arg(args, "constraint", "soft_center"))
@@ -296,6 +313,9 @@ function main()
             baseline_args...,
         )
         for prior in priors
+            if prior in ("lasso", "sslasso", "prox-lasso", "prox-sslasso")
+                noncentered = false
+            end
             p0_requested = p0_arg === :truth ? nonzero : p0_arg
             p0_auto =
                 p0_requested === nothing ?
@@ -312,6 +332,7 @@ function main()
                 p0_requested
             p0_value = p0_auto === missing ? nothing : p0_auto
             actual_use_car = use_car && occursin("hs", lowercase(prior))
+            actual_sample_car_strength = actual_use_car && sample_car_strength
             label = "rep$(rep)_$(prior)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)"
             run_dir = joinpath(outdir, "runs", label)
             coef_path = joinpath(tables_dir, "coef_$label.csv")
@@ -332,8 +353,16 @@ function main()
                 "chains" => chains,
                 "p0" => p0_value,
                 "constraint" => string(constraint),
+                "noncentered" => noncentered,
                 "use_car" => actual_use_car,
                 "car_distance" => string(car_distance),
+                "car_weight_quantile" => car_weight_quantile,
+                "car_precision" => car_precision,
+                "sample_car_strength" => actual_sample_car_strength,
+                "car_strength_prior_a" => car_strength_prior_a,
+                "car_strength_prior_b" => car_strength_prior_b,
+                "car_degree_scale" => string(car_degree_scale),
+                "car_kappa_init" => car_kappa_init,
                 "alpha_prior_shape" => alpha_prior_shape,
                 "alpha_prior_rate" => alpha_prior_rate,
                 "pseudocount" => pseudocount,
@@ -403,9 +432,17 @@ function main()
                 chains = chains,
                 multichains = multichains,
                 target_accept = target_accept,
+                noncentered = noncentered,
                 seed = sim_seed,
                 use_car = actual_use_car,
                 car_distance = car_distance,
+                car_weight_quantile = car_weight_quantile,
+                car_precision = car_precision,
+                sample_car_strength = actual_sample_car_strength,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_degree_scale = car_degree_scale,
+                car_kappa_init = car_kappa_init,
                 pseudocount = pseudocount,
                 standardize = standardize,
                 tie_method = tie_method,
@@ -484,6 +521,15 @@ function main()
                 "censoring_upper" => sim.censoring_upper,
                 "observed_censoring_rate" => mean(sim.event .== 0),
                 "observed_event_rate" => mean(sim.event .!= 0),
+                "use_car" => actual_use_car,
+                "car_distance" => string(car_distance),
+                "car_weight_quantile" => car_weight_quantile,
+                "car_precision" => car_precision,
+                "sample_car_strength" => actual_sample_car_strength,
+                "car_strength_prior_a" => car_strength_prior_a,
+                "car_strength_prior_b" => car_strength_prior_b,
+                "car_degree_scale" => string(car_degree_scale),
+                "car_kappa_init" => car_kappa_init,
             ), prior_metadata, Dict(
                 "alpha_prior_shape" => alpha_prior_shape,
                 "alpha_prior_rate" => alpha_prior_rate,
@@ -495,6 +541,7 @@ function main()
                 "chains" => chains,
                 "multichains" => multichains,
                 "target_accept" => target_accept,
+                "noncentered" => noncentered,
                 "seed" => sim_seed,
                 "thin" => thin,
                 "saved_sample_thin" => saved_sample_thin,
@@ -512,6 +559,13 @@ function main()
                 "mala_max_step" => mala_max_step,
                 "use_car" => actual_use_car,
                 "car_distance" => string(car_distance),
+                "car_weight_quantile" => car_weight_quantile,
+                "car_precision" => car_precision,
+                "sample_car_strength" => actual_sample_car_strength,
+                "car_strength_prior_a" => car_strength_prior_a,
+                "car_strength_prior_b" => car_strength_prior_b,
+                "car_degree_scale" => string(car_degree_scale),
+                "car_kappa_init" => car_kappa_init,
                 "pseudocount" => pseudocount,
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
@@ -599,4 +653,6 @@ function main()
     println("Simulation outputs written to $(abspath(outdir))")
 end
 
-main()
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    main()
+end

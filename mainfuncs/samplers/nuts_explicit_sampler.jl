@@ -70,18 +70,19 @@ function _sample_explicit_nuts_one(
         pm_next! = progress_next!,
     )
 
-    draws = Matrix{Float64}(undef, n_samples, d)
+    output_names = sample_state_names(target)
+    draws = Matrix{Float64}(undef, n_samples, length(output_names))
     @inbounds for i in 1:n_samples
-        draws[i, :] .= samples[i]
+        draws[i, :] .= sample_state(target, samples[i])
     end
-    lps = [logdensity(target, view(draws, i, :)) for i in axes(draws, 1)]
+    lps = [sample_logdensity(target, view(draws, i, :), samples[i]) for i in axes(draws, 1)]
     return MHSamples(
         draws,
         lps,
-        state_names(target),
+        output_names,
         _advancedhmc_acceptance_rate(stats),
         NaN,
-        fill(NaN, d),
+        fill(NaN, length(output_names)),
     )
 end
 
@@ -93,6 +94,11 @@ struct CoxPosteriorTarget <: AbstractCoxTarget
     car_weights
     use_car::Bool
     car_precision::Float64
+    sample_car_strength::Bool
+    car_strength_prior_a::Float64
+    car_strength_prior_b::Float64
+    car_degree_scale::Symbol
+    car_kappa_init::Float64
     names::Vector{String}
     work::CoxGradientWorkspace
 end
@@ -108,8 +114,22 @@ function CoxPosteriorTarget(
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
 )
     p = size(data.z, 2)
+    effective_car_weights = use_car ? car_weights : nothing
+    if sample_car_strength
+        _validate_adaptive_car_options(
+            effective_car_weights,
+            car_strength_prior_a,
+            car_strength_prior_b,
+            car_kappa_init,
+        )
+    end
     return CoxPosteriorTarget(
         data,
         prior,
@@ -118,9 +138,43 @@ function CoxPosteriorTarget(
         car_weights,
         use_car,
         Float64(car_precision),
-        _state_names(prior, p),
+        sample_car_strength,
+        Float64(car_strength_prior_a),
+        Float64(car_strength_prior_b),
+        car_degree_scale,
+        Float64(car_kappa_init),
+        _state_names(prior, p; sample_car_strength = sample_car_strength),
         CoxGradientWorkspace(data),
     )
+end
+
+function initial_state(target::CoxPosteriorTarget)
+    p = size(target.data.z, 2)
+    n_events = count(!=(0), target.data.event)
+    if target.prior isa RegularizedHorseshoePrior
+        return initial_state(
+            target.prior,
+            p,
+            n_events;
+            n_obs = size(target.data.z, 1),
+            car_weights = target.use_car ? target.car_weights : nothing,
+            sample_car_strength = target.sample_car_strength,
+            car_strength_prior_a = target.car_strength_prior_a,
+            car_strength_prior_b = target.car_strength_prior_b,
+            car_kappa_init = target.car_kappa_init,
+        )
+    else
+        return initial_state(
+            target.prior,
+            p,
+            n_events;
+            car_weights = target.use_car ? target.car_weights : nothing,
+            sample_car_strength = target.sample_car_strength,
+            car_strength_prior_a = target.car_strength_prior_a,
+            car_strength_prior_b = target.car_strength_prior_b,
+            car_kappa_init = target.car_kappa_init,
+        )
+    end
 end
 
 function logdensity(target::CoxPosteriorTarget, u::AbstractVector)
@@ -133,6 +187,11 @@ function logdensity(target::CoxPosteriorTarget, u::AbstractVector)
         car_weights = target.car_weights,
         use_car = target.use_car,
         car_precision = target.car_precision,
+        sample_car_strength = target.sample_car_strength,
+        car_strength_prior_a = target.car_strength_prior_a,
+        car_strength_prior_b = target.car_strength_prior_b,
+        car_degree_scale = target.car_degree_scale,
+        car_kappa_init = target.car_kappa_init,
     )
 end
 
@@ -148,6 +207,11 @@ function gradient!(grad::AbstractVector{Float64}, target::CoxPosteriorTarget, u:
         car_weights = target.car_weights,
         use_car = target.use_car,
         car_precision = target.car_precision,
+        sample_car_strength = target.sample_car_strength,
+        car_strength_prior_a = target.car_strength_prior_a,
+        car_strength_prior_b = target.car_strength_prior_b,
+        car_degree_scale = target.car_degree_scale,
+        car_kappa_init = target.car_kappa_init,
     )
     return grad
 end
@@ -168,18 +232,113 @@ function logdensity_and_gradient!(
         car_weights = target.car_weights,
         use_car = target.use_car,
         car_precision = target.car_precision,
+        sample_car_strength = target.sample_car_strength,
+        car_strength_prior_a = target.car_strength_prior_a,
+        car_strength_prior_b = target.car_strength_prior_b,
+        car_degree_scale = target.car_degree_scale,
+        car_kappa_init = target.car_kappa_init,
     )
 end
 
-function _generic_explicit_initial(prior::AbstractCoxPrior, data::CoxPreparedData, initial)
+function _generic_explicit_initial(
+    prior::AbstractCoxPrior,
+    data::CoxPreparedData,
+    initial;
+    car_weights = nothing,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_kappa_init::Real = 0.5,
+)
     initial !== nothing && return collect(Float64, initial)
     p = size(data.z, 2)
     n_events = count(!=(0), data.event)
     if prior isa RegularizedHorseshoePrior
-        return initial_state(prior, p, n_events; n_obs = size(data.z, 1))
+        return initial_state(
+            prior,
+            p,
+            n_events;
+            n_obs = size(data.z, 1),
+            car_weights = car_weights,
+            sample_car_strength = sample_car_strength,
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_kappa_init = car_kappa_init,
+        )
     else
-        return initial_state(prior, p, n_events)
+        return initial_state(
+            prior,
+            p,
+            n_events;
+            car_weights = car_weights,
+            sample_car_strength = sample_car_strength,
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_kappa_init = car_kappa_init,
+        )
     end
+end
+
+function _generic_explicit_initial(
+    prior::Union{HorseshoePrior,RegularizedHorseshoePrior},
+    data::CoxPreparedData,
+    initial;
+    noncentered::Bool = false,
+    car_weights = nothing,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_kappa_init::Real = 0.5,
+)
+    initial !== nothing && return collect(Float64, initial)
+    p = size(data.z, 2)
+    n_events = count(!=(0), data.event)
+    if noncentered
+        return prior isa RegularizedHorseshoePrior ?
+            _noncentered_initial_state(
+                prior,
+                p,
+                n_events;
+                n_obs = size(data.z, 1),
+                car_weights = car_weights,
+                sample_car_strength = sample_car_strength,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_kappa_init = car_kappa_init,
+            ) :
+            _noncentered_initial_state(
+                prior,
+                p,
+                n_events;
+                car_weights = car_weights,
+                sample_car_strength = sample_car_strength,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_kappa_init = car_kappa_init,
+            )
+    end
+    return prior isa RegularizedHorseshoePrior ?
+        initial_state(
+            prior,
+            p,
+            n_events;
+            n_obs = size(data.z, 1),
+            car_weights = car_weights,
+            sample_car_strength = sample_car_strength,
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_kappa_init = car_kappa_init,
+        ) :
+        initial_state(
+            prior,
+            p,
+            n_events;
+            car_weights = car_weights,
+            sample_car_strength = sample_car_strength,
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_kappa_init = car_kappa_init,
+        )
 end
 
 function _make_explicit_nuts_target(
@@ -195,6 +354,11 @@ function _make_explicit_nuts_target(
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
     kwargs...,
 )
     if !_is_proximal_l1_prior(prior)
@@ -206,6 +370,11 @@ function _make_explicit_nuts_target(
             car_weights = car_weights,
             use_car = use_car,
             car_precision = car_precision,
+            sample_car_strength = sample_car_strength,
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale,
+            car_kappa_init = car_kappa_init,
         )
     end
     return CoxProxLassoTarget(
@@ -223,14 +392,36 @@ end
 
 function _make_explicit_nuts_target(
     data::CoxPreparedData,
-    prior::AbstractCoxPrior;
+    prior::Union{HorseshoePrior,RegularizedHorseshoePrior};
     constraint::Symbol,
     prox_sum0_lambda::Real,
+    noncentered::Bool = false,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
     kwargs...,
 )
+    if noncentered
+        return CoxNoncenteredPosteriorTarget(
+            data,
+            prior;
+            constraint = constraint,
+            prox_sum0_lambda = prox_sum0_lambda,
+            car_weights = car_weights,
+            use_car = use_car,
+            car_precision = car_precision,
+            sample_car_strength = sample_car_strength,
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale,
+            car_kappa_init = car_kappa_init,
+        )
+    end
     return CoxPosteriorTarget(
         data,
         prior;
@@ -239,6 +430,44 @@ function _make_explicit_nuts_target(
         car_weights = car_weights,
         use_car = use_car,
         car_precision = car_precision,
+        sample_car_strength = sample_car_strength,
+        car_strength_prior_a = car_strength_prior_a,
+        car_strength_prior_b = car_strength_prior_b,
+        car_degree_scale = car_degree_scale,
+        car_kappa_init = car_kappa_init,
+    )
+end
+
+function _make_explicit_nuts_target(
+    data::CoxPreparedData,
+    prior::AbstractCoxPrior;
+    constraint::Symbol,
+    prox_sum0_lambda::Real,
+    car_weights = nothing,
+    use_car::Bool = car_weights !== nothing,
+    car_precision::Real = 1.0,
+    noncentered::Bool = false,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
+    kwargs...,
+)
+    noncentered && _check_noncentered_supported(prior)
+    return CoxPosteriorTarget(
+        data,
+        prior;
+        constraint = constraint,
+        prox_sum0_lambda = prox_sum0_lambda,
+        car_weights = car_weights,
+        use_car = use_car,
+        car_precision = car_precision,
+        sample_car_strength = sample_car_strength,
+        car_strength_prior_a = car_strength_prior_a,
+        car_strength_prior_b = car_strength_prior_b,
+        car_degree_scale = car_degree_scale,
+        car_kappa_init = car_kappa_init,
     )
 end
 
@@ -478,9 +707,15 @@ function _sample_nuts_explicit(
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
     progress::Bool = true,
     multichains::Bool = false,
     parallel_chains::Union{Nothing,Bool} = nothing,
+    noncentered::Bool = false,
     kwargs...,
 )
     thin == 1 ||
@@ -494,7 +729,37 @@ function _sample_nuts_explicit(
     _check_positive(prox_root_tol, "prox_root_tol")
     prox_root_maxiter > 0 || throw(ArgumentError("prox_root_maxiter must be positive."))
     a_shape, a_rate = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
-    generic_initial = _generic_explicit_initial(prior, data, initial)
+    if noncentered
+        _check_noncentered_supported(prior)
+    end
+    effective_car_weights = use_car ? car_weights : nothing
+    if sample_car_strength
+        _validate_adaptive_car_options(
+            effective_car_weights,
+            car_strength_prior_a,
+            car_strength_prior_b,
+            car_kappa_init,
+        )
+    end
+    generic_initial = prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ?
+        _generic_explicit_initial(
+            prior,
+            data,
+            initial;
+            noncentered = noncentered,
+            car_weights = effective_car_weights,
+            sample_car_strength = sample_car_strength,
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_kappa_init = car_kappa_init,
+        ) :
+        _generic_explicit_initial(
+            prior,
+            data,
+            initial;
+            car_weights = effective_car_weights,
+            sample_car_strength = false,
+        )
     run_parallel = chains > 1 && something(parallel_chains, multichains || chains > 1)
     use_proximal_prior = _is_proximal_l1_prior(prior)
 
@@ -535,6 +800,12 @@ function _sample_nuts_explicit(
                 car_weights = car_weights,
                 use_car = use_car,
                 car_precision = car_precision,
+                sample_car_strength = sample_car_strength,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_degree_scale = car_degree_scale,
+                car_kappa_init = car_kappa_init,
+                noncentered = noncentered,
             )
             _sample_explicit_nuts_one(
                 target;
@@ -566,6 +837,12 @@ function _sample_nuts_explicit(
                         car_weights = car_weights,
                         use_car = use_car,
                         car_precision = car_precision,
+                        sample_car_strength = sample_car_strength,
+                        car_strength_prior_a = car_strength_prior_a,
+                        car_strength_prior_b = car_strength_prior_b,
+                        car_degree_scale = car_degree_scale,
+                        car_kappa_init = car_kappa_init,
+                        noncentered = noncentered,
                     )
                     samples[c] = _sample_explicit_nuts_one(
                         target;
@@ -596,6 +873,12 @@ function _sample_nuts_explicit(
                         car_weights = car_weights,
                         use_car = use_car,
                         car_precision = car_precision,
+                        sample_car_strength = sample_car_strength,
+                        car_strength_prior_a = car_strength_prior_a,
+                        car_strength_prior_b = car_strength_prior_b,
+                        car_degree_scale = car_degree_scale,
+                        car_kappa_init = car_kappa_init,
+                        noncentered = noncentered,
                     )
                     samples[c] = _sample_explicit_nuts_one(
                         target;

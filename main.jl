@@ -50,6 +50,7 @@ export AbstractCoxPrior,
     l1_moreau,
     weighted_l1_moreau,
     logposterior,
+    noncentered_logposterior,
     logdensity,
     gradient!,
     logdensity_and_gradient!,
@@ -86,6 +87,7 @@ include("mainfuncs/data/data.jl")
 include("mainfuncs/likelihood/cox_likelihood.jl")
 include("mainfuncs/priors/horseshoe_methods.jl")
 include("mainfuncs/priors/regularized_horseshoe_methods.jl")
+include("mainfuncs/priors/noncentered_hs_rhs_methods.jl")
 include("mainfuncs/priors/bayesian_lasso_methods.jl")
 include("mainfuncs/priors/spike_slab_lasso_methods.jl")
 include("mainfuncs/priors/prox_lasso_methods.jl")

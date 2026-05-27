@@ -6,6 +6,12 @@ Turing.@model function _bayes_cox_turing_model(
     car_weights,
     use_car::Bool,
     car_precision::Float64,
+    sample_car_strength::Bool,
+    car_strength_prior_a::Float64,
+    car_strength_prior_b::Float64,
+    car_degree_scale_value::Float64,
+    car_rank::Int,
+    noncentered::Bool,
 )
     p = size(data.z, 2)
     n_events = count(!=(0), data.event)
@@ -14,9 +20,38 @@ Turing.@model function _bayes_cox_turing_model(
         tau_cauchy_scale = _global_tau_cauchy_scale(_resolved_tau_scale(prior, p, n_events))
         tau ~ truncated(Cauchy(0, tau_cauchy_scale), 0.0, Inf)
         lambda ~ Turing.filldist(truncated(Cauchy(0, prior.local_scale), 0.0, Inf), p)
-        beta ~ Turing.product_distribution(Normal.(0, tau .* lambda))
+        if noncentered
+            beta_raw ~ Turing.filldist(Normal(0, 1), p)
+            beta = tau .* lambda .* beta_raw
+        else
+            beta ~ Turing.product_distribution(Normal.(0, tau .* lambda))
+        end
         if use_car && car_weights !== nothing
-            Turing.@addlogprob! _car_logprior(log.(lambda), car_weights, car_precision)
+            if sample_car_strength
+                logit_car_kappa ~ Normal(0, 1)
+                car_kappa = _logistic(logit_car_kappa)
+                rho = car_kappa / car_degree_scale_value
+                car_lp = _car_logprior(
+                    log.(lambda),
+                    car_weights,
+                    rho,
+                )
+                if car_rank > 0
+                    car_lp += 0.5 * car_rank * log(rho)
+                end
+                car_lp += _beta_logit_logpdf(
+                    logit_car_kappa,
+                    car_strength_prior_a,
+                    car_strength_prior_b,
+                ) - logpdf(Normal(0, 1), logit_car_kappa)
+                Turing.@addlogprob! car_lp
+            else
+                Turing.@addlogprob! _car_logprior(
+                    log.(lambda),
+                    car_weights,
+                    car_precision,
+                )
+            end
         end
     elseif prior isa RegularizedHorseshoePrior
         if prior.sample_pseudo_sigma
@@ -33,16 +68,49 @@ Turing.@model function _bayes_cox_turing_model(
         tau = tau_cauchy_scale * tau_raw
         c2 ~ InverseGamma(prior.slab_df / 2, prior.slab_df * prior.slab_s2 / 2)
         lambda ~ Turing.filldist(truncated(Cauchy(0, prior.local_scale), 0.0, Inf), p)
-        beta ~ Turing.filldist(Normal(0, 1), p)
-        for j in 1:p
-            log_beta_scale = _regularized_horseshoe_beta_logscale(tau, lambda[j], c2)
-            Turing.@addlogprob!(
-                _normal_zero_logpdf_from_logscale(beta[j], log_beta_scale) -
-                _std_normal_logpdf(beta[j])
-            )
+        if noncentered
+            beta_raw ~ Turing.filldist(Normal(0, 1), p)
+            beta = Vector{typeof(tau * beta_raw[1])}(undef, p)
+            for j in 1:p
+                log_beta_scale = _regularized_horseshoe_beta_logscale(tau, lambda[j], c2)
+                beta[j] = exp(log_beta_scale) * beta_raw[j]
+            end
+        else
+            beta ~ Turing.filldist(Normal(0, 1), p)
+            for j in 1:p
+                log_beta_scale = _regularized_horseshoe_beta_logscale(tau, lambda[j], c2)
+                Turing.@addlogprob!(
+                    _normal_zero_logpdf_from_logscale(beta[j], log_beta_scale) -
+                    _std_normal_logpdf(beta[j])
+                )
+            end
         end
         if use_car && car_weights !== nothing
-            Turing.@addlogprob! _car_logprior(log.(lambda), car_weights, car_precision)
+            if sample_car_strength
+                logit_car_kappa ~ Normal(0, 1)
+                car_kappa = _logistic(logit_car_kappa)
+                rho = car_kappa / car_degree_scale_value
+                car_lp = _car_logprior(
+                    log.(lambda),
+                    car_weights,
+                    rho,
+                )
+                if car_rank > 0
+                    car_lp += 0.5 * car_rank * log(rho)
+                end
+                car_lp += _beta_logit_logpdf(
+                    logit_car_kappa,
+                    car_strength_prior_a,
+                    car_strength_prior_b,
+                ) - logpdf(Normal(0, 1), logit_car_kappa)
+                Turing.@addlogprob! car_lp
+            else
+                Turing.@addlogprob! _car_logprior(
+                    log.(lambda),
+                    car_weights,
+                    car_precision,
+                )
+            end
         end
     elseif prior isa BayesianLassoPrior
         if prior.lambda === nothing
@@ -76,6 +144,96 @@ Turing.@model function _bayes_cox_turing_model(
     )
     Turing.@addlogprob! cox_logpartiallikelihood(data, beta)
     return beta
+end
+
+function _chains_param_index(param_names::Vector{String}, name::AbstractString)
+    idx = findfirst(==(String(name)), param_names)
+    idx === nothing && throw(ArgumentError("NUTS output does not contain parameter $name."))
+    return idx
+end
+
+function _noncentered_turing_samples_to_mhsamples(
+    chains,
+    data::CoxPreparedData,
+    prior::Union{HorseshoePrior,RegularizedHorseshoePrior};
+    constraint::Symbol,
+    prox_sum0_lambda::Real,
+    car_weights = nothing,
+    use_car::Bool = car_weights !== nothing,
+    car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
+)
+    arr = _chains_value_array(chains)
+    ndims(arr) == 2 && (arr = reshape(arr, size(arr, 1), size(arr, 2), 1))
+    param_names = _chains_param_names(chains)
+    p = size(data.z, 2)
+    n_iter, _, n_chain = size(arr)
+    output_names = _state_names(prior, p; sample_car_strength = sample_car_strength)
+    raw_idx = [_chains_param_index(param_names, "beta_raw[$j]") for j in 1:p]
+    lambda_idx = [_chains_param_index(param_names, "lambda[$j]") for j in 1:p]
+    tau_idx = prior isa HorseshoePrior ? _chains_param_index(param_names, "tau") : nothing
+    tau_raw_idx = prior isa RegularizedHorseshoePrior ? _chains_param_index(param_names, "tau_raw") : nothing
+    c2_idx = prior isa RegularizedHorseshoePrior ? _chains_param_index(param_names, "c2") : nothing
+    pseudo_idx = prior isa RegularizedHorseshoePrior && prior.sample_pseudo_sigma ?
+        _chains_param_index(param_names, "pseudo_sigma2") : nothing
+    logit_car_kappa_idx = sample_car_strength ?
+        _chains_param_index(param_names, "logit_car_kappa") : nothing
+
+    samples = Vector{MHSamples}(undef, n_chain)
+    for c in 1:n_chain
+        draws = Matrix{Float64}(undef, n_iter, length(output_names))
+        lps = Vector{Float64}(undef, n_iter)
+        for i in 1:n_iter
+            u_nc = Vector{Float64}(undef, length(output_names))
+            @inbounds for j in 1:p
+                u_nc[j] = arr[i, raw_idx[j], c]
+            end
+            if prior isa HorseshoePrior
+                u_nc[p + 1] = log(arr[i, tau_idx, c])
+                @inbounds for j in 1:p
+                    u_nc[p + 1 + j] = log(arr[i, lambda_idx[j], c])
+                end
+            else
+                pseudo_sigma =
+                    prior.sample_pseudo_sigma ? sqrt(arr[i, pseudo_idx, c]) : prior.pseudo_sigma
+                tau_cauchy_scale = _global_tau_cauchy_scale(_resolved_tau_scale(prior, data; pseudo_sigma = pseudo_sigma))
+                u_nc[p + 1] = log(tau_cauchy_scale * arr[i, tau_raw_idx, c])
+                @inbounds for j in 1:p
+                    u_nc[p + 1 + j] = log(arr[i, lambda_idx[j], c])
+                end
+                u_nc[2p + 2] = log(arr[i, c2_idx, c])
+                if prior.sample_pseudo_sigma
+                    u_nc[2p + 3] = log(arr[i, pseudo_idx, c])
+                end
+            end
+            if sample_car_strength
+                u_nc[end] = arr[i, logit_car_kappa_idx, c]
+            end
+            centered = _centered_state_from_noncentered(prior, data, u_nc)
+            draws[i, :] .= centered
+            lps[i] = logposterior(
+                centered,
+                data,
+                prior;
+                constraint = constraint,
+                prox_sum0_lambda = prox_sum0_lambda,
+                car_weights = car_weights,
+                use_car = use_car,
+                car_precision = car_precision,
+                sample_car_strength = sample_car_strength,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_degree_scale = car_degree_scale,
+                car_kappa_init = car_kappa_init,
+            )
+        end
+        samples[c] = MHSamples(draws, lps, output_names, NaN, NaN, fill(NaN, length(output_names)))
+    end
+    return n_chain == 1 ? samples[1] : MultiMHSamples(samples)
 end
 
 Turing.@model function _lasso_prox_turing_model(
@@ -166,6 +324,11 @@ function _sample_nuts(
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
     progress::Bool = true,
     callback = nothing,
     prox_l1_lambda::Real = 1e-3,
@@ -174,6 +337,7 @@ function _sample_nuts(
     prox_root_tol::Real = 1e-10,
     prox_root_maxiter::Integer = 100,
     thin::Integer = 1,
+    noncentered::Bool = false,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -183,7 +347,22 @@ function _sample_nuts(
     p = size(data.z, 2)
     resolved_constraint = _resolve_constraint(constraint)
     resolved_car_weights = use_car ? _prepare_car_weights(car_weights, p) : nothing
+    if sample_car_strength
+        _validate_adaptive_car_options(
+            resolved_car_weights,
+            car_strength_prior_a,
+            car_strength_prior_b,
+            car_kappa_init,
+        )
+    end
+    car_degree_scale_value = sample_car_strength ?
+        _car_degree_scale(resolved_car_weights; method = car_degree_scale) :
+        1.0
+    car_rank = sample_car_strength ? _car_rank(resolved_car_weights) : 0
     use_proximal_prior = _is_proximal_l1_prior(prior)
+    if noncentered
+        _check_noncentered_supported(prior)
+    end
     if use_proximal_prior && prior isa BayesianLassoPrior
         return _sample_lasso_prox_nuts(
             data,
@@ -231,6 +410,12 @@ function _sample_nuts(
         resolved_car_weights,
         use_car && resolved_car_weights !== nothing,
         Float64(car_precision),
+        sample_car_strength,
+        Float64(car_strength_prior_a),
+        Float64(car_strength_prior_b),
+        Float64(car_degree_scale_value),
+        Int(car_rank),
+        noncentered,
     )
     sampler = Turing.NUTS(warmup, Float64(target_accept))
     start_ns = time_ns()
@@ -277,7 +462,24 @@ function _sample_nuts(
         timed.gctime,
         gc_percent,
     )
-    return (samples = timed.value, diagnostics = diagnostics)
+    samples = noncentered ?
+        _noncentered_turing_samples_to_mhsamples(
+            timed.value,
+            data,
+            prior;
+            constraint = resolved_constraint,
+            prox_sum0_lambda = prox_sum0_lambda,
+            car_weights = resolved_car_weights,
+            use_car = use_car && resolved_car_weights !== nothing,
+            car_precision = car_precision,
+            sample_car_strength = sample_car_strength,
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale,
+            car_kappa_init = car_kappa_init,
+        ) :
+        timed.value
+    return (samples = samples, diagnostics = diagnostics)
 end
 
 function _prox_alpha_hyperparameters(prior::AbstractCoxPrior, alpha_prior_shape, alpha_prior_rate)

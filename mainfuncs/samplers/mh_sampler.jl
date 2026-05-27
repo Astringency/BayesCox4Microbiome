@@ -120,21 +120,58 @@ function _sample_mh(
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
     progress::Bool = true,
     progress_desc::AbstractString = "MH sampling",
     progress_offset::Integer = 0,
 )
     p = size(data.z, 2)
     n_events = count(!=(0), data.event)
+    effective_car_weights = use_car ? car_weights : nothing
+    if sample_car_strength
+        _validate_adaptive_car_options(
+            effective_car_weights,
+            car_strength_prior_a,
+            car_strength_prior_b,
+            car_kappa_init,
+        )
+    end
     init =
         if initial !== nothing
             collect(Float64, initial)
         elseif prior isa RegularizedHorseshoePrior
-            initial_state(prior, p, n_events; n_obs = size(data.z, 1))
+            initial_state(
+                prior,
+                p,
+                n_events;
+                n_obs = size(data.z, 1),
+                car_weights = effective_car_weights,
+                sample_car_strength = sample_car_strength,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_kappa_init = car_kappa_init,
+            )
         else
-            initial_state(prior, p, n_events)
+            initial_state(
+                prior,
+                p,
+                n_events;
+                car_weights = effective_car_weights,
+                sample_car_strength = prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ? sample_car_strength : false,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_kappa_init = car_kappa_init,
+            )
     end
-    names = _state_names(prior, p)
+    names = _state_names(
+        prior,
+        p;
+        sample_car_strength = prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ? sample_car_strength : false,
+    )
     resolved_constraint = _resolve_constraint(constraint)
     logpost = u -> logposterior(
         u,
@@ -145,6 +182,11 @@ function _sample_mh(
         car_weights = car_weights,
         use_car = use_car,
         car_precision = car_precision,
+        sample_car_strength = sample_car_strength,
+        car_strength_prior_a = car_strength_prior_a,
+        car_strength_prior_b = car_strength_prior_b,
+        car_degree_scale = car_degree_scale,
+        car_kappa_init = car_kappa_init,
     )
     return _adaptive_mh(
         logpost,

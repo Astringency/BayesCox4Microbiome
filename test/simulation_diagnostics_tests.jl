@@ -1,4 +1,6 @@
-include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
+if !isdefined(@__MODULE__, :generate_simulation_data)
+    include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
+end
 
 @testset "simulation sanity checks" begin
     @testset "true beta layout nz=$nonzero" for nonzero in (6, 12)

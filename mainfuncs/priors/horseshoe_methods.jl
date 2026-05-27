@@ -9,8 +9,15 @@ function _resolved_tau_scale(prior::HorseshoePrior, p::Integer, n_events::Intege
     return prior.use_cox_tau0 ? prior.tau_scale * cox_tau0(p, prior.p0, n_events) : prior.tau_scale
 end
 
-function _state_names(::HorseshoePrior, p::Integer)
-    return vcat(["beta[$j]" for j in 1:p], ["log_tau"], ["log_lambda[$j]" for j in 1:p])
+function _state_names(
+    ::HorseshoePrior,
+    p::Integer;
+    sample_car_strength::Bool = false,
+    kwargs...,
+)
+    names = vcat(["beta[$j]" for j in 1:p], ["log_tau"], ["log_lambda[$j]" for j in 1:p])
+    sample_car_strength && push!(names, "logit_car_kappa")
+    return names
 end
 
 function initial_state(
@@ -18,11 +25,27 @@ function initial_state(
     p::Integer,
     n_events::Integer;
     beta0 = zeros(Float64, p),
+    car_weights = nothing,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_kappa_init::Real = 0.5,
+    kwargs...,
 )
     _validate_prior(prior)
     length(beta0) == p || throw(DimensionMismatch("length(beta0) must be p."))
+    if sample_car_strength
+        _validate_adaptive_car_options(
+            car_weights,
+            car_strength_prior_a,
+            car_strength_prior_b,
+            car_kappa_init,
+        )
+    end
     tau0 = _resolved_tau_scale(prior, p, n_events)
-    return vcat(collect(Float64, beta0), [log(tau0)], zeros(p))
+    init = vcat(collect(Float64, beta0), [log(tau0)], zeros(p))
+    sample_car_strength && push!(init, _logit_from_probability(car_kappa_init, "car_kappa_init"))
+    return init
 end
 
 function _prior_logposterior(
@@ -31,9 +54,15 @@ function _prior_logposterior(
     prior::HorseshoePrior;
     car_weights = nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
 )
     p = size(data.z, 2)
-    length(u) == 2p + 1 || throw(DimensionMismatch("wrong state length for HorseshoePrior."))
+    expected = 2p + 1 + (sample_car_strength ? 1 : 0)
+    length(u) == expected || throw(DimensionMismatch("wrong state length for HorseshoePrior."))
     beta = view(u, 1:p)
     log_tau = u[p + 1]
     log_lambda = view(u, (p + 2):(2p + 1))
@@ -46,7 +75,25 @@ function _prior_logposterior(
         lp += _halfcauchy_logpdf(lambda[j], prior.local_scale) + log_lambda[j]
         lp += logpdf(Normal(0, tau * lambda[j]), beta[j])
     end
-    lp += _car_logprior(log_lambda, car_weights, car_precision)
+    if sample_car_strength
+        prepared_weights = _prepare_car_weights(car_weights, p)
+        _validate_adaptive_car_options(
+            prepared_weights,
+            car_strength_prior_a,
+            car_strength_prior_b,
+            car_kappa_init,
+        )
+        lp += _adaptive_car_logprior(
+            log_lambda,
+            prepared_weights,
+            u[end];
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale,
+        )
+    else
+        lp += _car_logprior(log_lambda, car_weights, car_precision)
+    end
     return lp
 end
 
@@ -57,9 +104,15 @@ function _prior_logposterior_and_gradient!(
     prior::HorseshoePrior;
     car_weights = nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
 )
     p = size(data.z, 2)
-    length(u) == 2p + 1 || throw(DimensionMismatch("wrong state length for HorseshoePrior."))
+    expected = 2p + 1 + (sample_car_strength ? 1 : 0)
+    length(u) == expected || throw(DimensionMismatch("wrong state length for HorseshoePrior."))
     length(grad) == length(u) || throw(DimensionMismatch("gradient length does not match state."))
     beta = view(u, 1:p)
     log_tau = Float64(u[p + 1])
@@ -81,7 +134,50 @@ function _prior_logposterior_and_gradient!(
         grad[p + 1] += normal_logscale_grad
         grad[p + 1 + j] += _halfcauchy_logx_gradient(logλ, prior.local_scale) + normal_logscale_grad
     end
-    lp += _car_logprior(log_lambda, car_weights, car_precision)
-    _car_logprior_gradient!(view(grad, (p + 2):(2p + 1)), log_lambda, car_weights, car_precision)
+    if sample_car_strength
+        prepared_weights = _prepare_car_weights(car_weights, p)
+        _validate_adaptive_car_options(
+            prepared_weights,
+            car_strength_prior_a,
+            car_strength_prior_b,
+            car_kappa_init,
+        )
+        logit_car_kappa = Float64(u[end])
+        _, rho, _ = _adaptive_car_precision(
+            logit_car_kappa,
+            prepared_weights;
+            car_degree_scale = car_degree_scale,
+        )
+        lp += _adaptive_car_logprior(
+            log_lambda,
+            prepared_weights,
+            logit_car_kappa;
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale,
+        )
+        _car_logprior_gradient!(
+            view(grad, (p + 2):(2p + 1)),
+            log_lambda,
+            prepared_weights,
+            rho,
+        )
+        grad[end] += _adaptive_car_logit_gradient(
+            log_lambda,
+            prepared_weights,
+            logit_car_kappa;
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale,
+        )
+    else
+        lp += _car_logprior(log_lambda, car_weights, car_precision)
+        _car_logprior_gradient!(
+            view(grad, (p + 2):(2p + 1)),
+            log_lambda,
+            car_weights,
+            car_precision,
+        )
+    end
     return lp
 end

@@ -7,7 +7,7 @@ function _validate_prior(prior::BayesianLassoPrior)
     return prior
 end
 
-function _state_names(prior::BayesianLassoPrior, p::Integer)
+function _state_names(prior::BayesianLassoPrior, p::Integer; kwargs...)
     names = vcat(["beta[$j]" for j in 1:p], ["log_tau2[$j]" for j in 1:p])
     if prior.lambda === nothing
         push!(names, "log_lambda2")
@@ -20,6 +20,7 @@ function initial_state(
     p::Integer,
     n_events::Integer;
     beta0 = zeros(Float64, p),
+    kwargs...,
 )
     _validate_prior(prior)
     length(beta0) == p || throw(DimensionMismatch("length(beta0) must be p."))
@@ -37,8 +38,7 @@ function _prior_logposterior(
     u::AbstractVector,
     data::CoxPreparedData,
     prior::BayesianLassoPrior;
-    car_weights = nothing,
-    car_precision::Real = 1.0,
+    kwargs...,
 )
     p = size(data.z, 2)
     expected = prior.lambda === nothing ? 2p + 1 : 2p
@@ -68,8 +68,7 @@ function _prior_logposterior_and_gradient!(
     u::AbstractVector,
     data::CoxPreparedData,
     prior::BayesianLassoPrior;
-    car_weights = nothing,
-    car_precision::Real = 1.0,
+    kwargs...,
 )
     p = size(data.z, 2)
     expected = prior.lambda === nothing ? 2p + 1 : 2p

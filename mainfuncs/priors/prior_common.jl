@@ -97,7 +97,7 @@ function car_similarity_matrix(D::AbstractMatrix{<:Real})
 end
 
 """
-    car_weight_matrix(X; distance=:bray, threshold_quantile=0.75)
+    car_weight_matrix(X; distance=:bray, threshold_quantile=0.99)
 
 Build the symmetric CAR weight matrix from an abundance matrix by following
 the BayesCox IAR construction: compute taxa distances, double-center squared
@@ -107,7 +107,7 @@ above `threshold_quantile`.
 function car_weight_matrix(
     X::AbstractMatrix{<:Real};
     distance = :bray,
-    threshold_quantile::Real = 0.75,
+    threshold_quantile::Real = 0.99,
 )
     0 <= threshold_quantile <= 1 ||
         throw(ArgumentError("threshold_quantile must be in [0, 1]."))
@@ -120,11 +120,13 @@ function car_weight_matrix(
         for i in 1:(j - 1)
             w = abs(K[i, j])
             if w > cutoff
-                W[i, j] = w
-                W[j, i] = w
+            # if w < cutoff
+                W[i, j] = K[i, j]
+                W[j, i] = K[i, j]
             end
         end
     end
+
     return W
 end
 
@@ -160,6 +162,174 @@ function _prepare_car_weights(weights, p::Integer)
     else
         throw(ArgumentError("car_weights must be a matrix or CARWeightEdges."))
     end
+end
+
+function _car_weighted_degrees(weights::CARWeightEdges)
+    degrees = zeros(Float64, weights.p)
+    @inbounds for k in eachindex(weights.w)
+        w = weights.w[k]
+        degrees[weights.i[k]] += w
+        degrees[weights.j[k]] += w
+    end
+    return degrees
+end
+
+function _car_degree_scale(
+    weights::Union{Nothing,CARWeightEdges};
+    method::Symbol = :mean_active,
+)
+    weights === nothing && return 1.0
+    degrees = _car_weighted_degrees(weights)
+    active = degrees[degrees .> 0.0]
+    isempty(active) && return 1.0
+    if method == :mean_active
+        return mean(active)
+    elseif method == :median_active
+        return median(active)
+    elseif method == :q90_active
+        return quantile(active, 0.9)
+    end
+    throw(ArgumentError("car_degree_scale must be :mean_active, :median_active, or :q90_active."))
+end
+
+function _car_rank(weights::CARWeightEdges)
+    parent = collect(1:weights.p)
+    active = falses(weights.p)
+
+    function find_root!(x::Int)
+        while parent[x] != x
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        end
+        return x
+    end
+
+    positive_edges = 0
+    @inbounds for k in eachindex(weights.w)
+        weights.w[k] > 0.0 || continue
+        positive_edges += 1
+        i = weights.i[k]
+        j = weights.j[k]
+        active[i] = true
+        active[j] = true
+        ri = find_root!(i)
+        rj = find_root!(j)
+        ri == rj || (parent[rj] = ri)
+    end
+    positive_edges == 0 && return 0
+    roots = Set{Int}()
+    active_count = 0
+    for i in 1:weights.p
+        active[i] || continue
+        active_count += 1
+        push!(roots, find_root!(i))
+    end
+    return active_count - length(roots)
+end
+
+function _car_quadratic_stat(loglambda::AbstractVector, weights)
+    weights === nothing && return zero(first(loglambda))
+    return _car_quadratic_stat(loglambda, _prepare_car_weights(weights, length(loglambda)))
+end
+
+function _car_quadratic_stat(loglambda::AbstractVector, weights::CARWeightEdges)
+    weights.p == length(loglambda) || throw(DimensionMismatch("car_weights must have length p."))
+    s = zero(first(loglambda))
+    @inbounds for k in eachindex(weights.w)
+        d = loglambda[weights.i[k]] - loglambda[weights.j[k]]
+        s += weights.w[k] * d^2
+    end
+    return s
+end
+
+function _logit_from_probability(x::Real, name::AbstractString)
+    0 < x < 1 || throw(ArgumentError("$name must be in (0, 1)."))
+    xf = Float64(x)
+    return log(xf) - log1p(-xf)
+end
+
+function _validate_car_strength_prior(a::Real, b::Real)
+    return _check_positive(a, "car_strength_prior_a"),
+        _check_positive(b, "car_strength_prior_b")
+end
+
+function _beta_logit_logpdf(logit_x, a::Real, b::Real)
+    af, bf = _validate_car_strength_prior(a, b)
+    x = _logistic(logit_x)
+    return af * log(x) + bf * log1p(-x) - Distributions.SpecialFunctions.logbeta(af, bf)
+end
+
+function _beta_logit_gradient(logit_x::Real, a::Real, b::Real)
+    af, bf = _validate_car_strength_prior(a, b)
+    x = _logistic(Float64(logit_x))
+    return af * (1.0 - x) - bf * x
+end
+
+function _validate_adaptive_car_options(
+    weights,
+    car_strength_prior_a::Real,
+    car_strength_prior_b::Real,
+    car_kappa_init::Real,
+)
+    weights === nothing &&
+        throw(ArgumentError("sample_car_strength=true requires car_weights or use_car=true with a CAR graph."))
+    _validate_car_strength_prior(car_strength_prior_a, car_strength_prior_b)
+    _logit_from_probability(car_kappa_init, "car_kappa_init")
+    return nothing
+end
+
+function _adaptive_car_precision(
+    logit_car_kappa,
+    weights::CARWeightEdges;
+    car_degree_scale::Symbol = :mean_active,
+)
+    dbar = _car_degree_scale(weights; method = car_degree_scale)
+    kappa = _logistic(logit_car_kappa)
+    rho = kappa / dbar
+    return kappa, rho, dbar
+end
+
+function _adaptive_car_logprior(
+    loglambda::AbstractVector,
+    weights::CARWeightEdges,
+    logit_car_kappa;
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+)
+    kappa, rho, _ = _adaptive_car_precision(
+        logit_car_kappa,
+        weights;
+        car_degree_scale = car_degree_scale,
+    )
+    0 < kappa < 1 || return -Inf
+    rank = _car_rank(weights)
+    lp = _car_logprior(loglambda, weights, rho)
+    if rank > 0
+        lp += 0.5 * rank * log(rho)
+    end
+    lp += _beta_logit_logpdf(logit_car_kappa, car_strength_prior_a, car_strength_prior_b)
+    return lp
+end
+
+function _adaptive_car_logit_gradient(
+    loglambda::AbstractVector,
+    weights::CARWeightEdges,
+    logit_car_kappa::Real;
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+)
+    kappa, _, dbar = _adaptive_car_precision(
+        Float64(logit_car_kappa),
+        weights;
+        car_degree_scale = car_degree_scale,
+    )
+    rank = _car_rank(weights)
+    s = Float64(_car_quadratic_stat(loglambda, weights))
+    car_grad = 0.5 * rank * (1.0 - kappa) -
+        0.5 * s * kappa * (1.0 - kappa) / dbar
+    return car_grad + _beta_logit_gradient(logit_car_kappa, car_strength_prior_a, car_strength_prior_b)
 end
 
 function _halfcauchy_logpdf(x, scale)
@@ -227,21 +397,36 @@ function _positive_t_logpdf_derivative(x::Real, df::Real, scale::Real)
     return -(ν + 1.0) * Float64(x) / (ν * s^2 + Float64(x)^2)
 end
 
-function _car_logprior(loglambda::AbstractVector, weights, precision::Real)
+function _car_logprior(
+    loglambda::AbstractVector,
+    weights,
+    precision::Real,
+)
     weights === nothing && return 0.0
-    return _car_logprior(loglambda, _prepare_car_weights(weights, length(loglambda)), precision)
+    return _car_logprior(
+        loglambda,
+        _prepare_car_weights(weights, length(loglambda)),
+        precision,
+    )
 end
 
-function _car_logprior(loglambda::AbstractVector, weights::CARWeightEdges, precision::Real)
+function _car_logprior(
+    loglambda::AbstractVector,
+    weights::CARWeightEdges,
+    precision::Real,
+)
     p = length(loglambda)
     weights.p == p || throw(DimensionMismatch("car_weights must have length p."))
-    _check_positive(precision, "car_precision")
-    lp = zero(first(loglambda))
-    scale = 0.5 * precision
+    precision > 0 || throw(ArgumentError("car_precision must be positive."))
+    ρ = precision
+    lp = zero(first(loglambda) * ρ)
+
+    scale = 0.5 * ρ
     @inbounds for k in eachindex(weights.w)
         d = loglambda[weights.i[k]] - loglambda[weights.j[k]]
         lp -= scale * weights.w[k] * d^2
     end
+
     return lp
 end
 
@@ -269,15 +454,17 @@ function _car_logprior_gradient!(
     p = length(loglambda)
     length(grad) == p || throw(DimensionMismatch("CAR gradient length must match loglambda."))
     weights.p == p || throw(DimensionMismatch("car_weights must have length p."))
-    prec = _check_positive(precision, "car_precision")
+    ρ = _check_positive(precision, "car_precision")
+
     @inbounds for k in eachindex(weights.w)
         i = weights.i[k]
         j = weights.j[k]
         d = Float64(loglambda[i]) - Float64(loglambda[j])
-        v = prec * weights.w[k] * d
+        v = ρ * weights.w[k] * d
         grad[i] -= v
         grad[j] += v
     end
+
     return grad
 end
 

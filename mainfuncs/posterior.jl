@@ -7,6 +7,11 @@ function logposterior(
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
 )
     _validate_prior(prior)
     p = size(data.z, 2)
@@ -24,6 +29,11 @@ function logposterior(
         prior;
         car_weights = use_car ? car_weights : nothing,
         car_precision = car_precision,
+        sample_car_strength = sample_car_strength,
+        car_strength_prior_a = car_strength_prior_a,
+        car_strength_prior_b = car_strength_prior_b,
+        car_degree_scale = car_degree_scale,
+        car_kappa_init = car_kappa_init,
     )
     return lp
 end
@@ -39,6 +49,11 @@ function logposterior_and_gradient!(
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
 )
     _validate_prior(prior)
     p = size(data.z, 2)
@@ -66,6 +81,11 @@ function logposterior_and_gradient!(
         prior;
         car_weights = use_car ? car_weights : nothing,
         car_precision = car_precision,
+        sample_car_strength = sample_car_strength,
+        car_strength_prior_a = car_strength_prior_a,
+        car_strength_prior_b = car_strength_prior_b,
+        car_degree_scale = car_degree_scale,
+        car_kappa_init = car_kappa_init,
     )
     return lp, grad
 end

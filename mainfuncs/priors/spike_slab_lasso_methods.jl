@@ -8,7 +8,7 @@ function _validate_prior(prior::SpikeSlabLassoPrior)
     return prior
 end
 
-function _state_names(::SpikeSlabLassoPrior, p::Integer)
+function _state_names(::SpikeSlabLassoPrior, p::Integer; kwargs...)
     return vcat(
         ["beta[$j]" for j in 1:p],
         ["log_tau2_spike[$j]" for j in 1:p],
@@ -22,6 +22,7 @@ function initial_state(
     p::Integer,
     n_events::Integer;
     beta0 = zeros(Float64, p),
+    kwargs...,
 )
     _validate_prior(prior)
     length(beta0) == p || throw(DimensionMismatch("length(beta0) must be p."))
@@ -54,8 +55,7 @@ function _prior_logposterior(
     u::AbstractVector,
     data::CoxPreparedData,
     prior::SpikeSlabLassoPrior;
-    car_weights = nothing,
-    car_precision::Real = 1.0,
+    kwargs...,
 )
     p = size(data.z, 2)
     length(u) == 3p + 1 || throw(DimensionMismatch("wrong state length for SpikeSlabLassoPrior."))
@@ -82,8 +82,7 @@ function _prior_logposterior_and_gradient!(
     u::AbstractVector,
     data::CoxPreparedData,
     prior::SpikeSlabLassoPrior;
-    car_weights = nothing,
-    car_precision::Real = 1.0,
+    kwargs...,
 )
     p = size(data.z, 2)
     length(u) == 3p + 1 || throw(DimensionMismatch("wrong state length for SpikeSlabLassoPrior."))
