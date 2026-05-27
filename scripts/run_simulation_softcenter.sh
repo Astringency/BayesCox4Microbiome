@@ -16,34 +16,6 @@ current_time=$(date "+%Y%m%d_%H%M%S")
 pids=()
 status=0
 
-# TEST
-# test_n=400
-# test_p=150
-# pids=()
-# julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
-#     --sampler ula \
-#     --samples 5000 \
-#     --warmup 2000 \
-#     --chains 4 \
-#     --multichains \
-#     --reps 1 \
-#     --n "$test_n" \
-#     --p "$test_p" \
-#     --nonzero 12 \
-#     --baseline weibull \
-#     --priors prox-lasso \
-#     --constraint prox \
-#     --target-accept 0.8 \
-#     --mala-step-size 1e-3 \
-#     --mala-target-accept 0.7 \
-#     --seed 1 \
-#     --use-car true \
-#     --car-distance bray \
-#     --p0 truth \
-#     --p0-alpha 0.05 \
-#     --outdir "results/simulation/test_n${test_n}_p${test_p}_non12_weibull_${current_time}" &
-# pids+=("$!")
-
 # MAIN LOOP
 n_vals=(200 400)
 p_vals=(50 150)
@@ -60,26 +32,63 @@ for n in "${n_vals[@]}"; do
                 for baseline in "${baseline_vals[@]}"; do
                     echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
 
-                    julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
-                        --sampler nuts \
-                        --nuts-backend explicit \
-                        --samples 5000 \
-                        --warmup 2000 \
-                        --chains 4 \
-                        --reps 50 \
+                    julia "+1.11.7" -t 4 --project=. ./scripts/run_simulation.jl \
+                        --outdir "./results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
+                        --reps 1 \
                         --n "$n" \
                         --p "$p" \
                         --nonzero "$nonzero" \
                         --baseline "$baseline" \
-                        --constraint soft_center \
                         --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso \
+                        --sampler nuts \
+                        --nuts-backend explicit \
+                        --samples 5000 \
+                        --warmup 2000 \
+                        --thin 1 \
+                        --chains 4 \
+                        --multichains true \
                         --target-accept 0.95 \
+                        --noncentered true \
                         --seed 1 \
                         --use-car true \
-                        --car-distance bray \
+                        --progress true \
+                        --car-weight-quantile 0.99 \
+                        --car-precision 1 \
+                        --sample-car-strength true \
+                        --car-strength-prior-a 1 \
+                        --car-strength-prior-b 1 \
+                        --car-distance "bray" \
                         --p0 truth \
                         --p0-alpha 0.05 \
-                        --outdir "/large_storage/zhangxf/BayesCox/results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}"
+                        --constraint "soft_center" \
+                        --diagnose true \
+                        --debug false \
+                        --diagnose-format "pdf" \
+                        --diagnose-top-k-beta 12 \
+                        --diagnose-max-lag 36 \
+                        --resume true \
+                        --pseudocount 0.0 \
+                        --standardize false \
+                        --plot-first-rep-only true \
+                        --sample-thin 10 \
+                        --first-rep-sample-thin 1 \
+                        --save-wide-csv true \
+                        --save-jld2 false \
+                        --rhs-slab-df 4 \
+                        --rhs-slab-s2 2 \
+                        --hs-tau-scale 1 \
+                        --hs-local-scale 1 \
+                        --rhs-tau-scale 1 \
+                        --rhs-local-scale 1 \
+                        --rhs-pseudo-sigma-df 3 \
+                        --rhs-pseudo-sigma-scale 10 \
+                        --lasso-lambda2-shape 1 \
+                        --lasso-lambda2-rate 0.1 \
+                        --sslasso-spike-scale 0.04 \
+                        --sslasso-slab-scale 0.5 \
+                        --sslasso-theta-a 1 \
+                        --sslasso-theta-b 1
+
                 done
             ) &
 
@@ -96,3 +105,4 @@ if [[ "$status" -ne 0 ]]; then
 fi
 
 echo "ALL SIMULATION DONE!"
+
