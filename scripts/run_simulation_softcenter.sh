@@ -34,12 +34,12 @@ for n in "${n_vals[@]}"; do
 
                     julia "+1.11.7" -t 4 --project=. ./scripts/run_simulation.jl \
                         --outdir "./results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
-                        --reps 1 \
+                        --reps 50 \
                         --n "$n" \
                         --p "$p" \
                         --nonzero "$nonzero" \
                         --baseline "$baseline" \
-                        --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso \
+                        --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs \
                         --sampler nuts \
                         --nuts-backend explicit \
                         --samples 5000 \
