@@ -355,8 +355,7 @@ function _hybrid_beta_mala(
             @views draws[saved, :] .= u
             lps[saved] = current_lp
         end
-        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog)
     end
     _progress_finish!(prog)
 
@@ -487,8 +486,7 @@ function _hybrid_beta_ula(
             @views draws[saved, :] .= u
             lps[saved] = current_lp
         end
-        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog)
     end
     _progress_finish!(prog)
 
@@ -626,8 +624,7 @@ function _run_full_mala(
             @views draws[saved, :] .= u
             lps[saved] = current_lp
         end
-        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog)
     end
     _progress_finish!(prog)
     sample_iters = n_samples * thin
@@ -680,8 +677,7 @@ function _run_full_ula(
             @views draws[saved, :] .= u
             lps[saved] = current_lp
         end
-        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog)
     end
     _progress_finish!(prog)
     return MHSamples(draws, lps, names, NaN, NaN, fill(gamma_L, d))
@@ -839,8 +835,7 @@ function _sample_ssl_prox_mala(
                 prox_root_maxiter = prox_root_maxiter,
             )
         end
-        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog)
     end
     _progress_finish!(prog)
     sample_iters = n_samples * thin
@@ -1322,8 +1317,7 @@ function _sample_ssl_prox_ula(
             draws[saved, 2p + 2] = theta
             lps[saved] = current_lp
         end
-        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog)
     end
     _progress_finish!(prog)
     return MHSamples(draws, lps, names, NaN, NaN, fill(gamma_L, d))
