@@ -40,8 +40,9 @@ for n in "${n_vals[@]}"; do
                         --nonzero "$nonzero" \
                         --baseline "$baseline" \
                         --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs \
-                        --sampler nuts \
+                        --sampler hmc \
                         --nuts-backend explicit \
+                        --hmc-n-leapfrog 20 \
                         --samples 5000 \
                         --warmup 2000 \
                         --thin 1 \
