@@ -13,22 +13,22 @@ unset PKG_CONFIG_PATH
 export GKSwstype=100
 
 current_time=$(date "+%Y%m%d_%H%M%S")
-pids=()
-status=0
 
 # MAIN LOOP
-n_vals=(200 400)
-p_vals=(50 150)
-non_vals=(6 12)
-baseline_vals=("weibull" "exponential" "gompertz")
+# n_vals=(200 400)
+n_vals=(200 400 1000 2000 3000)
+# p_vals=(50 150)
+p_vals=(150)
+# non_vals=(6 12)
+non_vals=(12)
+# baseline_vals=("weibull" "exponential" "gompertz")
+baseline_vals=("gompertz")
+sampler_vals=("hmc" "nuts")
 
-pids=()
-
-for n in "${n_vals[@]}"; do
-    for p in "${p_vals[@]}"; do
-        for nonzero in "${non_vals[@]}"; do
-
-            (
+for sampler in "${sampler_vals[@]}"; do
+    for n in "${n_vals[@]}"; do
+        for p in "${p_vals[@]}"; do
+            for nonzero in "${non_vals[@]}"; do
                 for baseline in "${baseline_vals[@]}"; do
                     echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
 
@@ -40,8 +40,9 @@ for n in "${n_vals[@]}"; do
                         --nonzero "%nonzero" \
                         --baseline "%baseline" \
                         --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs \
-                        --sampler nuts \
+                        --sampler hmc \
                         --nuts-backend explicit \
+                        --hmc-n-leapfrog 20 \
                         --samples 5000 \
                         --warmup 2000 \
                         --thin 1 \
@@ -83,7 +84,7 @@ for n in "${n_vals[@]}"; do
                         --first-rep-sample-thin 1 \
                         --save-wide-csv true \
                         --save-jld2 false \
-                        --alpha-prior-shape 10 \
+                        --alpha-prior-shape 151 \
                         --alpha-prior-rate 1 \
                         --rhs-slab-df 4 \
                         --rhs-slab-s2 2 \
@@ -99,24 +100,13 @@ for n in "${n_vals[@]}"; do
                         --sslasso-slab-scale 0.5 \
                         --sslasso-theta-a 1 \
                         --sslasso-theta-b 1 \
-
                 done
-            ) &
-
-            pids+=("$!")
+            done
         done
     done
 done
 
-wait "${pids[@]}"
-
-if [[ "$status" -ne 0 ]]; then
-    echo "SIMULATION FAILED!" >&2
-    exit "$status"
-fi
+wait
 
 echo "ALL SIMULATION DONE!"
-
-
-
 # --outdir "/large_storage/zhangxf/BayesCox/results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}"

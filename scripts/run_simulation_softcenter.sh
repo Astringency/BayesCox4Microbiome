@@ -33,7 +33,7 @@ for n in "${n_vals[@]}"; do
                     echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
 
                     julia "+1.11.7" -t 4 --project=. ./scripts/run_simulation.jl \
-                        --outdir "./results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
+                        --outdir "/large_storage/zhangxf/BayesCox/results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
                         --reps 50 \
                         --n "$n" \
                         --p "$p" \
