@@ -36,12 +36,12 @@ for sampler in "${sampler_vals[@]}"; do
                     julia "+1.11.7" -t 4 --project=. ./scripts/run_simulation.jl \
                         --outdir "./results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
                         --reps 1 \
-                        --n "%n" \
-                        --p "%p" \
-                        --nonzero "%nonzero" \
-                        --baseline "%baseline" \
+                        --n "$n" \
+                        --p "$p" \
+                        --nonzero "$nonzero" \
+                        --baseline "$baseline" \
                         --priors prox-lasso,prox-sslasso \
-                        --sampler "%sampler" \
+                        --sampler "$sampler" \
                         --nuts-backend explicit \
                         --hmc-n-leapfrog 20 \
                         --samples 5000 \
