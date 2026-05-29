@@ -200,6 +200,8 @@ function main()
                 "warmup",
                 "chains",
                 "target-accept",
+                "hmc-n-leapfrog",
+                "hmc-step-size",
                 "seed",
                 "p0",
                 "p0-alpha",
@@ -252,6 +254,8 @@ function main()
     warmup = arg(args, "warmup", 100)
     chains = arg(args, "chains", 2)
     target_accept = arg(args, "target-accept", 0.8)
+    hmc_n_leapfrog = arg(args, "hmc-n-leapfrog", 10)
+    hmc_step_size = optional_float_arg(args, "hmc-step-size")
     seed0 = arg(args, "seed", 20260516)
     p0_arg = parse_optional_p0(args; default = :truth)
     p0_alpha = arg(args, "p0-alpha", 0.05)
@@ -307,6 +311,8 @@ function main()
                         warmup = warmup,
                         chains = chains,
                         target_accept = target_accept,
+                        hmc_n_leapfrog = hmc_n_leapfrog,
+                        hmc_step_size = hmc_step_size,
                         seed = seed,
                         use_car = actual_use_car,
                         car_distance = car_distance,

@@ -73,6 +73,16 @@ end
         fd = (cox_logpartiallikelihood(data, beta .+ e) - cox_logpartiallikelihood(data, beta .- e)) / (2epsfd)
         @test grad[j] ≈ fd atol=1e-5 rtol=1e-5
     end
+
+    bad_grad = zeros(Float64, length(beta))
+    bad_lp = B.cox_logpartiallikelihood_and_score_gradient!(
+        bad_grad,
+        data,
+        fill(Inf, length(beta)),
+        CoxGradientWorkspace(data),
+    )
+    @test bad_lp == -Inf
+    @test any(isnan, bad_grad)
 end
 
 @testset "Cox Efron and Breslow ties" begin
@@ -305,6 +315,36 @@ end
     @test isfinite(rhs_adaptive_lp)
     @test all(isfinite, rhs_adaptive_grad)
     @test length(rhs_adaptive_grad) == length(B._state_names(rhs_adaptive, size(data.z, 2); sample_car_strength = true))
+
+    rhs_adaptive_nc_target = B._make_explicit_nuts_target(
+        data,
+        rhs_adaptive;
+        constraint = :none,
+        prox_sum0_lambda = 1e-3,
+        prox_l1_lambda = 1e-3,
+        alpha_prior_shape = 1.0,
+        alpha_prior_rate = 0.1,
+        prox_root_tol = 1e-10,
+        prox_root_maxiter = 100,
+        car_weights = car_weights,
+        use_car = true,
+        sample_car_strength = true,
+        car_strength_prior_a = 1.0,
+        car_strength_prior_b = 1.0,
+        car_degree_scale = :mean_active,
+        car_kappa_init = 0.5,
+        noncentered = true,
+    )
+    rhs_adaptive_nc_u = initial_state(rhs_adaptive_nc_target)
+    rhs_adaptive_nc_u[end] = -1000.0
+    rhs_adaptive_nc_grad = zeros(Float64, length(rhs_adaptive_nc_u))
+    rhs_adaptive_nc_lp, _ = logdensity_and_gradient!(
+        rhs_adaptive_nc_grad,
+        rhs_adaptive_nc_target,
+        rhs_adaptive_nc_u,
+    )
+    @test isfinite(rhs_adaptive_nc_lp)
+    @test all(isfinite, rhs_adaptive_nc_grad)
 end
 
 @testset "MALA samplers short chains" begin
@@ -631,6 +671,70 @@ end
     )
     @test size(posterior_beta_draws(sslasso_prox)) == (1, 2)
     @test length(sslasso_inclusion_probabilities(sslasso_prox)) == 2
+end
+
+@testset "explicit HMC smoke tests" begin
+    Random.seed!(121)
+    X = rand(10, 3) .+ 0.1
+    time = collect(1.0:10.0)
+    event = [1, 0, 1, 1, 0, 1, 0, 1, 1, 0]
+
+    hmc_lasso = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = cox_paper_prior("prox-lasso"),
+        sampler = :hmc,
+        constraint = :prox,
+        n_samples = 2,
+        warmup = 1,
+        thin = 2,
+        chains = 1,
+        hmc_n_leapfrog = 2,
+        hmc_step_size = 1e-3,
+        progress = false,
+        seed = 14,
+    )
+    @test hmc_lasso.samples isa MHSamples
+    @test size(posterior_beta_draws(hmc_lasso)) == (2, 3)
+    @test length(posterior_logposterior_draws(hmc_lasso)) == 2
+    @test 0 <= hmc_lasso.samples.acceptance_rate <= 1
+
+    hmc_multi = sample_bayes_cox(
+        X,
+        time,
+        event;
+        prior = HorseshoePrior(p0 = 1.0),
+        sampler = :hmc,
+        constraint = :soft_center,
+        n_samples = 1,
+        warmup = 1,
+        chains = 2,
+        hmc_n_leapfrog = 1,
+        hmc_step_size = 1e-3,
+        progress = false,
+        seed = 15,
+    )
+    @test hmc_multi.samples isa MultiMHSamples
+    @test size(posterior_beta_draws(hmc_multi)) == (2, 3)
+
+    hmc_ssl_prox = sample_bayes_cox(
+        X[:, 1:2],
+        time,
+        event;
+        prior = cox_paper_prior("prox-sslasso"),
+        sampler = :hmc,
+        constraint = :prox,
+        n_samples = 1,
+        warmup = 0,
+        chains = 1,
+        hmc_n_leapfrog = 1,
+        hmc_step_size = 1e-3,
+        progress = false,
+        seed = 16,
+    )
+    @test size(posterior_beta_draws(hmc_ssl_prox)) == (1, 2)
+    @test length(sslasso_inclusion_probabilities(hmc_ssl_prox)) == 2
 end
 
 function toy_result(samples)

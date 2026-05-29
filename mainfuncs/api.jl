@@ -4,8 +4,9 @@
 Fit the Bayesian Cox model for compositional microbiome covariates.
 
 The default `sampler=:nuts` follows the PDF and uses Turing.jl's NUTS implementation.
-Use `sampler=:mh` for the dependency-light adaptive random-walk Metropolis fallback.
-For HS/RHS-family priors, pass `noncentered=true` with NUTS to sample latent
+Use `sampler=:hmc` for explicit-gradient AdvancedHMC with fixed leapfrog trajectories,
+or `sampler=:mh` for the dependency-light adaptive random-walk Metropolis fallback.
+For HS/RHS-family priors, pass `noncentered=true` with NUTS/HMC to sample latent
 standard-normal `beta_raw` variables internally while returning the usual
 `beta[...]` posterior draws.
 """
@@ -334,7 +335,7 @@ function _validate_prox_prior_sampler(prior::AbstractCoxPrior, sampler::Symbol)
     _is_proximal_l1_prior(prior) || return nothing
     if sampler == :mh
         throw(ArgumentError(
-            "proximal L1 priors are not implemented for sampler=:mh; use :nuts, :mala, :ula, " *
+            "proximal L1 priors are not implemented for sampler=:mh; use :nuts, :hmc, :mala, :ula, " *
             "or :gibbs for prox-sslasso.",
         ))
     elseif sampler == :gibbs && !(prior isa SpikeSlabLassoPrior)
@@ -548,8 +549,28 @@ function sample_bayes_cox(
             end
         samples = sampled.samples
         diagnostics = sampled.diagnostics
+    elseif effective_sampler == :hmc
+        sampled = _sample_hmc_explicit(
+            data,
+            prior;
+            rng = rng,
+            chains = chain_count,
+            multichains = multichains,
+            car_weights = resolved_car_weights,
+            use_car = use_car,
+            car_precision = car_precision,
+            sample_car_strength = sample_car_strength,
+            car_strength_prior_a = car_strength_prior_a,
+            car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale,
+            car_kappa_init = car_kappa_init,
+            noncentered = noncentered,
+            kwargs...,
+        )
+        samples = sampled.samples
+        diagnostics = sampled.diagnostics
     elseif effective_sampler == :mh
-        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts."))
+        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts or :hmc."))
         timed = @timed _sample_mh_chains(
             data,
             prior,
@@ -579,7 +600,7 @@ function sample_bayes_cox(
             gc_percent,
         )
     elseif effective_sampler == :mala
-        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts."))
+        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts or :hmc."))
         timed = @timed _sample_mala_chains(
             data,
             prior,
@@ -609,7 +630,7 @@ function sample_bayes_cox(
             gc_percent,
         )
     elseif effective_sampler == :ula
-        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts."))
+        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts or :hmc."))
         timed = @timed _sample_ula_chains(
             data,
             prior,
@@ -639,7 +660,7 @@ function sample_bayes_cox(
             gc_percent,
         )
     elseif effective_sampler == :gibbs
-        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts."))
+        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts or :hmc."))
         prior isa SpikeSlabLassoPrior && use_car && resolved_car_weights !== nothing &&
             throw(ArgumentError("sampler=:gibbs for SSLASSO does not support CAR weights."))
         timed =
@@ -683,7 +704,7 @@ function sample_bayes_cox(
             gc_percent,
         )
     else
-        throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :mh, :mala, :ula, or :gibbs."))
+        throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :hmc, :mh, :mala, :ula, or :gibbs."))
     end
     return CoxSamplerResult(samples, data, prior, effective_sampler, diagnostics)
 end

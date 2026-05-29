@@ -252,10 +252,22 @@ function _validate_car_strength_prior(a::Real, b::Real)
         _check_positive(b, "car_strength_prior_b")
 end
 
+function _log1pexp(x::Real)
+    xf = Float64(x)
+    if xf > 0
+        return xf + log1p(exp(-xf))
+    else
+        return log1p(exp(xf))
+    end
+end
+
+_log_logistic(x::Real) = -_log1pexp(-Float64(x))
+
 function _beta_logit_logpdf(logit_x, a::Real, b::Real)
     af, bf = _validate_car_strength_prior(a, b)
-    x = _logistic(logit_x)
-    return af * log(x) + bf * log1p(-x) - Distributions.SpecialFunctions.logbeta(af, bf)
+    eta = Float64(logit_x)
+    return af * eta - (af + bf) * _log1pexp(eta) -
+        Distributions.SpecialFunctions.logbeta(af, bf)
 end
 
 function _beta_logit_gradient(logit_x::Real, a::Real, b::Real)
@@ -296,16 +308,16 @@ function _adaptive_car_logprior(
     car_strength_prior_b::Real = 1.0,
     car_degree_scale::Symbol = :mean_active,
 )
-    kappa, rho, _ = _adaptive_car_precision(
+    _, rho, dbar = _adaptive_car_precision(
         logit_car_kappa,
         weights;
         car_degree_scale = car_degree_scale,
     )
-    0 < kappa < 1 || return -Inf
     rank = _car_rank(weights)
-    lp = _car_logprior(loglambda, weights, rho)
+    s = _car_quadratic_stat(loglambda, weights)
+    lp = -0.5 * rho * s
     if rank > 0
-        lp += 0.5 * rank * log(rho)
+        lp += 0.5 * rank * (_log_logistic(logit_car_kappa) - log(dbar))
     end
     lp += _beta_logit_logpdf(logit_car_kappa, car_strength_prior_a, car_strength_prior_b)
     return lp
@@ -453,6 +465,7 @@ function _car_logprior_gradient!(
     p = length(loglambda)
     length(grad) == p || throw(DimensionMismatch("CAR gradient length must match loglambda."))
     weights.p == p || throw(DimensionMismatch("car_weights must have length p."))
+    precision == 0 && return grad
     ρ = _check_positive(precision, "car_precision")
 
     @inbounds for k in eachindex(weights.w)

@@ -719,6 +719,8 @@ function fit_and_evaluate(
     chains::Integer = 4,
     multichains::Bool = false,
     target_accept::Real = 0.8,
+    hmc_n_leapfrog::Integer = 10,
+    hmc_step_size = nothing,
     noncentered::Bool = false,
     seed::Integer = 1,
     use_car::Bool = false,
@@ -806,6 +808,44 @@ function fit_and_evaluate(
                 chains = chains,
                 multichains = multichains,
                 target_accept = target_accept,
+                noncentered = noncentered,
+                seed = seed,
+                use_car = use_car,
+                car_distance = car_distance,
+                car_weight_quantile = car_weight_quantile,
+                car_precision = car_precision,
+                sample_car_strength = sample_car_strength,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_degree_scale = car_degree_scale,
+                car_kappa_init = car_kappa_init,
+                pseudocount = pseudocount_value,
+                standardize = standardize,
+                tie_method = tie_method,
+                constraint = constraint,
+                prox_sum0_lambda = prox_sum0_lambda,
+                prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = alpha_prior_shape,
+                alpha_prior_rate = alpha_prior_rate,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
+                progress = progress,
+            )
+        elseif sampler == :hmc
+            sample_bayes_cox(
+                X,
+                time,
+                event;
+                prior = prior,
+                sampler = sampler,
+                n_samples = n_samples,
+                warmup = warmup,
+                thin = thin,
+                chains = chains,
+                multichains = multichains,
+                target_accept = target_accept,
+                hmc_n_leapfrog = hmc_n_leapfrog,
+                hmc_step_size = hmc_step_size,
                 noncentered = noncentered,
                 seed = seed,
                 use_car = use_car,
@@ -937,7 +977,7 @@ function fit_and_evaluate(
                 progress = progress,
             )
         else
-            throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :mh, :mala, :ula, or :gibbs."))
+            throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :hmc, :mh, :mala, :ula, or :gibbs."))
     end
     model_draws = posterior_beta_draws(result)
     layout = posterior_draw_layout(result, size(model_draws, 1))

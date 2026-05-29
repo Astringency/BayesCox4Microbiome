@@ -99,6 +99,7 @@ include("mainfuncs/samplers/mala_sampler.jl")
 include("mainfuncs/targets/cox_targets.jl")
 include("mainfuncs/samplers/nuts_turing_sampler.jl")
 include("mainfuncs/samplers/nuts_explicit_sampler.jl")
+include("mainfuncs/samplers/hmc_sampler.jl")
 include("mainfuncs/api.jl")
 include("mainfuncs/diagnostics/diagnostics.jl")
 

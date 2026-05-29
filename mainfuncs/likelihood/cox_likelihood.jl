@@ -275,6 +275,10 @@ function cox_logpartiallikelihood_and_score_gradient!(
         end
         eta[i] = s
     end
+    if !all(isfinite, eta)
+        fill!(grad, NaN)
+        return -Inf
+    end
 
     s0 = 0.0
     max_eta = -Inf
@@ -295,7 +299,10 @@ function cox_logpartiallikelihood_and_score_gradient!(
                 work.s1[j] += w * Float64(z[i, j])
             end
         end
-        s0 > 0 || throw(ArgumentError("encountered an empty or degenerate Cox risk set."))
+        if !(s0 > 0) || !isfinite(s0)
+            fill!(grad, NaN)
+            return -Inf
+        end
         if tie == :breslow
             logden = max_eta + log(s0)
             for j in 1:p
@@ -337,7 +344,10 @@ function cox_logpartiallikelihood_and_score_gradient!(
                     for r in 0:(d - 1)
                         frac = r / d
                         denom = s0 - frac * e0
-                        denom > 0 || throw(ArgumentError("encountered an empty or degenerate Efron Cox risk set."))
+                        if !(denom > 0) || !isfinite(denom)
+                            fill!(grad, NaN)
+                            return -Inf
+                        end
                         lp -= max_eta + log(denom)
                         for j in 1:p
                             grad[j] -= (work.s1[j] - frac * work.group_mean[k, j]) / denom

@@ -22,7 +22,7 @@ const REQUESTED_PRIORS = [
     "prox-sslasso",
 ]
 
-const REQUESTED_SAMPLERS = [:mh, :mala, :ula, :gibbs, :nuts_explicit, :nuts_turing]
+const REQUESTED_SAMPLERS = [:mh, :mala, :ula, :gibbs, :hmc, :nuts_explicit, :nuts_turing]
 
 _csv_list(x::AbstractString) = strip.(split(x, ","; keepempty = false))
 _env_int(name::AbstractString, default::Integer) = parse(Int, get(ENV, name, string(default)))
@@ -156,6 +156,16 @@ function _run_sampler_case(
             common...,
             prox_l1_lambda = 1e-3,
             mala_step_size = mala_step_size,
+        )
+    elseif sampler == :hmc
+        return sample_bayes_cox(
+            X,
+            time,
+            event;
+            common...,
+            prox_l1_lambda = 1e-3,
+            hmc_n_leapfrog = 2,
+            hmc_step_size = 1e-3,
         )
     elseif sampler == :nuts_explicit
         return sample_bayes_cox(

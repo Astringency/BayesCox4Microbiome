@@ -188,6 +188,8 @@ function simulation_cli_valid_keys()
             "chains",
             "multichains",
             "target-accept",
+            "hmc-n-leapfrog",
+            "hmc-step-size",
             "noncentered",
             "seed",
             "use-car",
@@ -252,6 +254,8 @@ function main()
     chains = arg(args, "chains", 4)
     multichains = arg(args, "multichains", false)
     target_accept = arg(args, "target-accept", 0.8)
+    hmc_n_leapfrog = arg(args, "hmc-n-leapfrog", 10)
+    hmc_step_size = optional_float_arg(args, "hmc-step-size")
     noncentered = arg(args, "noncentered", false)
     seed0 = arg(args, "seed", 1)
     use_car = arg(args, "use-car", true)
@@ -351,6 +355,8 @@ function main()
                 "n_samples" => n_samples,
                 "warmup" => warmup,
                 "chains" => chains,
+                "hmc_n_leapfrog" => hmc_n_leapfrog,
+                "hmc_step_size" => hmc_step_size,
                 "p0" => p0_value,
                 "constraint" => string(constraint),
                 "noncentered" => noncentered,
@@ -432,6 +438,8 @@ function main()
                 chains = chains,
                 multichains = multichains,
                 target_accept = target_accept,
+                hmc_n_leapfrog = hmc_n_leapfrog,
+                hmc_step_size = hmc_step_size,
                 noncentered = noncentered,
                 seed = sim_seed,
                 use_car = actual_use_car,
@@ -530,6 +538,8 @@ function main()
                 "car_strength_prior_b" => car_strength_prior_b,
                 "car_degree_scale" => string(car_degree_scale),
                 "car_kappa_init" => car_kappa_init,
+                "hmc_n_leapfrog" => hmc_n_leapfrog,
+                "hmc_step_size" => hmc_step_size,
             ), prior_metadata, Dict(
                 "alpha_prior_shape" => alpha_prior_shape,
                 "alpha_prior_rate" => alpha_prior_rate,
@@ -541,6 +551,8 @@ function main()
                 "chains" => chains,
                 "multichains" => multichains,
                 "target_accept" => target_accept,
+                "hmc_n_leapfrog" => hmc_n_leapfrog,
+                "hmc_step_size" => hmc_step_size,
                 "noncentered" => noncentered,
                 "seed" => sim_seed,
                 "thin" => thin,

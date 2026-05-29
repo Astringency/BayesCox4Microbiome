@@ -161,6 +161,7 @@ Zero-sum proximal control is used only when `--constraint prox`:
 | `:nuts` | NUTS with `nuts_backend = :turing` or `:explicit`. |
 | `:nuts_turing` | Alias for `sampler = :nuts, nuts_backend = :turing`. |
 | `:nuts_explicit` | Alias for `sampler = :nuts, nuts_backend = :explicit`. |
+| `:hmc` | Explicit-gradient AdvancedHMC with fixed leapfrog trajectories. |
 | `:mh` | Adaptive random-walk Metropolis. Proximal L1 priors are not implemented for this sampler. |
 | `:mala` | MALA for continuous states, including `prox-lasso` and `prox-sslasso`. |
 | `:ula` | Unadjusted Langevin updates using `mala_step_size`, including proximal L1 priors. |
@@ -171,7 +172,7 @@ Turing NUTS supports threaded chains through `Turing.MCMCThreads()` when
 `chains > 1`; pass `parallel_chains = false` to force serial chains. Built-in
 MH/MALA/ULA/Gibbs use `multichains = true` for chain-level threading.
 For HS/RHS-family priors (`hs`, `rhs`, `new-rhs`, `est-rhs`, `cox-hs`,
-`cox-rhs`), NUTS also supports `noncentered = true` / `--noncentered true`.
+`cox-rhs`), NUTS and HMC also support `noncentered = true` / `--noncentered true`.
 The sampler then uses latent `beta_raw` variables internally but saves the
 usual `beta[...]` draws.
 
@@ -228,15 +229,17 @@ Common options:
 | `--gompertz-rate` | `1/25` | Gompertz baseline hazard rate `lambda`. Aliases: `--gompertz-lambda`, `--gompertz-scale` for reciprocal rate. |
 | `--gompertz-alpha` | `0.1` | Gompertz shape `alpha` in `lambda * exp(alpha * t)`. Alias: `--gompertz-shape`. |
 | `--priors` | `hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso` | Comma-separated prior names. |
-| `--sampler` | `nuts` | `nuts`, `nuts_turing`, `nuts_explicit`, `mh`, `mala`, `ula`, or `gibbs`. |
+| `--sampler` | `nuts` | `nuts`, `nuts_turing`, `nuts_explicit`, `hmc`, `mh`, `mala`, `ula`, or `gibbs`. |
 | `--nuts-backend` | `turing` | `turing` or `explicit` when `--sampler nuts`. |
 | `--samples` | `500` | Saved posterior samples per fit. |
 | `--warmup` | `200` | Warmup/adaptation iterations. |
 | `--thin` | `1` | MCMC thinning before in-memory summaries. |
 | `--chains` | `4` | Number of chains. |
 | `--multichains` | `false` | Parallelize non-NUTS chains. |
-| `--target-accept` | `0.8` | Target acceptance for NUTS or adaptive non-NUTS samplers. |
-| `--noncentered` | `false` | Use non-centered HS/RHS parameterization for NUTS. |
+| `--target-accept` | `0.8` | Target acceptance for NUTS/HMC or adaptive non-NUTS samplers. |
+| `--hmc-n-leapfrog` | `10` | Fixed number of leapfrog steps for `--sampler hmc`. |
+| `--hmc-step-size` | auto | Optional initial HMC leapfrog step size; when omitted, AdvancedHMC finds one. |
+| `--noncentered` | `false` | Use non-centered HS/RHS parameterization for NUTS/HMC. |
 | `--seed` | `1` | Base random seed. |
 | `--use-car` | `true` | Use CAR smoothing for HS/RHS-style priors. |
 | `--car-distance` | `bray` | CAR distance. |
@@ -430,8 +433,8 @@ priors/                      Prior type definitions
 mainfuncs/data/              Cox data preparation
 mainfuncs/likelihood/        Cox partial likelihood and gradients
 mainfuncs/priors/            Prior-specific log densities and helpers
-mainfuncs/samplers/          MH, Gibbs, MALA, ULA, Turing NUTS, explicit NUTS
-mainfuncs/targets/           Explicit proximal NUTS targets
+mainfuncs/samplers/          MH, Gibbs, MALA, ULA, HMC, Turing NUTS, explicit NUTS
+mainfuncs/targets/           Explicit proximal NUTS/HMC targets
 mainfuncs/diagnostics/       Saving, Chains conversion, diagnostics
 scripts/                     Simulation, real-data, and diagnostics CLIs
 check/                       Benchmarks and sampler compatibility checks

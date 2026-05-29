@@ -53,6 +53,8 @@ function main()
             "chains",
             "multichains",
             "target-accept",
+            "hmc-n-leapfrog",
+            "hmc-step-size",
             "noncentered",
             "seed",
             "use-car",
@@ -91,6 +93,8 @@ function main()
     chains = arg(args, "chains", 4)
     multichains = arg(args, "multichains", false)
     target_accept = arg(args, "target-accept", 0.8)
+    hmc_n_leapfrog = arg(args, "hmc-n-leapfrog", 10)
+    hmc_step_size = optional_float_arg(args, "hmc-step-size")
     noncentered = arg(args, "noncentered", false)
     seed = arg(args, "seed", 1)
     use_car = arg(args, "use-car", true)
@@ -146,6 +150,8 @@ function main()
             chains = chains,
             multichains = multichains,
             target_accept = target_accept,
+            hmc_n_leapfrog = hmc_n_leapfrog,
+            hmc_step_size = hmc_step_size,
             noncentered = noncentered,
             seed = seed,
             use_car = use_car && occursin("hs", lowercase(prior)),
@@ -183,6 +189,8 @@ function main()
                 "prior_name" => prior,
                 "sampler" => string(sampler),
                 "nuts_backend" => string(nuts_backend),
+                "hmc_n_leapfrog" => hmc_n_leapfrog,
+                "hmc_step_size" => hmc_step_size,
                 "noncentered" => noncentered,
                 "p0" => fit.p0,
                 "pseudocount" => pseudocount,
@@ -195,6 +203,8 @@ function main()
                 "chains" => chains,
                 "multichains" => multichains,
                 "target_accept" => target_accept,
+                "hmc_n_leapfrog" => hmc_n_leapfrog,
+                "hmc_step_size" => hmc_step_size,
                 "seed" => seed,
                 "thin" => 1,
                 "constraint" => string(constraint),

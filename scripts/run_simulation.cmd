@@ -8,7 +8,7 @@ for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss
 
 set test_n=2000
 set test_p=150
-set test_nonzero=12
+set test_nonzero=6
 set test_baseline=exponential
 
 set /a test_p_plus_1=test_p+1
@@ -26,8 +26,9 @@ julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --nonzero "%test_nonzero%" ^
     --baseline "%test_baseline%" ^
     --priors prox-lasso ^
-    --sampler mala ^
+    --sampler hmc ^
     --nuts-backend explicit ^
+    --hmc-n-leapfrog 20 ^
     --samples 5000 ^
     --warmup 5000 ^
     --thin 1 ^

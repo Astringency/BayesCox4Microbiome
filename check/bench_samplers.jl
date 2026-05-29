@@ -89,6 +89,22 @@ function main()
             seed = 12,
             transform = :none,
         )),
+        ("hmc", () -> sample_bayes_cox(
+            X,
+            time,
+            event;
+            prior = prior,
+            sampler = :hmc,
+            constraint = :prox,
+            n_samples = n_samples,
+            warmup = warmup,
+            chains = chains,
+            multichains = true,
+            hmc_n_leapfrog = 10,
+            progress = false,
+            seed = 15,
+            transform = :none,
+        )),
         ("mala", () -> sample_bayes_cox(
             X,
             time,
