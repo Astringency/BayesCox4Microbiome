@@ -24,6 +24,7 @@ non_vals=(12)
 # baseline_vals=("weibull" "exponential" "gompertz")
 baseline_vals=("gompertz")
 sampler_vals=("hmc" "nuts")
+# hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs
 
 for sampler in "${sampler_vals[@]}"; do
     for n in "${n_vals[@]}"; do
@@ -32,15 +33,15 @@ for sampler in "${sampler_vals[@]}"; do
                 for baseline in "${baseline_vals[@]}"; do
                     echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
 
-                    julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl \
+                    julia "+1.11.7" -t 4 --project=. ./scripts/run_simulation.jl \
                         --outdir "./results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
                         --reps 1 \
                         --n "%n" \
                         --p "%p" \
                         --nonzero "%nonzero" \
                         --baseline "%baseline" \
-                        --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs \
-                        --sampler hmc \
+                        --priors prox-lasso,prox-sslasso \
+                        --sampler "%sampler" \
                         --nuts-backend explicit \
                         --hmc-n-leapfrog 20 \
                         --samples 5000 \
@@ -99,7 +100,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --sslasso-spike-scale 0.04 \
                         --sslasso-slab-scale 0.5 \
                         --sslasso-theta-a 1 \
-                        --sslasso-theta-b 1 \
+                        --sslasso-theta-b 1
                 done
             done
         done
@@ -108,5 +109,8 @@ done
 
 wait
 
-echo "ALL SIMULATION DONE!"
 # --outdir "/large_storage/zhangxf/BayesCox/results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}"
+echo "ALL SIMULATION DONE!"
+
+
+
