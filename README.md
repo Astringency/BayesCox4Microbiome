@@ -316,6 +316,18 @@ Common options:
 | `--mala-step-size` | `1e-4` | MALA/ULA step size. |
 | `--mala-target-accept` | `0.574` | MALA step-size adaptation target. |
 | `--mala-adapt-every` | `50` | MALA adaptation interval. |
+| `--mala-precondition` | `false` | Enable observed-information Hessian-preconditioned MALA. |
+| `--mala-precondition-mode` | `auto` | Preconditioning block: `auto`, `beta_dense`, `beta_diag`, or `full_dense`. |
+| `--mala-precondition-diag` | `false` | Use only the diagonal of the observed-information metric. |
+| `--mala-metric-ridge` | `1e-6` | Ridge added to the observed-information metric before Cholesky. |
+| `--mala-metric-max-cholesky-tries` | `8` | Maximum jitter attempts before diagonal fallback. |
+| `--mala-stepsize-schedule` | `adaptive_mcmc` | `adaptive_mcmc` for existing warmup adaptation or `adaptive_sgld` for SIM-style iteration-dependent steps. |
+| `--mala-sgld-c0` | `1.0` | Scale `c0` in `epsilon_m = c0 * m^(-0.55)/(n*d_block)`. |
+| `--mala-sgld-target-accept` | `0.5` | Documented target for SIM-style tuning. |
+| `--mala-sgld-accept-low`, `--mala-sgld-accept-high` | `0.40`, `0.60` | Warmup-only `c0` tuning band. |
+| `--mala-sgld-adapt-c0` | `true` | Tune `c0` during warmup windows. |
+| `--mala-sgld-adapt-every` | `--mala-adapt-every` | Warmup window length for `c0` tuning. |
+| `--mala-sgld-c0-min`, `--mala-sgld-c0-max` | `1e-12`, `1e12` | Bounds for `c0`. |
 | `--diagnose` | `true` | Write diagnostic tables for every repetition; diagnostic plots are generated only for plotted repetitions. |
 | `--resume` | `true` | Reuse complete existing run directories. |
 | `--sample-thin` | `10` | Saved-sample thinning after the first repetition. |

@@ -214,6 +214,20 @@ function simulation_cli_valid_keys()
             "mala-adapt-every",
             "mala-min-step",
             "mala-max-step",
+            "mala-precondition",
+            "mala-precondition-mode",
+            "mala-precondition-diag",
+            "mala-metric-ridge",
+            "mala-metric-max-cholesky-tries",
+            "mala-stepsize-schedule",
+            "mala-sgld-c0",
+            "mala-sgld-target-accept",
+            "mala-sgld-accept-low",
+            "mala-sgld-accept-high",
+            "mala-sgld-adapt-c0",
+            "mala-sgld-adapt-every",
+            "mala-sgld-c0-min",
+            "mala-sgld-c0-max",
             "diagnose",
             "debug",
             "diagnose-format",
@@ -280,6 +294,20 @@ function main()
     mala_adapt_every = arg(args, "mala-adapt-every", 50)
     mala_min_step = arg(args, "mala-min-step", 1e-8)
     mala_max_step = arg(args, "mala-max-step", 1.0)
+    mala_precondition = arg(args, "mala-precondition", false)
+    mala_precondition_mode = Symbol(arg(args, "mala-precondition-mode", "auto"))
+    mala_precondition_diag = arg(args, "mala-precondition-diag", false)
+    mala_metric_ridge = arg(args, "mala-metric-ridge", 1e-6)
+    mala_metric_max_cholesky_tries = arg(args, "mala-metric-max-cholesky-tries", 8)
+    mala_stepsize_schedule = Symbol(arg(args, "mala-stepsize-schedule", "adaptive_mcmc"))
+    mala_sgld_c0 = arg(args, "mala-sgld-c0", 1.0)
+    mala_sgld_target_accept = arg(args, "mala-sgld-target-accept", 0.5)
+    mala_sgld_accept_low = arg(args, "mala-sgld-accept-low", 0.40)
+    mala_sgld_accept_high = arg(args, "mala-sgld-accept-high", 0.60)
+    mala_sgld_adapt_c0 = arg(args, "mala-sgld-adapt-c0", true)
+    mala_sgld_adapt_every = arg(args, "mala-sgld-adapt-every", mala_adapt_every)
+    mala_sgld_c0_min = arg(args, "mala-sgld-c0-min", 1e-12)
+    mala_sgld_c0_max = arg(args, "mala-sgld-c0-max", 1e12)
     diagnose = arg(args, "diagnose", true)
     debug = arg(args, "debug", false)
     diagnose_formats = get(args, "diagnose-format", "pdf")
@@ -371,6 +399,20 @@ function main()
                 "car_kappa_init" => car_kappa_init,
                 "alpha_prior_shape" => alpha_prior_shape,
                 "alpha_prior_rate" => alpha_prior_rate,
+                "mala_precondition" => mala_precondition,
+                "mala_precondition_mode" => string(mala_precondition_mode),
+                "mala_precondition_diag" => mala_precondition_diag,
+                "mala_metric_ridge" => mala_metric_ridge,
+                "mala_metric_max_cholesky_tries" => mala_metric_max_cholesky_tries,
+                "mala_stepsize_schedule" => string(mala_stepsize_schedule),
+                "mala_sgld_c0" => mala_sgld_c0,
+                "mala_sgld_target_accept" => mala_sgld_target_accept,
+                "mala_sgld_accept_low" => mala_sgld_accept_low,
+                "mala_sgld_accept_high" => mala_sgld_accept_high,
+                "mala_sgld_adapt_c0" => mala_sgld_adapt_c0,
+                "mala_sgld_adapt_every" => mala_sgld_adapt_every,
+                "mala_sgld_c0_min" => mala_sgld_c0_min,
+                "mala_sgld_c0_max" => mala_sgld_c0_max,
                 "pseudocount" => pseudocount,
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
@@ -468,6 +510,20 @@ function main()
                 mala_adapt_every = mala_adapt_every,
                 mala_min_step = mala_min_step,
                 mala_max_step = mala_max_step,
+                mala_precondition = mala_precondition,
+                mala_precondition_mode = mala_precondition_mode,
+                mala_precondition_diag = mala_precondition_diag,
+                mala_metric_ridge = mala_metric_ridge,
+                mala_metric_max_cholesky_tries = mala_metric_max_cholesky_tries,
+                mala_stepsize_schedule = mala_stepsize_schedule,
+                mala_sgld_c0 = mala_sgld_c0,
+                mala_sgld_target_accept = mala_sgld_target_accept,
+                mala_sgld_accept_low = mala_sgld_accept_low,
+                mala_sgld_accept_high = mala_sgld_accept_high,
+                mala_sgld_adapt_c0 = mala_sgld_adapt_c0,
+                mala_sgld_adapt_every = mala_sgld_adapt_every,
+                mala_sgld_c0_min = mala_sgld_c0_min,
+                mala_sgld_c0_max = mala_sgld_c0_max,
                 prior_kwargs...,
                 progress = progress,
             )
@@ -569,6 +625,20 @@ function main()
                 "mala_adapt_every" => mala_adapt_every,
                 "mala_min_step" => mala_min_step,
                 "mala_max_step" => mala_max_step,
+                "mala_precondition" => mala_precondition,
+                "mala_precondition_mode" => string(mala_precondition_mode),
+                "mala_precondition_diag" => mala_precondition_diag,
+                "mala_metric_ridge" => mala_metric_ridge,
+                "mala_metric_max_cholesky_tries" => mala_metric_max_cholesky_tries,
+                "mala_stepsize_schedule" => string(mala_stepsize_schedule),
+                "mala_sgld_c0" => mala_sgld_c0,
+                "mala_sgld_target_accept" => mala_sgld_target_accept,
+                "mala_sgld_accept_low" => mala_sgld_accept_low,
+                "mala_sgld_accept_high" => mala_sgld_accept_high,
+                "mala_sgld_adapt_c0" => mala_sgld_adapt_c0,
+                "mala_sgld_adapt_every" => mala_sgld_adapt_every,
+                "mala_sgld_c0_min" => mala_sgld_c0_min,
+                "mala_sgld_c0_max" => mala_sgld_c0_max,
                 "use_car" => actual_use_car,
                 "car_distance" => string(car_distance),
                 "car_weight_quantile" => car_weight_quantile,

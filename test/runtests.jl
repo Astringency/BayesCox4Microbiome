@@ -848,6 +848,20 @@ end
         "--car-strength-prior-b", "1.0",
         "--car-degree-scale", "mean_active",
         "--car-kappa-init", "0.5",
+        "--mala-precondition", "true",
+        "--mala-precondition-mode", "auto",
+        "--mala-precondition-diag", "false",
+        "--mala-metric-ridge", "1e-6",
+        "--mala-metric-max-cholesky-tries", "8",
+        "--mala-stepsize-schedule", "adaptive_sgld",
+        "--mala-sgld-c0", "1.0",
+        "--mala-sgld-target-accept", "0.5",
+        "--mala-sgld-accept-low", "0.4",
+        "--mala-sgld-accept-high", "0.6",
+        "--mala-sgld-adapt-c0", "true",
+        "--mala-sgld-adapt-every", "10",
+        "--mala-sgld-c0-min", "1e-12",
+        "--mala-sgld-c0-max", "1e12",
     ])
     @test isnothing(require_known_args!(parsed, simulation_cli_valid_keys()))
     @test arg(parsed, "car-precision", 1.0) == 0.05
@@ -857,6 +871,20 @@ end
     @test arg(parsed, "car-strength-prior-b", 1.0) == 1.0
     @test Symbol(arg(parsed, "car-degree-scale", "mean_active")) == :mean_active
     @test arg(parsed, "car-kappa-init", 0.5) == 0.5
+    @test arg(parsed, "mala-precondition", false)
+    @test Symbol(arg(parsed, "mala-precondition-mode", "auto")) == :auto
+    @test !arg(parsed, "mala-precondition-diag", true)
+    @test arg(parsed, "mala-metric-ridge", 1.0) == 1e-6
+    @test arg(parsed, "mala-metric-max-cholesky-tries", 1) == 8
+    @test Symbol(arg(parsed, "mala-stepsize-schedule", "adaptive_mcmc")) == :adaptive_sgld
+    @test arg(parsed, "mala-sgld-c0", 0.0) == 1.0
+    @test arg(parsed, "mala-sgld-target-accept", 0.0) == 0.5
+    @test arg(parsed, "mala-sgld-accept-low", 0.0) == 0.4
+    @test arg(parsed, "mala-sgld-accept-high", 0.0) == 0.6
+    @test arg(parsed, "mala-sgld-adapt-c0", false)
+    @test arg(parsed, "mala-sgld-adapt-every", 1) == 10
+    @test arg(parsed, "mala-sgld-c0-min", 1.0) == 1e-12
+    @test arg(parsed, "mala-sgld-c0-max", 1.0) == 1e12
 
     removed = parse_cli_args(["--car-prior", "gaussian"])
     @test_throws ArgumentError require_known_args!(removed, simulation_cli_valid_keys())
