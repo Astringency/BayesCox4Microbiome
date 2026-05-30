@@ -862,4 +862,5 @@ end
     @test_throws ArgumentError require_known_args!(removed, simulation_cli_valid_keys())
 end
 
+include("mala_precondition_tests.jl")
 include("simulation_diagnostics_tests.jl")

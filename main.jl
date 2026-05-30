@@ -24,6 +24,7 @@ export AbstractCoxPrior,
     MHSamples,
     MultiMHSamples,
     MALAWorkspace,
+    PreconditionedMALAWorkspace,
     ProxGradientWorkspace,
     CoxSamplerResult,
     SamplingDiagnostics,
@@ -36,6 +37,7 @@ export AbstractCoxPrior,
     car_similarity_matrix,
     car_weight_matrix,
     cox_logpartiallikelihood,
+    cox_observed_information_beta!,
     cox_score_gradient,
     cox_score_gradient!,
     CoxGradientWorkspace,
@@ -51,6 +53,7 @@ export AbstractCoxPrior,
     weighted_l1_moreau,
     logposterior,
     noncentered_logposterior,
+    observed_information!,
     logdensity,
     gradient!,
     logdensity_and_gradient!,
@@ -95,6 +98,7 @@ include("mainfuncs/priors/prox_spike_slab_lasso_methods.jl")
 include("mainfuncs/posterior.jl")
 include("mainfuncs/samplers/mh_sampler.jl")
 include("mainfuncs/samplers/gibbs_sampler.jl")
+include("mainfuncs/samplers/mala_precondition.jl")
 include("mainfuncs/samplers/mala_sampler.jl")
 include("mainfuncs/targets/cox_targets.jl")
 include("mainfuncs/samplers/nuts_turing_sampler.jl")

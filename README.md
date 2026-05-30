@@ -163,7 +163,7 @@ Zero-sum proximal control is used only when `--constraint prox`:
 | `:nuts_explicit` | Alias for `sampler = :nuts, nuts_backend = :explicit`. |
 | `:hmc` | Explicit-gradient AdvancedHMC with fixed leapfrog trajectories. |
 | `:mh` | Adaptive random-walk Metropolis. Proximal L1 priors are not implemented for this sampler. |
-| `:mala` | MALA for continuous states, including `prox-lasso` and `prox-sslasso`. |
+| `:mala` | MALA for continuous states, including `prox-lasso` and `prox-sslasso`. Set `mala_precondition = true` to use observed-information preconditioning. |
 | `:ula` | Unadjusted Langevin updates using `mala_step_size`, including proximal L1 priors. |
 | `:gibbs` | Gibbs / Metropolis-within-Gibbs. SSLASSO uses spike/slab Gibbs updates; `prox-sslasso` uses the proximal block path. |
 
@@ -175,6 +175,54 @@ For HS/RHS-family priors (`hs`, `rhs`, `new-rhs`, `est-rhs`, `cox-hs`,
 `cox-rhs`), NUTS and HMC also support `noncentered = true` / `--noncentered true`.
 The sampler then uses latent `beta_raw` variables internally but saves the
 usual `beta[...]` draws.
+
+MALA defaults to the existing identity-mass proposal and warmup-window step-size
+adaptation. Hessian-preconditioned MALA is opt-in:
+
+```julia
+sample_bayes_cox(
+    data;
+    prior = cox_paper_prior("cox-rhs"; p0 = 1.0),
+    sampler = :mala,
+    mala_precondition = true,
+)
+```
+
+The preconditioner uses observed information, not the raw Hessian:
+
+```text
+D^2(u) = [-d^2 log posterior(u) + ridge I]^(-1)
+```
+
+The sampler builds `G(u) = -d^2 log posterior(u) + ridge I` and uses Cholesky
+solves with `G(u)`; it does not form `inv(G)` and does not use the raw Hessian
+as a covariance matrix. Standard priors use beta-block preconditioning, while
+`prox-lasso` and `prox-sslasso` use the full continuous `(beta, eta)` block and
+keep the discrete Gibbs updates unchanged.
+
+MALA supports two step-size schedules:
+
+| `mala_stepsize_schedule` | Behavior |
+|---|---|
+| `:adaptive_mcmc` | Default. Existing BayesCox4Micro warmup-only acceptance-window adaptation of `mala_step_size`; the step is frozen after warmup. |
+| `:adaptive_sgld` | Recomputes `epsilon_m = c0 * m^(-0.55) / (n * d_block)` every iteration, with warmup-only `c0` tuning by default to keep acceptance near 40%-60%. |
+
+For the SIM-style schedule:
+
+```julia
+sample_bayes_cox(
+    data;
+    sampler = :mala,
+    prior = cox_paper_prior("prox-lasso"),
+    mala_precondition = true,
+    mala_stepsize_schedule = :adaptive_sgld,
+    mala_sgld_c0 = 1.0,
+)
+```
+
+Here `n = size(data.z, 1)` and `d_block` is `p` for beta-block updates and
+`p + 1` for proximal continuous blocks. The scalar `epsilon_m` is still clamped
+by `mala_min_step` and `mala_max_step`.
 
 ## CAR Smoothing
 
