@@ -21,6 +21,9 @@ n_vals=(200 400)
 p_vals=(50 150)
 non_vals=(6 12)
 baseline_vals=("weibull" "exponential" "gompertz")
+# --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs \
+# --priors lasso,sslasso \
+# --outdir "/large_storage/zhangxf/BayesCox/results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
 
 pids=()
 
@@ -33,13 +36,13 @@ for n in "${n_vals[@]}"; do
                     echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
 
                     julia "+1.11.7" -t 4 --project=. ./scripts/run_simulation.jl \
-                        --outdir "/large_storage/zhangxf/BayesCox/results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
+                        --outdir "./results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
                         --reps 50 \
                         --n "$n" \
                         --p "$p" \
                         --nonzero "$nonzero" \
                         --baseline "$baseline" \
-                        --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs \
+                        --priors lasso,sslasso \
                         --sampler hmc \
                         --nuts-backend explicit \
                         --hmc-n-leapfrog 20 \

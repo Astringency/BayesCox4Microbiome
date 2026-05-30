@@ -15,9 +15,9 @@ using PosteriorStats
 using Random
 using Statistics
 
+const DEFAULT_BETA0 = [1.0, -1.0]
 const DEFAULT_BETA6 = [2.08, 1.31, -1.39, -1.86, 2.12, -2.26]
 const DEFAULT_BETA12 = [2.08, -1.41, -1.39, -1.15, 2.12, 2.51, 1.31, -1.95, -1.86, 1.93, -1.34, -0.85]
-# const DEFAULT_BETA12 = [2.0, -1.0, -1.0, -1.0, 2.0, 2.0, 1.0, -2.0, -2.0, 1.0, 1.0, -2.0]
 const PRIOR_HYPERPARAMETER_CLI_KEYS = (
     "rhs-slab-df",
     "rhs-slab-s2",
@@ -248,8 +248,16 @@ function true_beta(p::Integer, nonzero::Integer)
     values =
         nonzero == 6 ? DEFAULT_BETA6 :
         nonzero == 12 ? DEFAULT_BETA12 :
-        throw(ArgumentError("nonzero must be 6 or 12."))
-    idx = collect(18:2:(16 + 2nonzero))
+        nonzero % 2 == 0 ? vcat(
+            fill(DEFAULT_BETA0[1], nonzero ÷ 2),
+            fill(DEFAULT_BETA0[2], nonzero ÷ 2),
+        ) :
+        throw(ArgumentError("nonzero must be 6/12 or a even number."))
+
+    idx = 
+        nonzero in (6, 12) ? collect(18:2:(16 + 2nonzero)) :
+        collect(1:1:nonzero)
+
     maximum(idx) <= p || throw(ArgumentError("p=$p is too small for the paper's nonzero indices."))
     beta = zeros(Float64, p)
     beta[idx] .= values

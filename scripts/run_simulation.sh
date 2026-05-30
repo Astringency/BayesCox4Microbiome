@@ -15,15 +15,15 @@ export GKSwstype=100
 current_time=$(date "+%Y%m%d_%H%M%S")
 
 # MAIN LOOP
-# n_vals=(200 400)
-n_vals=(200 400 1000 2000 3000)
+n_vals=(1000)
+# n_vals=(200)400 1000 2000 3000
 # p_vals=(50 150)
-p_vals=(150)
+p_vals=(10)
 # non_vals=(6 12)
-non_vals=(12)
-# baseline_vals=("weibull" "exponential" "gompertz")
-baseline_vals=("gompertz")
-sampler_vals=("hmc" "nuts")
+non_vals=(2)
+baseline_vals=("weibull" "exponential" "gompertz")
+# baseline_vals=("gompertz")
+sampler_vals=("mala") # hmc, nuts, mala, ula
 # hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs
 
 for sampler in "${sampler_vals[@]}"; do
@@ -34,18 +34,18 @@ for sampler in "${sampler_vals[@]}"; do
                     echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
 
                     julia "+1.11.7" -t 4 --project=. ./scripts/run_simulation.jl \
-                        --outdir "./results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
+                        --outdir "./results/simulation/test/n${n}_p${p}_nonzero${nonzero}_${baseline}_${current_time}" \
                         --reps 1 \
                         --n "$n" \
                         --p "$p" \
                         --nonzero "$nonzero" \
                         --baseline "$baseline" \
-                        --priors prox-lasso,prox-sslasso \
+                        --priors prox-lasso \
                         --sampler "$sampler" \
                         --nuts-backend explicit \
                         --hmc-n-leapfrog 20 \
                         --samples 5000 \
-                        --warmup 2000 \
+                        --warmup 5000 \
                         --thin 1 \
                         --chains 4 \
                         --multichains true \
@@ -62,16 +62,20 @@ for sampler in "${sampler_vals[@]}"; do
                         --car-distance "bray" \
                         --p0 truth \
                         --p0-alpha 0.05 \
-                        --constraint "soft_center" \
+                        --constraint prox \
                         --prox-sum0-lambda 1e-5 \
                         --prox-l1-lambda 1e-5 \
                         --prox-root-tol 1e-10 \
                         --prox-root-maxiter 100 \
                         --mala-step-size 1e-4 \
                         --mala-target-accept 0.574 \
-                        --mala-adapt-every 50 \
+                        --mala-adapt-every 1 \
                         --mala-min-step 1e-8 \
                         --mala-max-step 1.0 \
+                        --mala-precondition true \
+                        --mala-stepsize-schedule adaptive_mcmc \
+                        --mala-sgld-c0 1.0 \
+                        --mala-sgld-adapt-c0 true \
                         --diagnose true \
                         --debug false \
                         --diagnose-format "pdf" \
@@ -85,7 +89,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --first-rep-sample-thin 1 \
                         --save-wide-csv true \
                         --save-jld2 false \
-                        --alpha-prior-shape 151 \
+                        --alpha-prior-shape "$((p+1))" \
                         --alpha-prior-rate 1 \
                         --rhs-slab-df 4 \
                         --rhs-slab-s2 2 \
@@ -100,7 +104,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --sslasso-spike-scale 0.04 \
                         --sslasso-slab-scale 0.5 \
                         --sslasso-theta-a 1 \
-                        --sslasso-theta-b 1
+                        --sslasso-theta-b 1 &
                 done
             done
         done
