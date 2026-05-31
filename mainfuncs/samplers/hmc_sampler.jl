@@ -96,6 +96,12 @@ function _sample_ssl_prox_explicit_hmc_gibbs(
     target_accept::Real,
     hmc_n_leapfrog::Integer,
     hmc_step_size,
+    prox_block_step_size,
+    prox_block_min_step_size::Real,
+    prox_block_max_step_size::Real,
+    prox_block_adapt_every::Integer,
+    prox_block_divergence_threshold::Real,
+    prox_block_metric,
     rng::AbstractRNG,
     constraint::Symbol,
     prox_sum0_lambda::Real,
@@ -119,6 +125,12 @@ function _sample_ssl_prox_explicit_hmc_gibbs(
                 target_accept = target_accept,
                 hmc_n_leapfrog = hmc_n_leapfrog,
                 hmc_step_size = hmc_step_size,
+                prox_block_step_size = prox_block_step_size,
+                prox_block_min_step_size = prox_block_min_step_size,
+                prox_block_max_step_size = prox_block_max_step_size,
+                prox_block_adapt_every = prox_block_adapt_every,
+                prox_block_divergence_threshold = prox_block_divergence_threshold,
+                prox_block_metric = prox_block_metric,
                 constraint = constraint,
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
@@ -146,6 +158,12 @@ function _sample_ssl_prox_explicit_hmc_gibbs(
                         target_accept = target_accept,
                         hmc_n_leapfrog = hmc_n_leapfrog,
                         hmc_step_size = hmc_step_size,
+                        prox_block_step_size = prox_block_step_size,
+                        prox_block_min_step_size = prox_block_min_step_size,
+                        prox_block_max_step_size = prox_block_max_step_size,
+                        prox_block_adapt_every = prox_block_adapt_every,
+                        prox_block_divergence_threshold = prox_block_divergence_threshold,
+                        prox_block_metric = prox_block_metric,
                         constraint = constraint,
                         prox_sum0_lambda = prox_sum0_lambda,
                         prox_l1_lambda = prox_l1_lambda,
@@ -171,6 +189,12 @@ function _sample_ssl_prox_explicit_hmc_gibbs(
                         target_accept = target_accept,
                         hmc_n_leapfrog = hmc_n_leapfrog,
                         hmc_step_size = hmc_step_size,
+                        prox_block_step_size = prox_block_step_size,
+                        prox_block_min_step_size = prox_block_min_step_size,
+                        prox_block_max_step_size = prox_block_max_step_size,
+                        prox_block_adapt_every = prox_block_adapt_every,
+                        prox_block_divergence_threshold = prox_block_divergence_threshold,
+                        prox_block_metric = prox_block_metric,
                         constraint = constraint,
                         prox_sum0_lambda = prox_sum0_lambda,
                         prox_l1_lambda = prox_l1_lambda,
@@ -200,6 +224,12 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
     target_accept::Real,
     hmc_n_leapfrog::Integer,
     hmc_step_size,
+    prox_block_step_size,
+    prox_block_min_step_size::Real,
+    prox_block_max_step_size::Real,
+    prox_block_adapt_every::Integer,
+    prox_block_divergence_threshold::Real,
+    prox_block_metric,
     constraint::Symbol,
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
@@ -225,8 +255,21 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
     lps = Vector{Float64}(undef, n_samples)
     u = vcat(zeros(Float64, p), [0.0])
     saved = 0
-    accept_sum = 0.0
-    accept_count = 0
+    initial_step = prox_block_step_size === nothing ?
+        (hmc_step_size === nothing ? 1e-3 : hmc_step_size) :
+        prox_block_step_size
+    hmc_state = ProxSSLassoBlockHMCState(
+        p + 1;
+        step_size = initial_step,
+        n_leapfrog = hmc_n_leapfrog,
+        inv_metric = prox_block_metric,
+        target_accept = target_accept,
+        adapt_every = prox_block_adapt_every,
+        min_step_size = prox_block_min_step_size,
+        max_step_size = prox_block_max_step_size,
+        divergence_threshold = prox_block_divergence_threshold,
+        frozen = warmup == 0,
+    )
     prog = _progress_meter(progress, total_iter, "SSLASSO explicit prox HMC-Gibbs"; progress_desc = progress_desc, progress_offset = progress_offset)
     for iter in 1:total_iter
         theta_ref[] = theta
@@ -243,23 +286,8 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
         )
-        block = _sample_explicit_hmc_one(
-            target;
-            n_samples = 1,
-            warmup = 0,
-            thin = 1,
-            rng = rng,
-            target_accept = target_accept,
-            hmc_n_leapfrog = hmc_n_leapfrog,
-            hmc_step_size = hmc_step_size,
-            progress = false,
-            initial = u,
-        )
-        @views u .= block.draws[1, :]
-        if isfinite(block.acceptance_rate)
-            accept_sum += block.acceptance_rate
-            accept_count += 1
-        end
+        transition = prox_ssl_block_hmc_step!(u, target, hmc_state; rng = rng)
+        iter == warmup && _prox_ssl_block_freeze!(hmc_state)
 
         beta = view(u, 1:p)
         alpha = exp(clamp(u[p + 1], -700.0, 700.0))
@@ -301,11 +329,26 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
             )
         end
         phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(
+            prog;
+            showvalues = [
+                (:phase, phase),
+                (:saved, saved),
+                (:step_size, transition.step_size),
+                (:accept, transition.accept_prob),
+            ],
+        )
     end
     _progress_finish!(prog)
-    acc = accept_count == 0 ? NaN : accept_sum / accept_count
-    return MHSamples(draws, lps, names, acc, NaN, fill(NaN, length(names)))
+    final_step = fill(hmc_state.step_size, length(names))
+    return MHSamples(
+        draws,
+        lps,
+        names,
+        _prox_ssl_block_sampling_acceptance(hmc_state),
+        _prox_ssl_block_warmup_acceptance(hmc_state),
+        final_step,
+    )
 end
 
 function _sample_hmc_explicit(
@@ -318,6 +361,12 @@ function _sample_hmc_explicit(
     target_accept::Real = 0.8,
     hmc_n_leapfrog::Integer = 10,
     hmc_step_size = nothing,
+    prox_block_step_size = nothing,
+    prox_block_min_step_size::Real = 1e-8,
+    prox_block_max_step_size::Real = 1.0,
+    prox_block_adapt_every::Integer = 50,
+    prox_block_divergence_threshold::Real = 1000.0,
+    prox_block_metric = :unit_diag,
     rng::AbstractRNG = Random.default_rng(),
     initial = nothing,
     constraint::Symbol = :soft_center,
@@ -398,6 +447,12 @@ function _sample_hmc_explicit(
                 target_accept = target_accept,
                 hmc_n_leapfrog = hmc_n_leapfrog,
                 hmc_step_size = hmc_step_size,
+                prox_block_step_size = prox_block_step_size,
+                prox_block_min_step_size = prox_block_min_step_size,
+                prox_block_max_step_size = prox_block_max_step_size,
+                prox_block_adapt_every = prox_block_adapt_every,
+                prox_block_divergence_threshold = prox_block_divergence_threshold,
+                prox_block_metric = prox_block_metric,
                 rng = rng,
                 constraint = resolved_constraint,
                 prox_sum0_lambda = prox_sum0_lambda,

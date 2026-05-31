@@ -854,6 +854,7 @@ function _sample_gibbs_chains(
     warmup::Integer = 2000,
     thin::Integer = 1,
     target_accept::Real = 0.8,
+    max_depth::Integer = 10,
     constraint::Symbol = :soft_center,
     prox_sum0_lambda::Real = 1e-3,
     prox_l1_lambda::Real = 1e-3,
@@ -861,11 +862,18 @@ function _sample_gibbs_chains(
     alpha_prior_rate = nothing,
     prox_root_tol::Real = 1e-10,
     prox_root_maxiter::Integer = 100,
+    prox_block_step_size = nothing,
+    prox_block_min_step_size::Real = 1e-8,
+    prox_block_max_step_size::Real = 1.0,
+    prox_block_adapt_every::Integer = 50,
+    prox_block_divergence_threshold::Real = 1000.0,
+    prox_block_metric = :unit_diag,
+    parallel_chains::Union{Nothing,Bool} = nothing,
     kwargs...,
 )
     resolved_constraint = _resolve_constraint(constraint)
     if _is_proximal_l1_prior(prior)
-        return _sample_ssl_prox_nuts_gibbs(
+        return _sample_ssl_prox_explicit_nuts_gibbs(
             data,
             prior;
             n_samples = n_samples,
@@ -873,6 +881,13 @@ function _sample_gibbs_chains(
             thin = thin,
             chains = chains,
             target_accept = target_accept,
+            max_depth = max_depth,
+            prox_block_step_size = prox_block_step_size,
+            prox_block_min_step_size = prox_block_min_step_size,
+            prox_block_max_step_size = prox_block_max_step_size,
+            prox_block_adapt_every = prox_block_adapt_every,
+            prox_block_divergence_threshold = prox_block_divergence_threshold,
+            prox_block_metric = prox_block_metric,
             rng = rng,
             constraint = resolved_constraint,
             prox_sum0_lambda = prox_sum0_lambda,
@@ -882,6 +897,7 @@ function _sample_gibbs_chains(
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
             progress = progress,
+            parallel_chains = chains > 1 && something(parallel_chains, multichains),
             kwargs...,
         ).samples
     end

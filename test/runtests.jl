@@ -585,6 +585,27 @@ end
     @test size(posterior_beta_draws(nuts_explicit)) == (4, 3)
     @test length(posterior_logposterior_draws(nuts_explicit)) == 4
 
+    try
+        sample_bayes_cox(
+            X[:, 1:2],
+            time,
+            event;
+            prior = cox_paper_prior("prox-sslasso"),
+            sampler = :nuts,
+            nuts_backend = :turing,
+            constraint = :prox,
+            n_samples = 1,
+            warmup = 0,
+            chains = 1,
+            progress = false,
+            seed = 88,
+        )
+        @test false
+    catch err
+        @test err isa ArgumentError
+        @test occursin("prox-sslasso with Turing NUTS-Gibbs is disabled", sprint(showerror, err))
+    end
+
     hs_explicit = sample_bayes_cox(
         X,
         time,
@@ -671,6 +692,26 @@ end
     )
     @test size(posterior_beta_draws(sslasso_prox)) == (1, 2)
     @test length(sslasso_inclusion_probabilities(sslasso_prox)) == 2
+    @test sslasso_prox.samples.names == ["beta[1]", "beta[2]", "eta", "gamma[1]", "gamma[2]", "theta"]
+    @test all(isfinite, sslasso_prox.samples.final_step)
+    @test all(sslasso_prox.samples.final_step .> 0)
+
+    sslasso_prox_gibbs = sample_bayes_cox(
+        X[:, 1:2],
+        time,
+        event;
+        prior = cox_paper_prior("prox-sslasso"),
+        sampler = :gibbs,
+        constraint = :prox,
+        n_samples = 1,
+        warmup = 0,
+        chains = 1,
+        max_depth = 1,
+        progress = false,
+        seed = 131,
+    )
+    @test sslasso_prox_gibbs.samples.names == sslasso_prox.samples.names
+    @test size(posterior_beta_draws(sslasso_prox_gibbs)) == (1, 2)
 end
 
 @testset "explicit HMC smoke tests" begin
@@ -735,6 +776,37 @@ end
     )
     @test size(posterior_beta_draws(hmc_ssl_prox)) == (1, 2)
     @test length(sslasso_inclusion_probabilities(hmc_ssl_prox)) == 2
+    @test hmc_ssl_prox.samples.names == ["beta[1]", "beta[2]", "eta", "gamma[1]", "gamma[2]", "theta"]
+    @test all(isfinite, hmc_ssl_prox.samples.final_step)
+    @test all(hmc_ssl_prox.samples.final_step .> 0)
+end
+
+@testset "prox-sslasso block kernel adaptation" begin
+    high_accept = B.ProxSSLassoBlockHMCState(
+        2;
+        step_size = 0.1,
+        target_accept = 0.5,
+        adapt_every = 2,
+    )
+    B._prox_ssl_block_record_transition!(high_accept, 0.9, false)
+    B._prox_ssl_block_record_transition!(high_accept, 0.9, false)
+    @test high_accept.step_size > 0.1
+
+    frozen_step = high_accept.step_size
+    B._prox_ssl_block_freeze!(high_accept)
+    B._prox_ssl_block_record_transition!(high_accept, 0.0, false)
+    B._prox_ssl_block_record_transition!(high_accept, 0.0, false)
+    @test high_accept.step_size == frozen_step
+
+    low_accept = B.ProxSSLassoBlockNUTSState(
+        2;
+        step_size = 0.1,
+        target_accept = 0.9,
+        adapt_every = 2,
+    )
+    B._prox_ssl_block_record_transition!(low_accept, 0.1, false)
+    B._prox_ssl_block_record_transition!(low_accept, 0.1, false)
+    @test low_accept.step_size < 0.1
 end
 
 function toy_result(samples)

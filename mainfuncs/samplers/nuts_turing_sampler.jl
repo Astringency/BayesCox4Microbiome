@@ -600,58 +600,12 @@ function _sample_ssl_prox_nuts_gibbs(
     progress_desc::AbstractString = "SSLASSO prox NUTS-Gibbs",
     progress_offset::Integer = 0,
 )
-    timed = @timed begin
-        if chains == 1
-            _sample_ssl_prox_nuts_gibbs_one(
-                data,
-                prior;
-                n_samples = n_samples,
-                warmup = warmup,
-                thin = thin,
-                rng = rng,
-                target_accept = target_accept,
-                constraint = constraint,
-                prox_sum0_lambda = prox_sum0_lambda,
-                prox_l1_lambda = prox_l1_lambda,
-                alpha_prior_shape = alpha_prior_shape,
-                alpha_prior_rate = alpha_prior_rate,
-                prox_root_tol = prox_root_tol,
-                prox_root_maxiter = prox_root_maxiter,
-                progress = progress,
-                progress_desc = progress_desc,
-                progress_offset = progress_offset,
-            )
-        else
-            samples = Vector{MHSamples}(undef, chains)
-            rngs = [MersenneTwister(rand(rng, UInt64)) for _ in 1:chains]
-            _reserve_chain_progress_lines(chains, progress)
-            Threads.@threads for c in 1:chains
-                samples[c] = _sample_ssl_prox_nuts_gibbs_one(
-                    data,
-                    prior;
-                    n_samples = n_samples,
-                    warmup = warmup,
-                    thin = thin,
-                    rng = rngs[c],
-                    target_accept = target_accept,
-                    constraint = constraint,
-                    prox_sum0_lambda = prox_sum0_lambda,
-                    prox_l1_lambda = prox_l1_lambda,
-                    alpha_prior_shape = alpha_prior_shape,
-                    alpha_prior_rate = alpha_prior_rate,
-                    prox_root_tol = prox_root_tol,
-                    prox_root_maxiter = prox_root_maxiter,
-                    progress = progress,
-                    progress_desc = _chain_progress_desc("SSLASSO prox NUTS-Gibbs", c, chains),
-                    progress_offset = _chain_progress_offset(c, chains),
-                )
-            end
-            MultiMHSamples(samples)
-        end
-    end
-    gc_percent = timed.time > 0 ? 100 * timed.gctime / timed.time : NaN
-    diagnostics = SamplingDiagnostics(missing, missing, timed.time, Int64(timed.bytes), timed.gctime, gc_percent)
-    return (samples = timed.value, diagnostics = diagnostics)
+    throw(ArgumentError(
+        "prox-sslasso with Turing NUTS-Gibbs is disabled because the previous " *
+        "implementation used Turing.NUTS(0) single-draw block updates without a " *
+        "valid persistent block state. Use nuts_backend=:explicit with the new " *
+        "block NUTS kernel, or use sampler=:hmc/:mala.",
+    ))
 end
 
 function _sample_ssl_prox_nuts_gibbs_one(
@@ -673,73 +627,10 @@ function _sample_ssl_prox_nuts_gibbs_one(
     progress_desc::AbstractString = "SSLASSO prox NUTS-Gibbs",
     progress_offset::Integer = 0,
 )
-    p = size(data.z, 2)
-    a_shape, a_rate = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
-    gamma = trues(p)
-    theta = 0.5
-    total_iter = warmup + n_samples * thin
-    names = vcat(["beta[$j]" for j in 1:p], ["eta"], ["gamma[$j]" for j in 1:p], ["theta"])
-    draws = Matrix{Float64}(undef, n_samples, length(names))
-    lps = Vector{Float64}(undef, n_samples)
-    saved = 0
-    prog = _progress_meter(progress, total_iter, "SSLASSO prox NUTS-Gibbs"; progress_desc = progress_desc, progress_offset = progress_offset)
-    u = vcat(zeros(Float64, p), [0.0])
-    for iter in 1:total_iter
-        model = _ssl_prox_turing_block_model(
-            data,
-            prior,
-            gamma,
-            theta,
-            constraint,
-            Float64(prox_sum0_lambda),
-            Float64(prox_l1_lambda),
-            a_shape,
-            a_rate,
-            Float64(prox_root_tol),
-            Int(prox_root_maxiter),
-        )
-        chain = Turing.sample(rng, model, Turing.NUTS(0, Float64(target_accept)), 1; progress = false)
-        block_draw = _prox_continuous_draws(chain, p)[1]
-        u = vec(block_draw[1, :])
-        beta = view(u, 1:p)
-        alpha = exp(clamp(u[p + 1], -700.0, 700.0))
-        theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
-        for j in 1:p
-            gamma[j] = false
-            h0 = weighted_l1_moreau(beta, alpha, _ssl_weights(prior, gamma), prox_l1_lambda;
-                prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
-            gamma[j] = true
-            h1 = weighted_l1_moreau(beta, alpha, _ssl_weights(prior, gamma), prox_l1_lambda;
-                prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
-            logit_p = log(theta_clamped) - log1p(-theta_clamped) - (h1 - h0)
-            gamma[j] = rand(rng) < _logistic(logit_p)
-        end
-        theta = rand(rng, Beta(prior.theta_a + count(gamma), prior.theta_b + p - count(gamma)))
-
-        if iter > warmup && (iter - warmup) % thin == 0
-            saved += 1
-            @views draws[saved, 1:p] .= beta
-            draws[saved, p + 1] = u[p + 1]
-            @views draws[saved, (p + 2):(2p + 1)] .= Float64.(gamma)
-            draws[saved, 2p + 2] = theta
-            lps[saved] = _ssl_prox_logposterior(
-                u,
-                data,
-                prior,
-                gamma,
-                theta;
-                constraint = constraint,
-                prox_sum0_lambda = prox_sum0_lambda,
-                prox_l1_lambda = prox_l1_lambda,
-                alpha_prior_shape = a_shape,
-                alpha_prior_rate = a_rate,
-                prox_root_tol = prox_root_tol,
-                prox_root_maxiter = prox_root_maxiter,
-            )
-        end
-        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
-    end
-    _progress_finish!(prog)
-    return MHSamples(draws, lps, names, NaN, NaN, fill(NaN, length(names)))
+    throw(ArgumentError(
+        "prox-sslasso with Turing NUTS-Gibbs is disabled because the previous " *
+        "implementation used Turing.NUTS(0) single-draw block updates without a " *
+        "valid persistent block state. Use nuts_backend=:explicit with the new " *
+        "block NUTS kernel, or use sampler=:hmc/:mala.",
+    ))
 end

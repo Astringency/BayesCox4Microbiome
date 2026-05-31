@@ -167,6 +167,19 @@ Zero-sum proximal control is used only when `--constraint prox`:
 | `:ula` | Unadjusted Langevin updates using `mala_step_size`, including proximal L1 priors. |
 | `:gibbs` | Gibbs / Metropolis-within-Gibbs. SSLASSO uses spike/slab Gibbs updates; `prox-sslasso` uses the proximal block path. |
 
+For `prox-sslasso`, the Gibbs sampler updates the continuous block
+`(beta, eta)` with a block-level HMC or NUTS transition, then updates
+`gamma` and `theta`. Each continuous transition is built from the
+`gamma`/`theta` values present at the start of that block; the updated
+discrete state is used by the next block. Warmup is burn-in plus block
+step-size adaptation (`target_accept`, `prox_block_adapt_every`), and
+sampling freezes the step size and diagonal metric. `sampler = :hmc` uses
+the block HMC kernel, while `sampler = :nuts, nuts_backend = :explicit`
+uses the block NUTS kernel. `prox-sslasso` with Turing NUTS-Gibbs is
+disabled because the old single-draw `Turing.NUTS(0)` block update did not
+maintain a valid persistent continuous-block state; use
+`nuts_backend = :explicit`, `sampler = :hmc`, or `sampler = :mala`.
+
 Turing NUTS supports threaded chains through `Turing.MCMCThreads()` when
 `chains > 1`. Explicit NUTS runs chain-level threading by default when
 `chains > 1`; pass `parallel_chains = false` to force serial chains. Built-in
@@ -334,6 +347,11 @@ Common options:
 | `--first-rep-sample-thin` | `1` | Saved-sample thinning for first repetitions. |
 | `--save-wide-csv` | `true` | Save `samples_wide.csv`. |
 | `--save-jld2` | `false` | Save `result_bundle.jld2`. |
+
+Programmatic `prox-sslasso` block HMC/NUTS tuning also accepts
+`prox_block_step_size`, `prox_block_min_step_size`,
+`prox_block_max_step_size`, `prox_block_adapt_every`,
+`prox_block_divergence_threshold`, and `prox_block_metric = :unit_diag`.
 
 Simulation outputs are written under:
 
