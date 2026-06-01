@@ -629,6 +629,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
     weights = _ssl_weights(prior, gamma)
     spike_weight = inv(prior.spike_scale)
     slab_weight = inv(prior.slab_scale)
+    log_weight_odds = log(slab_weight) - log(spike_weight)
     total_iter = warmup + n_samples * thin
     names = vcat(["beta[$j]" for j in 1:p], ["eta"], ["gamma[$j]" for j in 1:p], ["theta"])
     draws = Matrix{Float64}(undef, n_samples, length(names))
@@ -678,7 +679,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
             weights[j] = slab_weight
             h1 = weighted_l1_moreau(beta, alpha, weights, prox_l1_lambda;
                 prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
-            logit_p = log(theta_clamped) - log1p(-theta_clamped) - (h1 - h0)
+            logit_p = log(theta_clamped) - log1p(-theta_clamped) + log_weight_odds - (h1 - h0)
             gamma[j] = rand(rng) < _logistic(logit_p)
             weights[j] = gamma[j] ? slab_weight : spike_weight
         end
