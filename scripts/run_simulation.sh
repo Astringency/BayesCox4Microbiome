@@ -21,9 +21,9 @@ n_vals=(1000)
 p_vals=(10)
 # non_vals=(6 12)
 non_vals=(2)
-baseline_vals=("weibull" "exponential" "gompertz")
-# baseline_vals=("gompertz")
-sampler_vals=("mala") # hmc, nuts, mala, ula
+# baseline_vals=("weibull" "exponential" "gompertz")
+baseline_vals=("gompertz")
+sampler_vals=("nuts") # hmc, nuts, mala, ula
 # hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs
 
 for sampler in "${sampler_vals[@]}"; do
@@ -40,7 +40,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --p "$p" \
                         --nonzero "$nonzero" \
                         --baseline "$baseline" \
-                        --priors prox-lasso \
+                        --priors prox-sslasso \
                         --sampler "$sampler" \
                         --nuts-backend explicit \
                         --hmc-n-leapfrog 20 \
@@ -90,7 +90,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --save-wide-csv true \
                         --save-jld2 false \
                         --alpha-prior-shape "$((p+1))" \
-                        --alpha-prior-rate 1 \
+                        --alpha-prior-rate 10 \
                         --rhs-slab-df 4 \
                         --rhs-slab-s2 2 \
                         --hs-tau-scale 1 \
@@ -104,7 +104,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --sslasso-spike-scale 0.04 \
                         --sslasso-slab-scale 0.5 \
                         --sslasso-theta-a 1 \
-                        --sslasso-theta-b 1 &
+                        --sslasso-theta-b 1
                 done
             done
         done

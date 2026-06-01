@@ -301,7 +301,8 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
             weights[j] = slab_weight
             h1 = weighted_l1_moreau(beta, alpha, weights, prox_l1_lambda;
                 prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
-            logit_p = log(theta_clamped) - log1p(-theta_clamped) - (h1 - h0)
+            log_weight_odds = log(slab_weight) - log(spike_weight)
+            logit_p = log(theta_clamped) - log1p(-theta_clamped) + log_weight_odds - (h1 - h0)
             gamma[j] = rand(rng) < _logistic(logit_p)
             weights[j] = gamma[j] ? slab_weight : spike_weight
         end
@@ -328,16 +329,17 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
                 prox_root_maxiter = prox_root_maxiter,
             )
         end
-        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        _progress_next!(
-            prog;
-            showvalues = [
-                (:phase, phase),
-                (:saved, saved),
-                (:step_size, transition.step_size),
-                (:accept, transition.accept_prob),
-            ],
-        )
+        # phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
+        # _progress_next!(
+        #     prog;
+        #     showvalues = [
+        #         (:phase, phase),
+        #         (:saved, saved),
+        #         (:step_size, transition.step_size),
+        #         (:accept, transition.accept_prob),
+        #     ],
+        # )
+        _progress_next!(prog)
     end
     _progress_finish!(prog)
     final_step = fill(hmc_state.step_size, length(names))

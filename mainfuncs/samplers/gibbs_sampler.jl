@@ -207,8 +207,9 @@ function _sample_ssl_gibbs(
                 prox_sum0_lambda = prox_sum0_lambda,
             )
         end
-        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        # phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
+        # _progress_next!(prog; showvalues = [(:phase, phase), (:saved, saved)])
+        _progress_next!(prog)
     end
     _progress_finish!(prog)
 

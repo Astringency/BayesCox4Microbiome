@@ -705,17 +705,18 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
                 prox_root_maxiter = prox_root_maxiter,
             )
         end
-        phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
-        _progress_next!(
-            prog;
-            showvalues = [
-                (:phase, phase),
-                (:saved, saved),
-                (:step_size, transition.step_size),
-                (:accept, transition.accept_prob),
-                (:depth, transition.depth),
-            ],
-        )
+        # phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
+        # _progress_next!(
+        #     prog;
+        #     showvalues = [
+        #         (:phase, phase),
+        #         (:saved, saved),
+        #         (:step_size, transition.step_size),
+        #         (:accept, transition.accept_prob),
+        #         (:depth, transition.depth),
+        #     ],
+        # )
+        _progress_next!(prog)
     end
     _progress_finish!(prog)
     final_step = fill(nuts_state.step_size, length(names))
