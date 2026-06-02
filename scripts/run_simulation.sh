@@ -15,15 +15,15 @@ export GKSwstype=100
 current_time=$(date "+%Y%m%d_%H%M%S")
 
 # MAIN LOOP
-n_vals=(1000)
+n_vals=(400)
 # n_vals=(200)400 1000 2000 3000
 # p_vals=(50 150)
-p_vals=(10)
+p_vals=(50)
 # non_vals=(6 12)
-non_vals=(2)
+non_vals=(6)
 # baseline_vals=("weibull" "exponential" "gompertz")
 baseline_vals=("gompertz")
-sampler_vals=("nuts") # hmc, nuts, mala, ula
+sampler_vals=("mala") # hmc, nuts, mala, ula
 # hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs
 
 for sampler in "${sampler_vals[@]}"; do
@@ -67,13 +67,13 @@ for sampler in "${sampler_vals[@]}"; do
                         --prox-l1-lambda 1e-5 \
                         --prox-root-tol 1e-10 \
                         --prox-root-maxiter 100 \
-                        --mala-step-size 1e-4 \
+                        --mala-step-size 1e-2 \
                         --mala-target-accept 0.574 \
                         --mala-adapt-every 1 \
                         --mala-min-step 1e-8 \
                         --mala-max-step 1.0 \
                         --mala-precondition true \
-                        --mala-stepsize-schedule adaptive_mcmc \
+                        --mala-stepsize-schedule adaptive_sgld \
                         --mala-sgld-c0 1.0 \
                         --mala-sgld-adapt-c0 true \
                         --diagnose true \
@@ -90,7 +90,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --save-wide-csv true \
                         --save-jld2 false \
                         --alpha-prior-shape "$((p+1))" \
-                        --alpha-prior-rate 10 \
+                        --alpha-prior-rate 100 \
                         --rhs-slab-df 4 \
                         --rhs-slab-s2 2 \
                         --hs-tau-scale 1 \

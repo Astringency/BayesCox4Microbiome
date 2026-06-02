@@ -45,9 +45,10 @@ status=0
 # pids+=("$!")
 
 # MAIN LOOP
-n_vals=(200 400)
-p_vals=(50)
-non_vals=(6 12)
+n_vals=(200 400 1000)
+p_vals=(10)
+# non_vals=(6 12)
+non_vals=(2)
 baseline_vals=("weibull" "exponential" "gompertz")
 
 pids=()
@@ -55,41 +56,41 @@ pids=()
 for n in "${n_vals[@]}"; do
     for p in "${p_vals[@]}"; do
         for nonzero in "${non_vals[@]}"; do
+            for baseline in "${baseline_vals[@]}"; do
+                echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
 
-            (
-                for baseline in "${baseline_vals[@]}"; do
-                    echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
-
-                    julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
-                        --sampler nuts \
-                        --nuts-backend explicit \
-                        --samples 5000 \
-                        --warmup 2000 \
-                        --chains 4 \
-                        --multichains \
-                        --reps 50 \
-                        --n "$n" \
-                        --p "$p" \
-                        --nonzero "$nonzero" \
-                        --baseline "$baseline" \
-                        --constraint prox \
-                        --priors prox-lasso,prox-sslasso \
-                        --target-accept 0.95 \
-                        --alpha-prior-shape 28 \
-                        --alpha-prior-rate 1 \
-                        --seed 1 \
-                        --use-car true \
-                        --car-distance bray \
-                        --p0 truth \
-                        --p0-alpha 0.05 \
-                        --outdir "/large_storage/zhangxf/BayesCox/results/simulation/prox/n${n}_p${p}_nonzero${nonzero}_${baseline}"
-                done
-            ) &
-
-            pids+=("$!")
+                julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
+                    --sampler nuts \
+                    --nuts-backend explicit \
+                    --samples 5000 \
+                    --warmup 5000 \
+                    --chains 4 \
+                    --multichains \
+                    --reps 50 \
+                    --n "$n" \
+                    --p "$p" \
+                    --nonzero "$nonzero" \
+                    --baseline "$baseline" \
+                    --constraint prox \
+                    --priors prox-lasso,prox-sslasso \
+                    --target-accept 0.95 \
+                    --prox-sum0-lambda 1e-5 \
+                    --prox-l1-lambda 1e-5 \
+                    --alpha-prior-shape "$((p+1))" \
+                    --alpha-prior-rate 1 \
+                    --seed 1 \
+                    --use-car true \
+                    --car-distance bray \
+                    --p0 truth \
+                    --p0-alpha 0.05 \
+                    --outdir "./results/simulation/prox/n${n}_p${p}_nonzero${nonzero}_${baseline}" &
+                pids+=("$!")
+            done
         done
     done
 done
+
+# /large_storage/zhangxf/BayesCox
 
 wait "${pids[@]}"
 
