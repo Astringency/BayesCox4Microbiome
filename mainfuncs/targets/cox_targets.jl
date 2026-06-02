@@ -127,10 +127,11 @@ function CoxProxSSLassoTarget(
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
+    gamma_ref = gamma isa Vector{Bool} ? gamma : collect(Bool, gamma)
     return CoxProxSSLassoTarget(
         data,
         prior,
-        collect(Bool, gamma),
+        gamma_ref,
         theta,
         constraint,
         Float64(prox_sum0_lambda),

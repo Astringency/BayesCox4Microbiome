@@ -28,6 +28,12 @@ mutable struct ProxSSLassoBlockHMCState
     sample_accept_sum::Float64
     sample_accept_count::Int
     divergence_count::Int
+    n_adapts::Int
+    auto_step_size::Bool
+    advanced_hamiltonian::Any
+    advanced_kernel::Any
+    advanced_adaptor::Any
+    advanced_target::Any
 end
 
 mutable struct ProxSSLassoBlockNUTSState
@@ -49,6 +55,12 @@ mutable struct ProxSSLassoBlockNUTSState
     sample_accept_sum::Float64
     sample_accept_count::Int
     divergence_count::Int
+    n_adapts::Int
+    auto_step_size::Bool
+    advanced_hamiltonian::Any
+    advanced_kernel::Any
+    advanced_adaptor::Any
+    advanced_target::Any
 end
 
 function ProxSSLassoBlockHMCState(
@@ -62,11 +74,14 @@ function ProxSSLassoBlockHMCState(
     max_step_size::Real = 1.0,
     divergence_threshold::Real = 1000.0,
     frozen::Bool = false,
+    n_adapts::Integer = 0,
+    auto_step_size::Bool = false,
 )
     d > 0 || throw(ArgumentError("block dimension must be positive."))
     n_leapfrog > 0 || throw(ArgumentError("n_leapfrog must be positive."))
     0 < target_accept < 1 || throw(ArgumentError("target_accept must be in (0, 1)."))
     adapt_every > 0 || throw(ArgumentError("prox_block_adapt_every must be positive."))
+    n_adapts >= 0 || throw(ArgumentError("n_adapts must be nonnegative."))
     _check_positive(divergence_threshold, "prox_block_divergence_threshold")
     return ProxSSLassoBlockHMCState(
         _prox_ssl_checked_step_size(step_size, min_step_size, max_step_size),
@@ -87,6 +102,12 @@ function ProxSSLassoBlockHMCState(
         0.0,
         0,
         0,
+        Int(n_adapts),
+        auto_step_size,
+        nothing,
+        nothing,
+        nothing,
+        nothing,
     )
 end
 
@@ -101,11 +122,14 @@ function ProxSSLassoBlockNUTSState(
     max_step_size::Real = 1.0,
     divergence_threshold::Real = 1000.0,
     frozen::Bool = false,
+    n_adapts::Integer = 0,
+    auto_step_size::Bool = false,
 )
     d > 0 || throw(ArgumentError("block dimension must be positive."))
     max_depth > 0 || throw(ArgumentError("max_depth must be positive."))
     0 < target_accept < 1 || throw(ArgumentError("target_accept must be in (0, 1)."))
     adapt_every > 0 || throw(ArgumentError("prox_block_adapt_every must be positive."))
+    n_adapts >= 0 || throw(ArgumentError("n_adapts must be nonnegative."))
     _check_positive(divergence_threshold, "prox_block_divergence_threshold")
     return ProxSSLassoBlockNUTSState(
         _prox_ssl_checked_step_size(step_size, min_step_size, max_step_size),
@@ -126,6 +150,12 @@ function ProxSSLassoBlockNUTSState(
         0.0,
         0,
         0,
+        Int(n_adapts),
+        auto_step_size,
+        nothing,
+        nothing,
+        nothing,
+        nothing,
     )
 end
 
@@ -157,56 +187,6 @@ function _prox_ssl_block_inv_metric(d::Int, metric)
     return _prox_ssl_block_inv_metric(d, metric)
 end
 
-@inline function _prox_ssl_block_kinetic(momentum::AbstractVector, inv_metric::AbstractVector)
-    s = 0.0
-    @inbounds for i in eachindex(momentum, inv_metric)
-        s += abs2(momentum[i]) * inv_metric[i]
-    end
-    return 0.5 * s
-end
-
-function _prox_ssl_block_sample_momentum!(momentum::AbstractVector, inv_metric::AbstractVector, rng::AbstractRNG)
-    @inbounds for i in eachindex(momentum, inv_metric)
-        momentum[i] = randn(rng) / sqrt(inv_metric[i])
-    end
-    return momentum
-end
-
-function _prox_ssl_block_logdensity_and_gradient!(
-    grad::AbstractVector{Float64},
-    target::AbstractCoxTarget,
-    u::AbstractVector,
-)
-    lp, _ = logdensity_and_gradient!(grad, target, u)
-    return Float64(lp), isfinite(lp) && all(isfinite, grad)
-end
-
-function _prox_ssl_block_leapfrog!(
-    q::AbstractVector{Float64},
-    momentum::AbstractVector{Float64},
-    grad::AbstractVector{Float64},
-    target::AbstractCoxTarget,
-    inv_metric::AbstractVector{Float64},
-    step_size::Float64,
-)
-    @inbounds for i in eachindex(momentum, grad)
-        momentum[i] += 0.5 * step_size * grad[i]
-        q[i] += step_size * inv_metric[i] * momentum[i]
-    end
-    lp, ok = _prox_ssl_block_logdensity_and_gradient!(grad, target, q)
-    ok || return lp, false
-    @inbounds for i in eachindex(momentum, grad)
-        momentum[i] += 0.5 * step_size * grad[i]
-    end
-    return lp, true
-end
-
-@inline function _prox_ssl_block_accept_probability(energy_error::Float64)
-    isfinite(energy_error) || return 0.0
-    energy_error <= 0 && return 1.0
-    return exp(-energy_error)
-end
-
 function _prox_ssl_block_adapt_step_size!(state, window_accept_rate::Real)
     state.frozen && return state.step_size
     rate = Float64(window_accept_rate)
@@ -234,10 +214,12 @@ function _prox_ssl_block_record_transition!(state, accept_prob::Real, divergent:
     state.window_accept_sum += ap
     state.window_accept_count += 1
     if state.window_accept_count >= state.accept_window
-        _prox_ssl_block_adapt_step_size!(
-            state,
-            state.window_accept_sum / state.window_accept_count,
-        )
+        if state.advanced_adaptor === nothing
+            _prox_ssl_block_adapt_step_size!(
+                state,
+                state.window_accept_sum / state.window_accept_count,
+            )
+        end
         state.window_accept_sum = 0.0
         state.window_accept_count = 0
     end
@@ -245,7 +227,12 @@ function _prox_ssl_block_record_transition!(state, accept_prob::Real, divergent:
 end
 
 function _prox_ssl_block_freeze!(state)
-    if !state.frozen && state.window_accept_count > 0
+    if !state.frozen && state.advanced_adaptor !== nothing
+        AdvancedHMC.Adaptation.finalize!(state.advanced_adaptor)
+        state.advanced_hamiltonian = AdvancedHMC.update(state.advanced_hamiltonian, state.advanced_adaptor)
+        state.advanced_kernel = AdvancedHMC.update(state.advanced_kernel, state.advanced_adaptor)
+        _prox_ssl_block_sync_from_advancedhmc!(state)
+    elseif !state.frozen && state.window_accept_count > 0
         _prox_ssl_block_adapt_step_size!(
             state,
             state.window_accept_sum / state.window_accept_count,
@@ -263,216 +250,165 @@ _prox_ssl_block_sampling_acceptance(state) =
 _prox_ssl_block_warmup_acceptance(state) =
     state.warmup_accept_count == 0 ? NaN : state.warmup_accept_sum / state.warmup_accept_count
 
+_prox_ssl_block_stat_get(stat::NamedTuple, key::Symbol, default) =
+    haskey(stat, key) ? getproperty(stat, key) : default
+
+function _prox_ssl_block_make_hamiltonian(target::AbstractCoxTarget, inv_metric::AbstractVector)
+    logp = u -> logdensity(target, u)
+    gradlogp = u -> LogDensityProblems.logdensity_and_gradient(target, u)
+    metric = AdvancedHMC.DiagEuclideanMetric(copy(inv_metric))
+    return AdvancedHMC.Hamiltonian(metric, logp, gradlogp)
+end
+
+function _prox_ssl_block_make_kernel(state::ProxSSLassoBlockHMCState)
+    integrator = AdvancedHMC.Leapfrog(state.step_size)
+    return AdvancedHMC.HMCKernel(
+        AdvancedHMC.Trajectory{AdvancedHMC.EndPointTS}(
+            integrator,
+            AdvancedHMC.FixedNSteps(state.n_leapfrog),
+        ),
+    )
+end
+
+function _prox_ssl_block_make_kernel(state::ProxSSLassoBlockNUTSState)
+    integrator = AdvancedHMC.Leapfrog(state.step_size)
+    return AdvancedHMC.HMCKernel(
+        AdvancedHMC.Trajectory{AdvancedHMC.MultinomialTS}(
+            integrator,
+            AdvancedHMC.GeneralisedNoUTurn(state.max_depth, state.divergence_threshold),
+        ),
+    )
+end
+
+function _prox_ssl_block_set_adaptor_step_size!(state)
+    state.advanced_adaptor === nothing && return nothing
+    step_adaptor = getfield(state.advanced_adaptor, :ssa)
+    hasfield(typeof(step_adaptor), :state) || return nothing
+    setfield!(getfield(step_adaptor, :state), 2, state.step_size)
+    return nothing
+end
+
+function _prox_ssl_block_sync_from_advancedhmc!(state)
+    state.advanced_kernel === nothing && return nothing
+    trajectory = getfield(state.advanced_kernel, 2)
+    integrator = getfield(trajectory, 1)
+    raw_step = Float64(AdvancedHMC.nom_step_size(integrator))
+    state.step_size = _prox_ssl_checked_step_size(
+        raw_step,
+        state.min_step_size,
+        state.max_step_size,
+    )
+    if state.step_size != raw_step
+        _prox_ssl_block_set_adaptor_step_size!(state)
+        state.advanced_kernel = _prox_ssl_block_make_kernel(state)
+    end
+    if state.advanced_hamiltonian !== nothing
+        metric = getfield(state.advanced_hamiltonian, 1)
+        metric_inv = getfield(metric, 1)
+        if length(metric_inv) == length(state.inv_metric)
+            state.inv_metric .= metric_inv
+        end
+    end
+    return nothing
+end
+
+function _prox_ssl_block_initialize_advancedhmc!(
+    state,
+    target::AbstractCoxTarget,
+    u::AbstractVector{Float64},
+    rng::AbstractRNG,
+)
+    if state.advanced_hamiltonian !== nothing && state.advanced_target === target
+        return nothing
+    end
+    length(state.inv_metric) == length(u) ||
+        throw(DimensionMismatch("prox block metric length must match current block."))
+    state.advanced_target = target
+    state.advanced_hamiltonian = _prox_ssl_block_make_hamiltonian(target, state.inv_metric)
+    if state.auto_step_size
+        found_step = AdvancedHMC.find_good_stepsize(rng, state.advanced_hamiltonian, u)
+        state.step_size = _prox_ssl_checked_step_size(
+            found_step,
+            state.min_step_size,
+            state.max_step_size,
+        )
+        state.auto_step_size = false
+    end
+    state.advanced_kernel = _prox_ssl_block_make_kernel(state)
+    trajectory = getfield(state.advanced_kernel, 2)
+    integrator = getfield(trajectory, 1)
+    metric = getfield(state.advanced_hamiltonian, 1)
+    state.advanced_adaptor = AdvancedHMC.StanHMCAdaptor(
+        AdvancedHMC.MassMatrixAdaptor(metric),
+        AdvancedHMC.StepSizeAdaptor(Float64(state.target_accept), integrator),
+    )
+    return nothing
+end
+
+function _prox_ssl_block_advancedhmc_step!(
+    u::Vector{Float64},
+    target::AbstractCoxTarget,
+    state;
+    rng::AbstractRNG,
+)
+    _prox_ssl_block_initialize_advancedhmc!(state, target, u, rng)
+    z0 = AdvancedHMC.phasepoint(
+        state.advanced_hamiltonian,
+        copy(u),
+        zeros(Float64, length(u)),
+    )
+    isfinite(z0) ||
+        throw(ArgumentError("current AdvancedHMC block state has non-finite logdensity or gradient."))
+
+    transition = AdvancedHMC.transition(
+        rng,
+        state.advanced_hamiltonian,
+        state.advanced_kernel,
+        z0,
+    )
+    stat = AdvancedHMC.stat(transition)
+    position = getfield(transition.z, 1)
+    u .= position
+
+    accept_prob = Float64(_prox_ssl_block_stat_get(stat, :acceptance_rate, 0.0))
+    divergent = Bool(_prox_ssl_block_stat_get(stat, :numerical_error, false))
+    if !state.frozen && state.n_adapts > 0
+        state.advanced_hamiltonian, state.advanced_kernel, _ = AdvancedHMC.Adaptation.adapt!(
+            state.advanced_hamiltonian,
+            state.advanced_kernel,
+            state.advanced_adaptor,
+            state.iter + 1,
+            state.n_adapts,
+            position,
+            accept_prob,
+        )
+    end
+    _prox_ssl_block_sync_from_advancedhmc!(state)
+    _prox_ssl_block_record_transition!(state, accept_prob, divergent)
+
+    return ProxSSLassoBlockTransition(
+        Bool(_prox_ssl_block_stat_get(stat, :is_accept, true)),
+        accept_prob,
+        Float64(_prox_ssl_block_stat_get(stat, :log_density, logdensity(target, u))),
+        Float64(_prox_ssl_block_stat_get(
+            stat,
+            :max_hamiltonian_energy_error,
+            _prox_ssl_block_stat_get(stat, :hamiltonian_energy_error, NaN),
+        )),
+        divergent,
+        Int(_prox_ssl_block_stat_get(stat, :tree_depth, 0)),
+        Int(_prox_ssl_block_stat_get(stat, :n_steps, 0)),
+        state.step_size,
+    )
+end
+
 function prox_ssl_block_hmc_step!(
     u::Vector{Float64},
     target::AbstractCoxTarget,
     state::ProxSSLassoBlockHMCState;
     rng::AbstractRNG,
 )
-    d = length(u)
-    length(state.inv_metric) == d ||
-        throw(DimensionMismatch("HMC block state metric length must match current block."))
-    grad = Vector{Float64}(undef, d)
-    current_lp, ok = _prox_ssl_block_logdensity_and_gradient!(grad, target, u)
-    ok || throw(ArgumentError("current HMC block state has non-finite logdensity or gradient."))
-
-    q = copy(u)
-    momentum = Vector{Float64}(undef, d)
-    _prox_ssl_block_sample_momentum!(momentum, state.inv_metric, rng)
-    initial_energy = -current_lp + _prox_ssl_block_kinetic(momentum, state.inv_metric)
-
-    q_prop = copy(q)
-    momentum_prop = copy(momentum)
-    grad_prop = copy(grad)
-    proposed_lp = current_lp
-    ok_prop = true
-    n_steps = 0
-    for _ in 1:state.n_leapfrog
-        proposed_lp, ok_prop = _prox_ssl_block_leapfrog!(
-            q_prop,
-            momentum_prop,
-            grad_prop,
-            target,
-            state.inv_metric,
-            state.step_size,
-        )
-        n_steps += 1
-        ok_prop || break
-    end
-
-    proposed_energy = -proposed_lp + _prox_ssl_block_kinetic(momentum_prop, state.inv_metric)
-    energy_error = proposed_energy - initial_energy
-    divergent = !ok_prop || !isfinite(energy_error) || energy_error > state.divergence_threshold
-    accept_prob = divergent ? 0.0 : min(1.0, _prox_ssl_block_accept_probability(energy_error))
-    accepted = !divergent && rand(rng) < accept_prob
-    if accepted
-        u .= q_prop
-        current_lp = proposed_lp
-    end
-    _prox_ssl_block_record_transition!(state, accept_prob, divergent)
-    return ProxSSLassoBlockTransition(
-        accepted,
-        accept_prob,
-        current_lp,
-        energy_error,
-        divergent,
-        0,
-        n_steps,
-        state.step_size,
-    )
-end
-
-struct _ProxSSLassoNUTSTree
-    q_minus::Vector{Float64}
-    r_minus::Vector{Float64}
-    grad_minus::Vector{Float64}
-    q_plus::Vector{Float64}
-    r_plus::Vector{Float64}
-    grad_plus::Vector{Float64}
-    q_proposal::Vector{Float64}
-    lp_proposal::Float64
-    n_valid::Int
-    keep_going::Bool
-    alpha_sum::Float64
-    n_alpha::Int
-    divergent::Bool
-    max_energy_error::Float64
-    n_leapfrog::Int
-end
-
-function _prox_ssl_no_u_turn(
-    q_minus::AbstractVector,
-    q_plus::AbstractVector,
-    r_minus::AbstractVector,
-    r_plus::AbstractVector,
-    inv_metric::AbstractVector,
-)
-    left = 0.0
-    right = 0.0
-    @inbounds for i in eachindex(q_minus, q_plus, r_minus, r_plus, inv_metric)
-        delta = q_plus[i] - q_minus[i]
-        left += delta * inv_metric[i] * r_minus[i]
-        right += delta * inv_metric[i] * r_plus[i]
-    end
-    return left >= 0 && right >= 0
-end
-
-function _prox_ssl_build_nuts_tree(
-    q::Vector{Float64},
-    momentum::Vector{Float64},
-    grad::Vector{Float64},
-    logu::Float64,
-    direction::Int,
-    depth::Int,
-    step_size::Float64,
-    target::AbstractCoxTarget,
-    inv_metric::Vector{Float64},
-    joint0::Float64,
-    divergence_threshold::Float64,
-    rng::AbstractRNG,
-)
-    if depth == 0
-        q1 = copy(q)
-        r1 = copy(momentum)
-        grad1 = copy(grad)
-        lp1, ok = _prox_ssl_block_leapfrog!(
-            q1,
-            r1,
-            grad1,
-            target,
-            inv_metric,
-            direction * step_size,
-        )
-        joint = lp1 - _prox_ssl_block_kinetic(r1, inv_metric)
-        energy_error = joint0 - joint
-        divergent = !ok || !isfinite(energy_error) || energy_error > divergence_threshold
-        n_valid = !divergent && logu <= joint ? 1 : 0
-        keep_going = !divergent && logu - divergence_threshold < joint
-        alpha = min(1.0, _prox_ssl_block_accept_probability(energy_error))
-        return _ProxSSLassoNUTSTree(
-            q1,
-            r1,
-            grad1,
-            q1,
-            r1,
-            grad1,
-            q1,
-            lp1,
-            n_valid,
-            keep_going,
-            alpha,
-            1,
-            divergent,
-            energy_error,
-            1,
-        )
-    end
-
-    first = _prox_ssl_build_nuts_tree(
-        q,
-        momentum,
-        grad,
-        logu,
-        direction,
-        depth - 1,
-        step_size,
-        target,
-        inv_metric,
-        joint0,
-        divergence_threshold,
-        rng,
-    )
-    first.keep_going || return first
-
-    second_start_q = direction == -1 ? first.q_minus : first.q_plus
-    second_start_r = direction == -1 ? first.r_minus : first.r_plus
-    second_start_grad = direction == -1 ? first.grad_minus : first.grad_plus
-    second = _prox_ssl_build_nuts_tree(
-        second_start_q,
-        second_start_r,
-        second_start_grad,
-        logu,
-        direction,
-        depth - 1,
-        step_size,
-        target,
-        inv_metric,
-        joint0,
-        divergence_threshold,
-        rng,
-    )
-
-    q_minus = direction == -1 ? second.q_minus : first.q_minus
-    r_minus = direction == -1 ? second.r_minus : first.r_minus
-    grad_minus = direction == -1 ? second.grad_minus : first.grad_minus
-    q_plus = direction == -1 ? first.q_plus : second.q_plus
-    r_plus = direction == -1 ? first.r_plus : second.r_plus
-    grad_plus = direction == -1 ? first.grad_plus : second.grad_plus
-    n_total = first.n_valid + second.n_valid
-    choose_second = second.n_valid > 0 && (
-        first.n_valid == 0 || rand(rng) < second.n_valid / max(n_total, 1)
-    )
-    q_proposal = choose_second ? second.q_proposal : first.q_proposal
-    lp_proposal = choose_second ? second.lp_proposal : first.lp_proposal
-    keep_going = second.keep_going &&
-        _prox_ssl_no_u_turn(q_minus, q_plus, r_minus, r_plus, inv_metric)
-    return _ProxSSLassoNUTSTree(
-        q_minus,
-        r_minus,
-        grad_minus,
-        q_plus,
-        r_plus,
-        grad_plus,
-        q_proposal,
-        lp_proposal,
-        n_total,
-        keep_going,
-        first.alpha_sum + second.alpha_sum,
-        first.n_alpha + second.n_alpha,
-        first.divergent || second.divergent,
-        max(first.max_energy_error, second.max_energy_error),
-        first.n_leapfrog + second.n_leapfrog,
-    )
+    return _prox_ssl_block_advancedhmc_step!(u, target, state; rng = rng)
 end
 
 function prox_ssl_block_nuts_step!(
@@ -481,105 +417,5 @@ function prox_ssl_block_nuts_step!(
     state::ProxSSLassoBlockNUTSState;
     rng::AbstractRNG,
 )
-    d = length(u)
-    length(state.inv_metric) == d ||
-        throw(DimensionMismatch("NUTS block state metric length must match current block."))
-    grad0 = Vector{Float64}(undef, d)
-    current_lp, ok = _prox_ssl_block_logdensity_and_gradient!(grad0, target, u)
-    ok || throw(ArgumentError("current NUTS block state has non-finite logdensity or gradient."))
-
-    momentum0 = Vector{Float64}(undef, d)
-    _prox_ssl_block_sample_momentum!(momentum0, state.inv_metric, rng)
-    joint0 = current_lp - _prox_ssl_block_kinetic(momentum0, state.inv_metric)
-    logu = joint0 - randexp(rng)
-
-    q_minus = copy(u)
-    q_plus = copy(u)
-    r_minus = copy(momentum0)
-    r_plus = copy(momentum0)
-    grad_minus = copy(grad0)
-    grad_plus = copy(grad0)
-    q_proposal = copy(u)
-    lp_proposal = current_lp
-    n_valid = 1
-    keep_going = true
-    depth = 0
-    alpha_sum = 0.0
-    n_alpha = 0
-    divergent = false
-    max_energy_error = 0.0
-    n_leapfrog = 0
-
-    while keep_going && depth < state.max_depth
-        direction = rand(rng, Bool) ? 1 : -1
-        tree =
-            if direction == -1
-                _prox_ssl_build_nuts_tree(
-                    q_minus,
-                    r_minus,
-                    grad_minus,
-                    logu,
-                    direction,
-                    depth,
-                    state.step_size,
-                    target,
-                    state.inv_metric,
-                    joint0,
-                    state.divergence_threshold,
-                    rng,
-                )
-            else
-                _prox_ssl_build_nuts_tree(
-                    q_plus,
-                    r_plus,
-                    grad_plus,
-                    logu,
-                    direction,
-                    depth,
-                    state.step_size,
-                    target,
-                    state.inv_metric,
-                    joint0,
-                    state.divergence_threshold,
-                    rng,
-                )
-            end
-        if direction == -1
-            q_minus = tree.q_minus
-            r_minus = tree.r_minus
-            grad_minus = tree.grad_minus
-        else
-            q_plus = tree.q_plus
-            r_plus = tree.r_plus
-            grad_plus = tree.grad_plus
-        end
-        if tree.keep_going && tree.n_valid > 0 && rand(rng) < tree.n_valid / max(n_valid + tree.n_valid, 1)
-            q_proposal = tree.q_proposal
-            lp_proposal = tree.lp_proposal
-        end
-        n_valid += tree.n_valid
-        keep_going = tree.keep_going &&
-            _prox_ssl_no_u_turn(q_minus, q_plus, r_minus, r_plus, state.inv_metric)
-        alpha_sum += tree.alpha_sum
-        n_alpha += tree.n_alpha
-        divergent |= tree.divergent
-        max_energy_error = max(max_energy_error, tree.max_energy_error)
-        n_leapfrog += tree.n_leapfrog
-        depth += 1
-    end
-
-    accepted = any(i -> q_proposal[i] != u[i], eachindex(u))
-    u .= q_proposal
-    accept_prob = n_alpha == 0 ? 0.0 : alpha_sum / n_alpha
-    _prox_ssl_block_record_transition!(state, accept_prob, divergent)
-    return ProxSSLassoBlockTransition(
-        accepted,
-        accept_prob,
-        lp_proposal,
-        max_energy_error,
-        divergent,
-        depth,
-        n_leapfrog,
-        state.step_size,
-    )
+    return _prox_ssl_block_advancedhmc_step!(u, target, state; rng = rng)
 end

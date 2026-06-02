@@ -647,23 +647,25 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
         max_step_size = prox_block_max_step_size,
         divergence_threshold = prox_block_divergence_threshold,
         frozen = warmup == 0,
+        n_adapts = warmup,
+        auto_step_size = prox_block_step_size === nothing,
+    )
+    target = CoxProxSSLassoTarget(
+        data,
+        prior,
+        gamma,
+        theta_ref;
+        constraint = constraint,
+        prox_sum0_lambda = prox_sum0_lambda,
+        prox_l1_lambda = prox_l1_lambda,
+        alpha_prior_shape = a_shape,
+        alpha_prior_rate = a_rate,
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
     )
     prog = _progress_meter(progress, total_iter, "SSLASSO explicit prox NUTS-Gibbs"; progress_desc = progress_desc, progress_offset = progress_offset)
     for iter in 1:total_iter
         theta_ref[] = theta
-        target = CoxProxSSLassoTarget(
-            data,
-            prior,
-            gamma,
-            theta_ref;
-            constraint = constraint,
-            prox_sum0_lambda = prox_sum0_lambda,
-            prox_l1_lambda = prox_l1_lambda,
-            alpha_prior_shape = a_shape,
-            alpha_prior_rate = a_rate,
-            prox_root_tol = prox_root_tol,
-            prox_root_maxiter = prox_root_maxiter,
-        )
         transition = prox_ssl_block_nuts_step!(u, target, nuts_state; rng = rng)
         iter == warmup && _prox_ssl_block_freeze!(nuts_state)
 
