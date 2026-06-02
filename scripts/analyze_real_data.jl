@@ -139,7 +139,7 @@ function main()
     diagnose_top_k_beta = diagnostic_kwargs.diagnose_top_k_beta
     diagnose_max_lag = diagnostic_kwargs.diagnose_max_lag
     prox_l1_lambda = prior_kwargs.prox_l1_lambda
-    alpha_prior_shape = prior_kwargs.alpha_prior_shape
+    alpha_prior_shape = prior_kwargs.alpha_prior_shape# == nothing ? size(X, 2) : prior_kwargs.alpha_prior_shape + size(X, 2)
     alpha_prior_rate = prior_kwargs.alpha_prior_rate
     prox_root_tol = prior_kwargs.prox_root_tol
     prox_root_maxiter = prior_kwargs.prox_root_maxiter
@@ -194,8 +194,15 @@ function main()
         write_table(joinpath(tables_dir, "univariate_cox_screen.csv"), screen_table)
     end
 
+    if alpha_prior_shape !== nothing
+        alpha_prior_shape += size(X, 2)
+    end
+
     all_metrics = DataFrame()
     for prior in priors
+        if prior in ("lasso", "sslasso", "prox-lasso", "prox-sslasso")
+            noncentered = false
+        end
         actual_use_car = use_car && occursin("hs", lowercase(prior))
         actual_sample_car_strength = actual_use_car && sample_car_strength
         fit = fit_and_evaluate(
