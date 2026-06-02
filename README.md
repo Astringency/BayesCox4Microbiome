@@ -432,7 +432,8 @@ Common options:
 | `--outdir` | `results/realdata/T1D` | Output directory. |
 | `--time-col` | `time` | Survival time column. |
 | `--status-col` | `status` | Event indicator column. |
-| `--exclude-cols` | `Sex,Antibiotics` | Non-taxa columns to exclude. |
+| `--comp-cols` | empty | Comma-separated component covariate columns. If empty, all columns except `--time-col`, `--status-col`, and `--exclude-cols` are used. |
+| `--exclude-cols` | `Sex,Antibiotics` | Columns to exclude when `--comp-cols` is empty. Use `none` for an empty exclusion list. |
 | `--priors` | `hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso` | Comma-separated prior names. |
 | `--sampler` | `nuts` | Same sampler names as the simulation script. |
 | `--samples` | `500` | Saved posterior samples per fit. |
@@ -443,15 +444,18 @@ Common options:
 | `--constraint` | `soft_center` | Zero-sum constraint mode. |
 | `--diagnose` | `true` | Generate diagnostics after each fit. |
 
-The script detects taxa as numeric columns not listed in `--time-col`,
-`--status-col`, or `--exclude-cols`. Missing abundance values are coalesced to
-zero before fitting.
+When `--comp-cols` is empty, the script uses all columns not listed in
+`--time-col`, `--status-col`, or `--exclude-cols` as component covariates. When
+`--comp-cols` is provided, only those columns are used. Component covariates must
+be numeric and nonnegative; missing component values are coalesced to zero before
+fitting.
 
 Real-data outputs are written under:
 
 ```text
 results/realdata/T1D/
   tables/
+    component_columns.csv
   figures/
   runs/<run_id>/
     samples_wide.csv

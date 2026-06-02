@@ -180,72 +180,15 @@ function simulation_cli_valid_keys()
             "nonzero",
             "baseline",
             "priors",
-            "sampler",
-            "nuts-backend",
-            "samples",
-            "warmup",
-            "thin",
-            "chains",
-            "multichains",
-            "target-accept",
-            "hmc-n-leapfrog",
-            "hmc-step-size",
-            "noncentered",
-            "seed",
-            "use-car",
-            "progress",
-            "car-distance",
-            "car-weight-quantile",
-            "car-precision",
-            "sample-car-strength",
-            "car-strength-prior-a",
-            "car-strength-prior-b",
-            "car-degree-scale",
-            "car-kappa-init",
-            "p0",
-            "p0-alpha",
-            "constraint",
-            "prox-sum0-lambda",
-            "prox-l1-lambda",
-            "prox-root-tol",
-            "prox-root-maxiter",
-            "mala-step-size",
-            "mala-target-accept",
-            "mala-adapt-every",
-            "mala-min-step",
-            "mala-max-step",
-            "mala-precondition",
-            "mala-precondition-mode",
-            "mala-precondition-diag",
-            "mala-metric-ridge",
-            "mala-metric-max-cholesky-tries",
-            "mala-stepsize-schedule",
-            "mala-sgld-c0",
-            "mala-sgld-target-accept",
-            "mala-sgld-accept-low",
-            "mala-sgld-accept-high",
-            "mala-sgld-adapt-c0",
-            "mala-sgld-adapt-every",
-            "mala-sgld-c0-min",
-            "mala-sgld-c0-max",
-            "diagnose",
             "debug",
-            "diagnose-format",
-            "diagnose-top-k-beta",
-            "diagnose-max-lag",
             "resume",
-            "pseudocount",
-            "standardize",
-            "tie-method",
             "plot-first-rep-only",
             "sample-thin",
             "first-rep-sample-thin",
             "save-wide-csv",
             "save-jld2",
-            "alpha-prior-shape",
-            "alpha-prior-rate",
         ),
-        PRIOR_HYPERPARAMETER_CLI_KEYS,
+        COMMON_ANALYSIS_CLI_KEYS,
         BASELINE_PARAMETER_CLI_KEYS,
     )
 end
@@ -260,64 +203,47 @@ function main()
     nonzeros = split_ints(arg(args, "nonzero", "6"))
     baselines = split_symbols(arg(args, "baseline", "weibull"))
     priors = split_strings(arg(args, "priors", "hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso"))
-    sampler = Symbol(arg(args, "sampler", "nuts"))
-    nuts_backend = Symbol(arg(args, "nuts-backend", "turing"))
-    n_samples = arg(args, "samples", 500)
-    warmup = arg(args, "warmup", 200)
-    thin = arg(args, "thin", 1)
-    chains = arg(args, "chains", 4)
-    multichains = arg(args, "multichains", false)
-    target_accept = arg(args, "target-accept", 0.8)
-    hmc_n_leapfrog = arg(args, "hmc-n-leapfrog", 10)
-    hmc_step_size = optional_float_arg(args, "hmc-step-size")
-    noncentered = arg(args, "noncentered", false)
-    seed0 = arg(args, "seed", 1)
-    use_car = arg(args, "use-car", true)
-    progress = arg(args, "progress", true)
-    car_distance = Symbol(arg(args, "car-distance", "bray"))
-    car_weight_quantile = arg(args, "car-weight-quantile", 0.75)
-    car_precision = arg(args, "car-precision", 1.0)
-    sample_car_strength = arg(args, "sample-car-strength", false)
-    car_strength_prior_a = arg(args, "car-strength-prior-a", 1.0)
-    car_strength_prior_b = arg(args, "car-strength-prior-b", 1.0)
-    car_degree_scale = Symbol(arg(args, "car-degree-scale", "mean_active"))
-    car_kappa_init = arg(args, "car-kappa-init", 0.5)
-    p0_arg = parse_optional_p0(args; default = nothing)
-    p0_alpha = arg(args, "p0-alpha", 0.05)
-    constraint = Symbol(arg(args, "constraint", "soft_center"))
-    prox_sum0_lambda = arg(args, "prox-sum0-lambda", 1e-3)
-    prox_l1_lambda = arg(args, "prox-l1-lambda", 1e-3)
-    prox_root_tol = arg(args, "prox-root-tol", 1e-10)
-    prox_root_maxiter = arg(args, "prox-root-maxiter", 100)
-    mala_step_size = arg(args, "mala-step-size", 1e-4)
-    mala_target_accept = arg(args, "mala-target-accept", 0.574)
-    mala_adapt_every = arg(args, "mala-adapt-every", 50)
-    mala_min_step = arg(args, "mala-min-step", 1e-8)
-    mala_max_step = arg(args, "mala-max-step", 1.0)
-    mala_precondition = arg(args, "mala-precondition", false)
-    mala_precondition_mode = Symbol(arg(args, "mala-precondition-mode", "auto"))
-    mala_precondition_diag = arg(args, "mala-precondition-diag", false)
-    mala_metric_ridge = arg(args, "mala-metric-ridge", 1e-6)
-    mala_metric_max_cholesky_tries = arg(args, "mala-metric-max-cholesky-tries", 8)
-    mala_stepsize_schedule = Symbol(arg(args, "mala-stepsize-schedule", "adaptive_mcmc"))
-    mala_sgld_c0 = arg(args, "mala-sgld-c0", 1.0)
-    mala_sgld_target_accept = arg(args, "mala-sgld-target-accept", 0.5)
-    mala_sgld_accept_low = arg(args, "mala-sgld-accept-low", 0.40)
-    mala_sgld_accept_high = arg(args, "mala-sgld-accept-high", 0.60)
-    mala_sgld_adapt_c0 = arg(args, "mala-sgld-adapt-c0", true)
-    mala_sgld_adapt_every = arg(args, "mala-sgld-adapt-every", mala_adapt_every)
-    mala_sgld_c0_min = arg(args, "mala-sgld-c0-min", 1e-12)
-    mala_sgld_c0_max = arg(args, "mala-sgld-c0-max", 1e12)
-    diagnose = arg(args, "diagnose", true)
+    sampler_kwargs = sampler_hyperparameter_kwargs(args)
+    car_kwargs = car_hyperparameter_kwargs(args)
+    model_kwargs = cox_model_cli_options(args; default_pseudocount = 0.0, default_standardize = false)
+    diagnostic_kwargs = diagnostic_cli_options(args)
+    sampler = sampler_kwargs.sampler
+    nuts_backend = sampler_kwargs.nuts_backend
+    n_samples = sampler_kwargs.n_samples
+    warmup = sampler_kwargs.warmup
+    thin = sampler_kwargs.thin
+    chains = sampler_kwargs.chains
+    multichains = sampler_kwargs.multichains
+    target_accept = sampler_kwargs.target_accept
+    max_depth = sampler_kwargs.max_depth
+    hmc_n_leapfrog = sampler_kwargs.hmc_n_leapfrog
+    hmc_step_size = sampler_kwargs.hmc_step_size
+    noncentered = sampler_kwargs.noncentered
+    seed0 = sampler_kwargs.seed
+    progress = sampler_kwargs.progress
+    use_car = car_kwargs.use_car
+    car_distance = car_kwargs.car_distance
+    car_weight_quantile = car_kwargs.car_weight_quantile
+    car_precision = car_kwargs.car_precision
+    sample_car_strength = car_kwargs.sample_car_strength
+    car_strength_prior_a = car_kwargs.car_strength_prior_a
+    car_strength_prior_b = car_kwargs.car_strength_prior_b
+    car_degree_scale = car_kwargs.car_degree_scale
+    car_kappa_init = car_kwargs.car_kappa_init
+    p0_arg = model_kwargs.p0_arg
+    p0_alpha = model_kwargs.p0_alpha
+    constraint = model_kwargs.constraint
+    prox_sum0_lambda = model_kwargs.prox_sum0_lambda
+    pseudocount = model_kwargs.pseudocount
+    standardize = model_kwargs.standardize
+    tie_method = model_kwargs.tie_method
+    diagnose = diagnostic_kwargs.diagnose
     debug = arg(args, "debug", false)
-    diagnose_formats = get(args, "diagnose-format", "pdf")
-    diagnose_top_k_beta = arg(args, "diagnose-top-k-beta", 10)
-    diagnose_max_lag = arg(args, "diagnose-max-lag", 50)
+    diagnose_formats = diagnostic_kwargs.diagnose_formats
+    diagnose_top_k_beta = diagnostic_kwargs.diagnose_top_k_beta
+    diagnose_max_lag = diagnostic_kwargs.diagnose_max_lag
     resume = debug ? false : arg(args, "resume", true)
     debug && @info "Debug mode forces resume=false."
-    pseudocount = arg(args, "pseudocount", 0.0)
-    standardize = arg(args, "standardize", false)
-    tie_method = parse_tie_method(args)
     plot_first_rep_only = arg(args, "plot-first-rep-only", true)
     sample_thin = max(1, arg(args, "sample-thin", 10))
     first_rep_sample_thin = max(1, arg(args, "first-rep-sample-thin", 1))
@@ -325,8 +251,36 @@ function main()
     save_jld2 = arg(args, "save-jld2", false)
     prior_kwargs = prior_hyperparameter_kwargs(args)
     prior_metadata = prior_hyperparameter_metadata(prior_kwargs)
-    alpha_prior_shape = optional_float_arg(args, "alpha-prior-shape")
-    alpha_prior_rate = optional_float_arg(args, "alpha-prior-rate")
+    prox_l1_lambda = prior_kwargs.prox_l1_lambda
+    alpha_prior_shape = prior_kwargs.alpha_prior_shape
+    alpha_prior_rate = prior_kwargs.alpha_prior_rate
+    prox_root_tol = prior_kwargs.prox_root_tol
+    prox_root_maxiter = prior_kwargs.prox_root_maxiter
+    mala_step_size = sampler_kwargs.mala_step_size
+    mala_target_accept = sampler_kwargs.mala_target_accept
+    mala_adapt_every = sampler_kwargs.mala_adapt_every
+    mala_min_step = sampler_kwargs.mala_min_step
+    mala_max_step = sampler_kwargs.mala_max_step
+    mala_precondition = sampler_kwargs.mala_precondition
+    mala_precondition_mode = sampler_kwargs.mala_precondition_mode
+    mala_precondition_diag = sampler_kwargs.mala_precondition_diag
+    mala_metric_ridge = sampler_kwargs.mala_metric_ridge
+    mala_metric_max_cholesky_tries = sampler_kwargs.mala_metric_max_cholesky_tries
+    mala_stepsize_schedule = sampler_kwargs.mala_stepsize_schedule
+    mala_sgld_c0 = sampler_kwargs.mala_sgld_c0
+    mala_sgld_target_accept = sampler_kwargs.mala_sgld_target_accept
+    mala_sgld_accept_low = sampler_kwargs.mala_sgld_accept_low
+    mala_sgld_accept_high = sampler_kwargs.mala_sgld_accept_high
+    mala_sgld_adapt_c0 = sampler_kwargs.mala_sgld_adapt_c0
+    mala_sgld_adapt_every = sampler_kwargs.mala_sgld_adapt_every
+    mala_sgld_c0_min = sampler_kwargs.mala_sgld_c0_min
+    mala_sgld_c0_max = sampler_kwargs.mala_sgld_c0_max
+    prox_block_step_size = sampler_kwargs.prox_block_step_size
+    prox_block_min_step_size = sampler_kwargs.prox_block_min_step_size
+    prox_block_max_step_size = sampler_kwargs.prox_block_max_step_size
+    prox_block_adapt_every = sampler_kwargs.prox_block_adapt_every
+    prox_block_divergence_threshold = sampler_kwargs.prox_block_divergence_threshold
+    prox_block_metric = sampler_kwargs.prox_block_metric
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
     figs_dir = ensure_dir(joinpath(outdir, "figures"))
@@ -360,6 +314,7 @@ function main()
                     p0_alpha = p0_alpha,
                     realdata = false,
                     pseudocount = pseudocount,
+                    prior_distribution_hyperparameter_kwargs(prior_kwargs)...,
                 )) :
                 p0_requested
             p0_value = p0_auto === missing ? nothing : p0_auto
@@ -385,6 +340,7 @@ function main()
                 "chains" => chains,
                 "hmc_n_leapfrog" => hmc_n_leapfrog,
                 "hmc_step_size" => hmc_step_size,
+                "max_depth" => max_depth,
                 "p0" => p0_value,
                 "constraint" => string(constraint),
                 "noncentered" => noncentered,
@@ -413,6 +369,12 @@ function main()
                 "mala_sgld_adapt_every" => mala_sgld_adapt_every,
                 "mala_sgld_c0_min" => mala_sgld_c0_min,
                 "mala_sgld_c0_max" => mala_sgld_c0_max,
+                "prox_block_step_size" => prox_block_step_size,
+                "prox_block_min_step_size" => prox_block_min_step_size,
+                "prox_block_max_step_size" => prox_block_max_step_size,
+                "prox_block_adapt_every" => prox_block_adapt_every,
+                "prox_block_divergence_threshold" => prox_block_divergence_threshold,
+                "prox_block_metric" => string(prox_block_metric),
                 "pseudocount" => pseudocount,
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
@@ -480,6 +442,7 @@ function main()
                 chains = chains,
                 multichains = multichains,
                 target_accept = target_accept,
+                max_depth = max_depth,
                 hmc_n_leapfrog = hmc_n_leapfrog,
                 hmc_step_size = hmc_step_size,
                 noncentered = noncentered,
@@ -500,11 +463,6 @@ function main()
                 p0_alpha = p0_alpha,
                 constraint = constraint,
                 prox_sum0_lambda = prox_sum0_lambda,
-                prox_l1_lambda = prox_l1_lambda,
-                alpha_prior_shape = alpha_prior_shape,
-                alpha_prior_rate = alpha_prior_rate,
-                prox_root_tol = prox_root_tol,
-                prox_root_maxiter = prox_root_maxiter,
                 mala_step_size = mala_step_size,
                 mala_target_accept = mala_target_accept,
                 mala_adapt_every = mala_adapt_every,
@@ -524,6 +482,12 @@ function main()
                 mala_sgld_adapt_every = mala_sgld_adapt_every,
                 mala_sgld_c0_min = mala_sgld_c0_min,
                 mala_sgld_c0_max = mala_sgld_c0_max,
+                prox_block_step_size = prox_block_step_size,
+                prox_block_min_step_size = prox_block_min_step_size,
+                prox_block_max_step_size = prox_block_max_step_size,
+                prox_block_adapt_every = prox_block_adapt_every,
+                prox_block_divergence_threshold = prox_block_divergence_threshold,
+                prox_block_metric = prox_block_metric,
                 prior_kwargs...,
                 progress = progress,
             )
@@ -596,6 +560,7 @@ function main()
                 "car_kappa_init" => car_kappa_init,
                 "hmc_n_leapfrog" => hmc_n_leapfrog,
                 "hmc_step_size" => hmc_step_size,
+                "max_depth" => max_depth,
             ), prior_metadata, Dict(
                 "alpha_prior_shape" => alpha_prior_shape,
                 "alpha_prior_rate" => alpha_prior_rate,
@@ -607,6 +572,7 @@ function main()
                 "chains" => chains,
                 "multichains" => multichains,
                 "target_accept" => target_accept,
+                "max_depth" => max_depth,
                 "hmc_n_leapfrog" => hmc_n_leapfrog,
                 "hmc_step_size" => hmc_step_size,
                 "noncentered" => noncentered,
@@ -639,6 +605,12 @@ function main()
                 "mala_sgld_adapt_every" => mala_sgld_adapt_every,
                 "mala_sgld_c0_min" => mala_sgld_c0_min,
                 "mala_sgld_c0_max" => mala_sgld_c0_max,
+                "prox_block_step_size" => prox_block_step_size,
+                "prox_block_min_step_size" => prox_block_min_step_size,
+                "prox_block_max_step_size" => prox_block_max_step_size,
+                "prox_block_adapt_every" => prox_block_adapt_every,
+                "prox_block_divergence_threshold" => prox_block_divergence_threshold,
+                "prox_block_metric" => string(prox_block_metric),
                 "use_car" => actual_use_car,
                 "car_distance" => string(car_distance),
                 "car_weight_quantile" => car_weight_quantile,
