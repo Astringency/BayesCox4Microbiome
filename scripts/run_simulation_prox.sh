@@ -46,9 +46,9 @@ status=0
 
 # MAIN LOOP
 n_vals=(200 400 1000)
-p_vals=(10)
-# non_vals=(6 12)
-non_vals=(2)
+p_vals=(50)
+non_vals=(6 12)
+# non_vals=(2)
 baseline_vals=("weibull" "exponential" "gompertz")
 
 pids=()
@@ -83,7 +83,7 @@ for n in "${n_vals[@]}"; do
                     --car-distance bray \
                     --p0 truth \
                     --p0-alpha 0.05 \
-                    --outdir "./results/simulation/prox/n${n}_p${p}_nonzero${nonzero}_${baseline}" &
+                    --outdir "/large_storage/zhangxf/BayesCox/results/simulation/prox/n${n}_p${p}_nonzero${nonzero}_${baseline}" &
                 pids+=("$!")
             done
         done
