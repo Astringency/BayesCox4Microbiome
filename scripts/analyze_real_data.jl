@@ -23,6 +23,7 @@ function _include_script(path::AbstractString)
 end
 
 _include_script(joinpath(@__DIR__, "analysis_common.jl"))
+_include_script(joinpath(@__DIR__, "tune_hyperparams_cindex.jl"))
 
 function _split_optional_strings(value::AbstractString)
     raw = strip(value)
@@ -101,6 +102,7 @@ function main()
     car_kwargs = car_hyperparameter_kwargs(args)
     model_kwargs = cox_model_cli_options(args; default_pseudocount = 1e-6, default_standardize = false)
     diagnostic_kwargs = diagnostic_cli_options(args)
+    tuning_kwargs = tuning_cli_options(args)
     prior_kwargs = prior_hyperparameter_kwargs(args)
     prior_metadata = prior_hyperparameter_metadata(prior_kwargs)
     sampler = sampler_kwargs.sampler
@@ -135,6 +137,11 @@ function main()
     standardize = model_kwargs.standardize
     tie_method = model_kwargs.tie_method
     diagnose = diagnostic_kwargs.diagnose
+    tune_priorparams = tuning_kwargs.tune_priorparams
+    tune_algparams = tuning_kwargs.tune_algparams
+    cv_folds = tuning_kwargs.cv_folds
+    tune_seed = tuning_kwargs.tune_seed
+    tune_run_best = tuning_kwargs.tune_run_best
     diagnose_formats = diagnostic_kwargs.diagnose_formats
     diagnose_top_k_beta = diagnostic_kwargs.diagnose_top_k_beta
     diagnose_max_lag = diagnostic_kwargs.diagnose_max_lag
@@ -196,6 +203,49 @@ function main()
 
     if alpha_prior_shape !== nothing
         alpha_prior_shape += size(X, 2)
+    end
+
+    if tune_priorparams || tune_algparams
+        tune_hyperparams_cindex(
+            X,
+            time,
+            event;
+            priors = priors,
+            base_sampler_kwargs = sampler_kwargs,
+            base_prior_kwargs = prior_kwargs,
+            base_car_kwargs = car_kwargs,
+            base_model_kwargs = (
+                p0 = p0_arg,
+                p0_alpha = p0_alpha,
+                constraint = constraint,
+                prox_sum0_lambda = prox_sum0_lambda,
+                pseudocount = pseudocount,
+                standardize = standardize,
+                tie_method = tie_method,
+            ),
+            outdir = outdir,
+            mode = :realdata,
+            dataset_id = splitext(basename(input))[1],
+            tune_priorparams = tune_priorparams,
+            tune_algparams = tune_algparams,
+            cv_folds = cv_folds,
+            seed = tune_seed,
+            realdata = true,
+            simulation_metadata = Dict{String,Any}(
+                "input" => input,
+                "dataset_name" => basename(input),
+                "n" => size(X, 1),
+                "p" => size(X, 2),
+                "events" => count(!=(0), event),
+                "event_rate" => mean(event .!= 0),
+                "censoring_rate" => mean(event .== 0),
+                "seed" => seed,
+                "component_cols" => join(component_cols, ","),
+                "exclude_cols" => join(exclude_cols, ","),
+                "dropped_survival_rows" => dropped_survival_rows,
+            ),
+            tune_run_best = tune_run_best,
+        )
     end
 
     all_metrics = DataFrame()

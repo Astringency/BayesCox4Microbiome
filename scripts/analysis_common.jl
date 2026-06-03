@@ -155,11 +155,22 @@ const DIAGNOSTIC_CLI_KEYS = (
     "diagnose-top-k-beta",
     "diagnose-max-lag",
 )
+const TUNING_CLI_KEYS = (
+    "tune_priorsparams",
+    "tune_priorparams",
+    "tune-priorparams",
+    "tune_algparams",
+    "tune-algparams",
+    "cv-folds",
+    "tune-seed",
+    "tune-run-best",
+)
 const COMMON_ANALYSIS_CLI_KEYS = _unique_cli_keys(
     SAMPLER_HYPERPARAMETER_CLI_KEYS,
     PRIOR_HYPERPARAMETER_CLI_KEYS,
     COX_MODEL_CLI_KEYS,
     DIAGNOSTIC_CLI_KEYS,
+    TUNING_CLI_KEYS,
 )
 const BASELINE_PARAMETER_CLI_KEYS = (
     "weibull-rate",
@@ -388,6 +399,21 @@ function diagnostic_cli_options(args)
     )
 end
 
+function tuning_cli_options(args)
+    return (
+        tune_priorparams =
+            arg(args, "tune_priorsparams", false) ||
+            arg(args, "tune_priorparams", false) ||
+            arg(args, "tune-priorparams", false),
+        tune_algparams =
+            arg(args, "tune_algparams", false) ||
+            arg(args, "tune-algparams", false),
+        cv_folds = arg(args, "cv-folds", 5),
+        tune_seed = arg(args, "tune-seed", 1),
+        tune_run_best = arg(args, "tune-run-best", false),
+    )
+end
+
 function add_prior_hyperparameter_columns!(table::DataFrame, kwargs)
     meta = kwargs isa AbstractDict ? kwargs : prior_hyperparameter_metadata(kwargs)
     for (key, value) in pairs(meta)
@@ -490,11 +516,11 @@ function true_beta(p::Integer, nonzero::Integer)
         ) :
         throw(ArgumentError("nonzero must be 6/12 or a even number."))
 
-    idx = 
-        nonzero in (6, 12) ? collect(18:2:(16 + 2nonzero)) :
-        collect(1:1:nonzero)
-
-    maximum(idx) <= p || throw(ArgumentError("p=$p is too small for the paper's nonzero indices."))
+    paper_idx = nonzero in (6, 12) ? collect(18:2:(16 + 2nonzero)) : Int[]
+    idx =
+        !isempty(paper_idx) && maximum(paper_idx) <= p ? paper_idx :
+        nonzero <= p ? collect(1:nonzero) :
+        throw(ArgumentError("p=$p is too small for nonzero=$nonzero."))
     beta = zeros(Float64, p)
     beta[idx] .= values
     return beta, idx

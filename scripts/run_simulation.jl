@@ -23,6 +23,7 @@ function _include_script(path::AbstractString)
 end
 
 _include_script(joinpath(@__DIR__, "analysis_common.jl"))
+_include_script(joinpath(@__DIR__, "tune_hyperparams_cindex.jl"))
 
 function write_simulation_plots(
     run_dir::AbstractString,
@@ -207,6 +208,7 @@ function main()
     car_kwargs = car_hyperparameter_kwargs(args)
     model_kwargs = cox_model_cli_options(args; default_pseudocount = 0.0, default_standardize = false)
     diagnostic_kwargs = diagnostic_cli_options(args)
+    tuning_kwargs = tuning_cli_options(args)
     sampler = sampler_kwargs.sampler
     nuts_backend = sampler_kwargs.nuts_backend
     n_samples = sampler_kwargs.n_samples
@@ -238,6 +240,11 @@ function main()
     standardize = model_kwargs.standardize
     tie_method = model_kwargs.tie_method
     diagnose = diagnostic_kwargs.diagnose
+    tune_priorparams = tuning_kwargs.tune_priorparams
+    tune_algparams = tuning_kwargs.tune_algparams
+    cv_folds = tuning_kwargs.cv_folds
+    tune_seed = tuning_kwargs.tune_seed
+    tune_run_best = tuning_kwargs.tune_run_best
     debug = arg(args, "debug", false)
     diagnose_formats = diagnostic_kwargs.diagnose_formats
     diagnose_top_k_beta = diagnostic_kwargs.diagnose_top_k_beta
@@ -298,6 +305,53 @@ function main()
             seed = sim_seed,
             baseline_args...,
         )
+        if tune_priorparams || tune_algparams
+            p0_requested_for_tuning = p0_arg === :truth ? nonzero : p0_arg
+            tune_hyperparams_cindex(
+                sim.X,
+                sim.time,
+                sim.event;
+                priors = priors,
+                base_sampler_kwargs = sampler_kwargs,
+                base_prior_kwargs = prior_kwargs,
+                base_car_kwargs = car_kwargs,
+                base_model_kwargs = (
+                    p0 = p0_requested_for_tuning,
+                    p0_alpha = p0_alpha,
+                    constraint = constraint,
+                    prox_sum0_lambda = prox_sum0_lambda,
+                    pseudocount = pseudocount,
+                    standardize = standardize,
+                    tie_method = tie_method,
+                ),
+                outdir = outdir,
+                mode = :simulation,
+                dataset_id = "rep$(rep)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)",
+                tune_priorparams = tune_priorparams,
+                tune_algparams = tune_algparams,
+                cv_folds = cv_folds,
+                seed = tune_seed,
+                realdata = false,
+                simulation_metadata = Dict{String,Any}(
+                    "rep" => rep,
+                    "n" => n,
+                    "p" => p,
+                    "nonzero" => nonzero,
+                    "nonzero_count" => nonzero,
+                    "baseline" => string(baseline),
+                    "seed" => sim_seed,
+                    "censoring_rate" => mean(sim.event .== 0),
+                    "event_rate" => mean(sim.event .!= 0),
+                    "baseline_rate" => sim.baseline_rate,
+                    "baseline_scale" => sim.baseline_scale,
+                    "baseline_shape" => sim.baseline_shape,
+                    "censoring_distribution" => string(sim.censoring_distribution),
+                    "censoring_upper" => sim.censoring_upper,
+                    "beta" => sim.beta,
+                ),
+                tune_run_best = tune_run_best,
+            )
+        end
         for prior in priors
             if prior in ("lasso", "sslasso", "prox-lasso", "prox-sslasso")
                 noncentered = false

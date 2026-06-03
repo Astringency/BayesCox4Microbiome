@@ -373,18 +373,36 @@ results/simulation/
 The long posterior sample CSV is not written. Diagnostics and recovery use
 `result_bundle.jld2` when present, otherwise `samples_wide.csv`.
 
-For focused C-index tuning, use the hyperparameter grid runner:
+## C-Index Hyperparameter Tuning
+
+Both analysis scripts can run built-in hyperparameter tuning:
 
 ```powershell
-julia --project=. scripts\tune_prior_hyperparams.jl --priors rhs,lasso,sslasso --samples 200 --warmup 100 --chains 2 --p0 truth
+julia --project=. scripts\run_simulation.jl --tune_priorsparams true --cv-folds 2 --sampler mh --samples 20 --warmup 10 --reps 1 --n 50 --p 10 --nonzero 6 --priors hs,lasso --p0 truth --diagnose false --outdir results\smoke_tuning_sim
+
+julia --project=. scripts\analyze_real_data.jl --input data\T1D.csv --tune_priorsparams true --cv-folds 2 --sampler mh --samples 20 --warmup 10 --priors hs,lasso --diagnose false --outdir results\smoke_tuning_real
 ```
 
-It writes `hyperparam_tuning_metrics.csv` and a `Cindex_mean`-sorted
-`hyperparam_tuning_summary.csv` under the selected `--outdir`. MSE is kept as
-a simulation-only reference column when the true coefficients are available.
-The tuning runner also accepts grid options such as `--hs-p0-grid`,
-`--rhs-local-scale-grid`, `--prox-l1-lambda-grid`, and
-`--alpha-prior-shape-grid` for CoxHS/CoxRHS and proximal priors.
+Use `--tune_priorsparams true` to tune prior/model hyperparameters by K-fold
+validation C-index. Use `--tune_algparams true` to tune sampler settings; this
+records MCMC diagnostics first (`Rhat`, ESS, divergences, acceptance rate,
+runtime, warmup/sample/total seconds, and allocation), with C-index kept as an
+auxiliary column. If both flags are true, prior tuning runs first and algorithm
+tuning then uses the selected prior config; it does not run a full prior grid by
+algorithm grid Cartesian product.
+
+All grids are defined directly in `scripts/tune_hyperparams_cindex.jl` as
+`PRIOR_PARAM_GRIDS` and `ALGORITHM_PARAM_GRIDS`; grid values are not passed
+through the CLI. Tuning outputs are written under `<outdir>/tuning/`:
+
+```text
+prior_tuning_metrics.csv
+prior_tuning_summary.csv
+algorithm_tuning_metrics.csv
+algorithm_tuning_summary.csv
+all_tuning_results.csv
+best_tuning_config.json
+```
 
 ## Simulation Data and Censoring Summary
 
