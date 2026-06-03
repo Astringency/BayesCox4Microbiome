@@ -16,37 +16,9 @@ current_time=$(date "+%Y%m%d_%H%M%S")
 pids=()
 status=0
 
-# TEST
-# test_n=400
-# test_p=150
-# pids=()
-# julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
-#     --sampler ula \
-#     --samples 5000 \
-#     --warmup 2000 \
-#     --chains 4 \
-#     --multichains \
-#     --reps 1 \
-#     --n "$test_n" \
-#     --p "$test_p" \
-#     --nonzero 12 \
-#     --baseline weibull \
-#     --priors lasso \
-#     --constraint prox \
-#     --target-accept 0.8 \
-#     --mala-step-size 1e-3 \
-#     --mala-target-accept 0.7 \
-#     --seed 1 \
-#     --use-car true \
-#     --car-distance bray \
-#     --p0 truth \
-#     --p0-alpha 0.05 \
-#     --outdir "results/simulation/test_n${test_n}_p${test_p}_non12_weibull_${current_time}" &
-# pids+=("$!")
-
 # MAIN LOOP
-n_vals=(200 400 1000)
-p_vals=(50)
+n_vals=(200 400)
+p_vals=(50 150)
 non_vals=(6 12)
 # non_vals=(2)
 baseline_vals=("weibull" "exponential" "gompertz")
@@ -60,10 +32,11 @@ for n in "${n_vals[@]}"; do
                 echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
 
                 julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
-                    --sampler nuts \
+                    --sampler hmc \
                     --nuts-backend explicit \
+                    --hmc-n-leapfrog 20 \
                     --samples 5000 \
-                    --warmup 5000 \
+                    --warmup 2000 \
                     --chains 4 \
                     --multichains \
                     --reps 50 \
@@ -72,18 +45,23 @@ for n in "${n_vals[@]}"; do
                     --nonzero "$nonzero" \
                     --baseline "$baseline" \
                     --constraint prox \
-                    --priors prox-lasso,prox-sslasso \
+                    --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso \
                     --target-accept 0.95 \
-                    --prox-sum0-lambda 1e-5 \
+                    --prox-sum0-lambda 1e-3 \
                     --prox-l1-lambda 1e-5 \
                     --alpha-prior-shape 1 \
                     --alpha-prior-scale 1 \
                     --seed 1 \
                     --use-car true \
-                    --car-distance bray \
+                    --car-weight-quantile 0.99 \
+                    --car-precision 1 \
+                    --sample-car-strength true \
+                    --car-strength-prior-a 1 \
+                    --car-strength-prior-b 1 \
+                    --car-distance "bray" \
                     --p0 truth \
                     --p0-alpha 0.05 \
-                    --outdir "/large_storage/zhangxf/BayesCox/results/simulation/prox/n${n}_p${p}_nonzero${nonzero}_${baseline}" &
+                    --outdir "./results/simulation/prox_c/n${n}_p${p}_nonzero${nonzero}_${baseline}" &
                 pids+=("$!")
             done
         done
@@ -91,6 +69,7 @@ for n in "${n_vals[@]}"; do
 done
 
 # /large_storage/zhangxf/BayesCox
+# prox-lasso,prox-sslasso
 
 wait "${pids[@]}"
 

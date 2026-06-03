@@ -15,15 +15,15 @@ export GKSwstype=100
 current_time=$(date "+%Y%m%d_%H%M%S")
 
 # MAIN LOOP
-n_vals=(1000)
 # n_vals=(200 400)
+n_vals=(400)
 # p_vals=(50 150)
 p_vals=(50)
 # non_vals=(6 12)
 non_vals=(6)
-# baseline_vals=("weibull" "exponential" "gompertz")
-baseline_vals=("gompertz")
-sampler_vals=("nuts") # hmc, nuts, mala, ula
+baseline_vals=("weibull" "exponential" "gompertz")
+# baseline_vals=("gompertz")
+sampler_vals=("hmc") # hmc, nuts, mala, ula
 # hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs
 
 for sampler in "${sampler_vals[@]}"; do
@@ -40,12 +40,12 @@ for sampler in "${sampler_vals[@]}"; do
                         --p "$p" \
                         --nonzero "$nonzero" \
                         --baseline "$baseline" \
-                        --priors prox-lasso \
+                        --priors cox-rhs \
                         --sampler "$sampler" \
                         --nuts-backend explicit \
                         --hmc-n-leapfrog 20 \
                         --samples 5000 \
-                        --warmup 5000 \
+                        --warmup 2000 \
                         --thin 1 \
                         --chains 4 \
                         --multichains true \
@@ -63,7 +63,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --p0 truth \
                         --p0-alpha 0.05 \
                         --constraint prox \
-                        --prox-sum0-lambda 1e-5 \
+                        --prox-sum0-lambda 1e-3 \
                         --prox-l1-lambda 1e-5 \
                         --prox-root-tol 1e-10 \
                         --prox-root-maxiter 100 \
