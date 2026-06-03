@@ -2,83 +2,143 @@ using DataFrames
 using Random
 using Statistics
 
-# Edit these lists directly to change the tuning search space.  The CLI does
-# not accept grid values by design.
-const PRIOR_PARAM_GRIDS = Dict{String,Vector{Dict{String,Any}}}(
-    "hs" => [
-        Dict("p0" => nothing, "hs_local_scale" => 1.0, "hs_tau_scale" => 1.0),
-        Dict("p0" => 3, "hs_local_scale" => 0.5, "hs_tau_scale" => 1.0),
+function _grid_values(value)
+    value isa AbstractString && return Any[value]
+    value isa AbstractVector && return collect(Any, value)
+    value isa Tuple && return collect(Any, value)
+    return Any[value]
+end
+
+function _expand_grid_values(grid::Vector{Pair{K,Any}}) where {K}
+    combos = [Dict{K,Any}()]
+    for (key, values) in grid
+        next_combos = Dict{K,Any}[]
+        for combo in combos, value in _grid_values(values)
+            expanded = copy(combo)
+            expanded[key] = value
+            push!(next_combos, expanded)
+        end
+        combos = next_combos
+    end
+    return combos
+end
+
+function _expand_named_grid_values(grids::Dict{Name,Vector{Pair{K,Any}}}) where {Name,K}
+    out = Dict{Name,Vector{Dict{K,Any}}}()
+    for (name, grid) in pairs(grids)
+        out[name] = _expand_grid_values(grid)
+    end
+    return out
+end
+
+# Edit these candidate-value lists directly to change the tuning search space.
+# The script forms the Cartesian product within each prior/sampler grid.
+# Grid values are intentionally not accepted through CLI arguments.
+const PRIOR_PARAM_GRID_VALUES = Dict{String,Vector{Pair{String,Any}}}(
+    "hs" => Pair{String,Any}[
+        "p0" => Any[nothing],
+        "hs_local_scale" => [0.5, 1.0],
+        "hs_tau_scale" => [1.0],
     ],
-    "rhs" => [
-        Dict("p0" => nothing, "rhs_local_scale" => 1.0, "rhs_tau_scale" => 1.0, "rhs_slab_df" => 4.0, "rhs_slab_s2" => 2.0),
-        Dict("p0" => 3, "rhs_local_scale" => 0.5, "rhs_tau_scale" => 1.0, "rhs_slab_df" => 4.0, "rhs_slab_s2" => 1.0),
+    "rhs" => Pair{String,Any}[
+        "p0" => Any[nothing],
+        "rhs_local_scale" => [0.5, 1.0],
+        "rhs_tau_scale" => [1.0],
+        "rhs_slab_df" => [4.0],
+        "rhs_slab_s2" => [2.0],
     ],
-    "new-rhs" => [
-        Dict("p0" => nothing, "rhs_local_scale" => 1.0, "rhs_slab_df" => 4.0, "rhs_slab_s2" => 2.0),
-        Dict("p0" => 3, "rhs_local_scale" => 0.5, "rhs_slab_df" => 4.0, "rhs_slab_s2" => 1.0),
+    "new-rhs" => Pair{String,Any}[
+        "p0" => Any[nothing],
+        "rhs_local_scale" => [0.5, 1.0],
+        "rhs_slab_df" => [4.0],
+        "rhs_slab_s2" => [2.0],
     ],
-    "est-rhs" => [
-        Dict("p0" => nothing, "rhs_local_scale" => 1.0, "rhs_slab_df" => 4.0, "rhs_slab_s2" => 2.0),
-        Dict("p0" => 3, "rhs_local_scale" => 0.5, "rhs_slab_df" => 4.0, "rhs_slab_s2" => 1.0),
+    "est-rhs" => Pair{String,Any}[
+        "p0" => Any[nothing],
+        "rhs_local_scale" => [0.5, 1.0],
+        "rhs_slab_df" => [4.0],
+        "rhs_slab_s2" => [2.0],
     ],
-    "cox-hs" => [
-        Dict("p0" => nothing, "hs_local_scale" => 1.0),
-        Dict("p0" => 3, "hs_local_scale" => 0.5),
+    "cox-hs" => Pair{String,Any}[
+        "p0" => Any[nothing],
+        "hs_local_scale" => [0.5, 1.0],
     ],
-    "cox-rhs" => [
-        Dict("p0" => nothing, "rhs_local_scale" => 1.0, "rhs_slab_df" => 4.0, "rhs_slab_s2" => 2.0),
-        Dict("p0" => 3, "rhs_local_scale" => 0.5, "rhs_slab_df" => 4.0, "rhs_slab_s2" => 1.0),
+    "cox-rhs" => Pair{String,Any}[
+        "p0" => Any[nothing],
+        "rhs_local_scale" => [0.5, 1.0],
+        "rhs_slab_df" => [4.0],
+        "rhs_slab_s2" => [2.0],
     ],
-    "lasso" => [
-        Dict("lasso_lambda" => nothing, "lasso_lambda2_shape" => 1.0, "lasso_lambda2_rate" => 0.1),
-        Dict("lasso_lambda" => nothing, "lasso_lambda2_shape" => 1.0, "lasso_lambda2_rate" => 1.0),
+    "lasso" => Pair{String,Any}[
+        "lasso_lambda" => Any[nothing],
+        "lasso_lambda2_shape" => [1.0],
+        "lasso_lambda2_rate" => [0.1, 1.0],
     ],
-    "sslasso" => [
-        Dict("sslasso_spike_scale" => nothing, "sslasso_slab_scale" => nothing, "sslasso_theta_a" => 1.0, "sslasso_theta_b" => 1.0),
-        Dict("sslasso_spike_scale" => 0.1, "sslasso_slab_scale" => 1.0, "sslasso_theta_a" => 1.0, "sslasso_theta_b" => 1.0),
+    "sslasso" => Pair{String,Any}[
+        "sslasso_spike_scale" =>  [0.04, 0.1, 0.5, 1.0, 2.0],
+        "sslasso_slab_scale" => [0.5, 1.0, 2.0, 5.0, 10.0],
+        "sslasso_theta_a" => [1.0],
+        "sslasso_theta_b" => [1.0],
     ],
-    "prox-lasso" => [
-        Dict("lasso_lambda" => nothing, "prox_l1_lambda" => 1e-3, "alpha_prior_shape" => nothing, "alpha_prior_rate" => nothing),
-        Dict("lasso_lambda" => nothing, "prox_l1_lambda" => 1e-2, "alpha_prior_shape" => nothing, "alpha_prior_rate" => nothing),
+    "prox-lasso" => Pair{String,Any}[
+        "prox_l1_lambda" => [1e-5, 1e-4, 1e-3, 1e-2],
+        "alpha_prior_shape" => [0.1, 0.5, 1.0],
+        "alpha_prior_scale" => [1.0, 5.0, 10.0],
     ],
-    "prox-sslasso" => [
-        Dict("sslasso_spike_scale" => nothing, "sslasso_slab_scale" => nothing, "prox_l1_lambda" => 1e-3, "alpha_prior_shape" => nothing, "alpha_prior_rate" => nothing),
-        Dict("sslasso_spike_scale" => 0.1, "sslasso_slab_scale" => 1.0, "prox_l1_lambda" => 1e-2, "alpha_prior_shape" => nothing, "alpha_prior_rate" => nothing),
+    "prox-sslasso" => Pair{String,Any}[
+        "sslasso_spike_scale" => [0.04, 0.1, 0.5, 1.0, 2.0],
+        "sslasso_slab_scale" => [0.5, 1.0, 2.0, 5.0, 10.0],
+        "prox_l1_lambda" => [1e-5, 1e-4, 1e-3, 1e-2],
+        "alpha_prior_shape" => [0.1, 0.5, 1.0],
+        "alpha_prior_scale" => [1.0, 5.0, 10.0],
     ],
 )
 
-const ALGORITHM_PARAM_GRIDS = Dict{Symbol,Vector{Dict{Symbol,Any}}}(
-    :nuts => [
-        Dict(:sampler => :nuts, :nuts_backend => :turing, :target_accept => 0.8, :max_depth => 10),
-        Dict(:sampler => :nuts, :nuts_backend => :explicit, :target_accept => 0.9, :max_depth => 10),
+const PRIOR_PARAM_GRIDS = _expand_named_grid_values(PRIOR_PARAM_GRID_VALUES)
+
+const ALGORITHM_PARAM_GRID_VALUES = Dict{Symbol,Vector{Pair{Symbol,Any}}}(
+    :nuts => Pair{Symbol,Any}[
+        :sampler => [:nuts],
+        :nuts_backend => [:turing, :explicit],
+        :target_accept => [0.8, 0.9],
+        :max_depth => [10],
     ],
-    :nuts_turing => [
-        Dict(:sampler => :nuts_turing, :nuts_backend => :turing, :target_accept => 0.8, :max_depth => 10),
-        Dict(:sampler => :nuts_turing, :nuts_backend => :turing, :target_accept => 0.9, :max_depth => 10),
+    :nuts_turing => Pair{Symbol,Any}[
+        :sampler => [:nuts_turing],
+        :nuts_backend => [:turing],
+        :target_accept => [0.8, 0.9],
+        :max_depth => [10],
     ],
-    :nuts_explicit => [
-        Dict(:sampler => :nuts_explicit, :nuts_backend => :explicit, :target_accept => 0.8, :max_depth => 10),
-        Dict(:sampler => :nuts_explicit, :nuts_backend => :explicit, :target_accept => 0.9, :max_depth => 10),
+    :nuts_explicit => Pair{Symbol,Any}[
+        :sampler => [:nuts_explicit],
+        :nuts_backend => [:explicit],
+        :target_accept => [0.8, 0.9],
+        :max_depth => [10],
     ],
-    :hmc => [
-        Dict(:sampler => :hmc, :hmc_n_leapfrog => 10, :hmc_step_size => nothing),
-        Dict(:sampler => :hmc, :hmc_n_leapfrog => 20, :hmc_step_size => nothing),
+    :hmc => Pair{Symbol,Any}[
+        :sampler => [:hmc],
+        :hmc_n_leapfrog => [10, 20],
+        :hmc_step_size => Any[nothing],
     ],
-    :mh => [
-        Dict(:sampler => :mh),
+    :mh => Pair{Symbol,Any}[
+        :sampler => [:mh],
     ],
-    :mala => [
-        Dict(:sampler => :mala, :mala_step_size => 1e-4, :mala_precondition => false),
-        Dict(:sampler => :mala, :mala_step_size => 1e-4, :mala_precondition => true),
+    :mala => Pair{Symbol,Any}[
+        :sampler => [:mala],
+        :mala_step_size => [1e-4],
+        :mala_precondition => [false, true],
     ],
-    :ula => [
-        Dict(:sampler => :ula, :mala_step_size => 1e-4, :mala_precondition => false),
-        Dict(:sampler => :ula, :mala_step_size => 1e-5, :mala_precondition => false),
+    :ula => Pair{Symbol,Any}[
+        :sampler => [:ula],
+        :mala_step_size => [1e-5, 1e-4],
+        :mala_precondition => [false],
     ],
-    :gibbs => [
-        Dict(:sampler => :gibbs),
+    :gibbs => Pair{Symbol,Any}[
+        :sampler => [:gibbs],
     ],
 )
+
+const ALGORITHM_PARAM_GRIDS = _expand_named_grid_values(ALGORITHM_PARAM_GRID_VALUES)
 
 const TUNING_OUTPUT_FILES = (
     prior_metrics = "prior_tuning_metrics.csv",
@@ -244,6 +304,7 @@ function _actual_fit_kwargs(
     base_car_kwargs,
     base_model_kwargs,
     override_kwargs;
+    p::Integer,
     realdata::Bool,
 )
     kwargs = _merge_tuning_kwargs(
@@ -253,6 +314,9 @@ function _actual_fit_kwargs(
         base_prior_kwargs,
         override_kwargs,
     )
+    if get(kwargs, :alpha_prior_shape, nothing) !== nothing
+        kwargs[:alpha_prior_shape] = effective_alpha_prior_shape(kwargs[:alpha_prior_shape], p)
+    end
     kwargs[:prior_name] = prior
     kwargs[:realdata] = realdata
     use_car = Bool(get(kwargs, :use_car, false))
@@ -553,6 +617,8 @@ function _summarize_prior_config(rows, cfg; mode, dataset_id, metadata_cols, pri
         :CV_Cindex_MAP_mean => _mean_or_missing(map_vals),
         :CV_Cindex_MAP_se => _se_or_missing(map_vals),
     )
+    alpha_effective = _finite_values(rows, :alpha_prior_shape_effective; estimate = "mean")
+    row[:alpha_prior_shape_effective] = isempty(alpha_effective) ? missing : first(alpha_effective)
     for metric in (:ELPD_LOO, :WAIC_pw1, :WAIC_pw2, :LPML, :LOOIC, :ParetoK_max, :Cindex, :MSE, :FDR, :FP, :FN, :TP, :TN)
         vals = _finite_values(rows, metric; estimate = "mean")
         row[Symbol(String(metric), "_mean")] = _mean_or_missing(vals)
@@ -602,6 +668,7 @@ function _run_prior_tuning(
                     base_car_kwargs,
                     base_model_kwargs,
                     cfg;
+                    p = size(X, 2),
                     realdata = realdata,
                 )
                 fit_kwargs[:seed] = seed + 10_000 * config_index + fold
@@ -634,6 +701,7 @@ function _run_prior_tuning(
                         row[:CV_Cindex] = row[:validation_Cindex]
                         row[:training_Cindex] = row[:Cindex]
                         row[:p0] = fit.p0 === nothing ? missing : fit.p0
+                        row[:alpha_prior_shape_effective] = get(fit_kwargs, :alpha_prior_shape, missing)
                         merge!(row, _simulation_accuracy(fit.summary, beta_true, estimate))
                         _add_common_row_fields!(row, metadata_cols, mode, dataset_id)
                         _add_config_fields!(row, cfg)
@@ -718,7 +786,8 @@ function _summarize_algorithm_config(rows, prior_cfg, alg_cfg; mode, dataset_id,
         :rhat_max, :rhat_median, :ess_bulk_min, :ess_bulk_median, :ess_tail_min,
         :ess_tail_median, :divergences, :acceptance_rate, :warmup_acceptance_rate,
         :final_step_mean, :warmup_seconds, :sample_seconds, :total_seconds,
-        :allocated_mb, :gc_seconds, :gc_percent, :MSE, :FDR, :FP, :FN, :TP, :TN,
+        :allocated_mb, :gc_seconds, :gc_percent, :alpha_prior_shape_effective,
+        :MSE, :FDR, :FP, :FN, :TP, :TN,
     )
         row[metric] = get(base, metric, missing)
     end
@@ -768,6 +837,7 @@ function _run_algorithm_tuning(
                 base_car_kwargs,
                 base_model_kwargs,
                 merge(copy(prior_cfg), alg_cfg);
+                p = size(X, 2),
                 realdata = realdata,
             )
             fit_kwargs[:seed] = seed + 100_000 + 10_000 * config_index
@@ -784,6 +854,7 @@ function _run_algorithm_tuning(
                     row[:config_index] = config_index
                     row[:algorithm_config_index] = algorithm_config_index
                     row[:p0] = fit.p0 === nothing ? missing : fit.p0
+                    row[:alpha_prior_shape_effective] = get(fit_kwargs, :alpha_prior_shape, missing)
                     merge!(row, diagnostics)
                     merge!(row, _simulation_accuracy(fit.summary, beta_true, estimate))
                     _add_common_row_fields!(row, metadata_cols, mode, dataset_id)

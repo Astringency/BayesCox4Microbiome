@@ -325,7 +325,7 @@ Common options:
 | `--lasso-lambda2-shape`, `--lasso-lambda2-rate` | `1`, `0.1` | Hyperprior for BLASSO global `lambda^2`. |
 | `--sslasso-spike-scale`, `--sslasso-slab-scale` | simulation `0.04`, `0.5`; real data `1`, `10` | SSLASSO spike and slab Laplace scales. |
 | `--sslasso-theta-a`, `--sslasso-theta-b` | `1`, `1` | Beta prior hyperparameters for SSLASSO inclusion probability. |
-| `--alpha-prior-shape`, `--alpha-prior-rate` | prior-specific | Proximal L1 epigraph `alpha` prior hyperparameters for `prox-lasso` and `prox-sslasso`. |
+| `--alpha-prior-shape`, `--alpha-prior-scale` | prior-specific | Proximal L1 epigraph `alpha` prior hyperparameters for `prox-lasso` and `prox-sslasso`; `--alpha-prior-shape` is a base value and the model uses `alpha_prior_shape + p`. |
 | `--mala-step-size` | `1e-4` | MALA/ULA step size. |
 | `--mala-target-accept` | `0.574` | MALA step-size adaptation target. |
 | `--mala-adapt-every` | `50` | MALA adaptation interval. |
@@ -391,9 +391,11 @@ auxiliary column. If both flags are true, prior tuning runs first and algorithm
 tuning then uses the selected prior config; it does not run a full prior grid by
 algorithm grid Cartesian product.
 
-All grids are defined directly in `scripts/tune_hyperparams_cindex.jl` as
-`PRIOR_PARAM_GRIDS` and `ALGORITHM_PARAM_GRIDS`; grid values are not passed
-through the CLI. Tuning outputs are written under `<outdir>/tuning/`:
+All candidate grid values are defined directly in
+`scripts/tune_hyperparams_cindex.jl` as `PRIOR_PARAM_GRID_VALUES` and
+`ALGORITHM_PARAM_GRID_VALUES`; the script expands each parameter's value list
+into Cartesian-product configs. Grid values are not passed through the CLI.
+Tuning outputs are written under `<outdir>/tuning/`:
 
 ```text
 prior_tuning_metrics.csv

@@ -109,7 +109,7 @@ PRIOR_SSLASSO=(
 PRIOR_PROXIMAL_L1=(
   --prox-l1-lambda 1e-3
   --alpha-prior-shape 1.0
-  --alpha-prior-rate 1.0
+  --alpha-prior-scale 1.0
   --prox-root-tol 1e-10
   --prox-root-maxiter 100
 )

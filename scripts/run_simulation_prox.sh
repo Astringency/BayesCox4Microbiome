@@ -76,8 +76,8 @@ for n in "${n_vals[@]}"; do
                     --target-accept 0.95 \
                     --prox-sum0-lambda 1e-5 \
                     --prox-l1-lambda 1e-5 \
-                    --alpha-prior-shape "$((p+1))" \
-                    --alpha-prior-rate 1 \
+                    --alpha-prior-shape 1 \
+                    --alpha-prior-scale 1 \
                     --seed 1 \
                     --use-car true \
                     --car-distance bray \

@@ -11,8 +11,6 @@ set test_p=150
 set test_nonzero=6
 set test_baseline=exponential
 
-set /a test_p_plus_1=test_p+1
-
 REM explicit,turing 
 REM soft_center,prox,none
 REM hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso,prox-lasso,prox-sslasso
@@ -70,8 +68,8 @@ julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --first-rep-sample-thin 1 ^
     --save-wide-csv true ^
     --save-jld2 false ^
-    --alpha-prior-shape %test_p_plus_1% ^
-    --alpha-prior-rate 1 ^
+    --alpha-prior-shape 1 ^
+    --alpha-prior-scale 1 ^
     --rhs-slab-df 4 ^
     --rhs-slab-s2 2 ^
     --hs-tau-scale 1 ^

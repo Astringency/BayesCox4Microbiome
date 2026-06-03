@@ -75,7 +75,7 @@ end
                 prox_sum0_lambda = 0.7,
                 prox_l1_lambda = 0.9,
                 alpha_prior_shape = 1.0,
-                alpha_prior_rate = 0.4,
+                alpha_prior_scale = 0.4,
                 prox_root_tol = 1e-12,
                 prox_root_maxiter = 200,
             )
@@ -89,7 +89,7 @@ end
                 prox_sum0_lambda = 0.7,
                 prox_l1_lambda = 0.9,
                 alpha_prior_shape = 1.0,
-                alpha_prior_rate = 0.4,
+                alpha_prior_scale = 0.4,
                 prox_root_tol = 1e-12,
                 prox_root_maxiter = 200,
             )
@@ -107,7 +107,7 @@ end
                 prox_sum0_lambda = 0.7,
                 prox_l1_lambda = 0.9,
                 alpha_prior_shape = 1.0,
-                alpha_prior_rate = 0.4,
+                alpha_prior_scale = 0.4,
                 prox_root_tol = 1e-12,
                 prox_root_maxiter = 200,
             )
@@ -123,7 +123,7 @@ end
                 prox_sum0_lambda = 0.7,
                 prox_l1_lambda = 0.9,
                 alpha_prior_shape = 1.0,
-                alpha_prior_rate = 0.4,
+                alpha_prior_scale = 0.4,
                 prox_root_tol = 1e-12,
                 prox_root_maxiter = 200,
             )
@@ -224,7 +224,7 @@ end
         prox_sum0_lambda = 0.7,
         prox_l1_lambda = 0.9,
         alpha_prior_shape = 1.0,
-        alpha_prior_rate = 0.4,
+        alpha_prior_scale = 0.4,
         prox_root_tol = 1e-12,
         prox_root_maxiter = 200,
     )
@@ -240,7 +240,7 @@ end
             prox_sum0_lambda = 0.7,
             prox_l1_lambda = 0.9,
             alpha_prior_shape = 1.0,
-            alpha_prior_rate = 0.4,
+            alpha_prior_scale = 0.4,
             prox_root_tol = 1e-12,
             prox_root_maxiter = 200,
         )
@@ -262,7 +262,7 @@ end
         prox_sum0_lambda = 0.7,
         prox_l1_lambda = 0.9,
         alpha_prior_shape = 1.0,
-        alpha_prior_rate = 0.4,
+        alpha_prior_scale = 0.4,
         prox_root_tol = 1e-12,
         prox_root_maxiter = 200,
     )
@@ -280,7 +280,7 @@ end
             prox_sum0_lambda = 0.7,
             prox_l1_lambda = 0.9,
             alpha_prior_shape = 1.0,
-            alpha_prior_rate = 0.4,
+            alpha_prior_scale = 0.4,
             prox_root_tol = 1e-12,
             prox_root_maxiter = 200,
         )
@@ -306,7 +306,7 @@ end
                 prox_sum0_lambda = 0.7,
                 prox_l1_lambda = 0.9,
                 alpha_prior_shape = 1.0,
-                alpha_prior_rate = 0.4,
+                alpha_prior_scale = 0.4,
                 prox_root_tol = 1e-12,
                 prox_root_maxiter = 200,
                 ridge = 1e-6,
@@ -323,7 +323,7 @@ end
                 prox_sum0_lambda = 0.7,
                 prox_l1_lambda = 0.9,
                 alpha_prior_shape = 1.0,
-                alpha_prior_rate = 0.4,
+                alpha_prior_scale = 0.4,
                 prox_root_tol = 1e-12,
                 prox_root_maxiter = 200,
                 ridge = 1e-6,
@@ -352,7 +352,7 @@ end
         prox_sum0_lambda = 0.7,
         prox_l1_lambda = 0.9,
         alpha_prior_shape = 1.0,
-        alpha_prior_rate = 0.4,
+        alpha_prior_scale = 0.4,
         prox_root_tol = 1e-12,
         prox_root_maxiter = 200,
     )
@@ -368,7 +368,7 @@ end
         prox_sum0_lambda = 0.7,
         prox_l1_lambda = 0.9,
         alpha_prior_shape = 1.0,
-        alpha_prior_rate = 0.4,
+        alpha_prior_scale = 0.4,
         prox_root_tol = 1e-12,
         prox_root_maxiter = 200,
     )
@@ -401,7 +401,7 @@ end
             prox_sum0_lambda = 0.7,
             prox_l1_lambda = 0.9,
             alpha_prior_shape = 1.0,
-            alpha_prior_rate = 0.4,
+            alpha_prior_scale = 0.4,
             n_samples = 30,
             warmup = 20,
             thin = 1,

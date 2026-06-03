@@ -89,8 +89,8 @@ for sampler in "${sampler_vals[@]}"; do
                         --first-rep-sample-thin 1 \
                         --save-wide-csv true \
                         --save-jld2 false \
-                        --alpha-prior-shape "$((p+1))" \
-                        --alpha-prior-rate 1 \
+                        --alpha-prior-shape 1 \
+                        --alpha-prior-scale 1 \
                         --rhs-slab-df 4 \
                         --rhs-slab-s2 2 \
                         --hs-tau-scale 1 \

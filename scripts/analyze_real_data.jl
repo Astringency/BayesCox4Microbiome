@@ -104,7 +104,6 @@ function main()
     diagnostic_kwargs = diagnostic_cli_options(args)
     tuning_kwargs = tuning_cli_options(args)
     prior_kwargs = prior_hyperparameter_kwargs(args)
-    prior_metadata = prior_hyperparameter_metadata(prior_kwargs)
     sampler = sampler_kwargs.sampler
     nuts_backend = sampler_kwargs.nuts_backend
     n_samples = sampler_kwargs.n_samples
@@ -146,8 +145,8 @@ function main()
     diagnose_top_k_beta = diagnostic_kwargs.diagnose_top_k_beta
     diagnose_max_lag = diagnostic_kwargs.diagnose_max_lag
     prox_l1_lambda = prior_kwargs.prox_l1_lambda
-    alpha_prior_shape = prior_kwargs.alpha_prior_shape# == nothing ? size(X, 2) : prior_kwargs.alpha_prior_shape + size(X, 2)
-    alpha_prior_rate = prior_kwargs.alpha_prior_rate
+    alpha_prior_shape = prior_kwargs.alpha_prior_shape
+    alpha_prior_scale = prior_kwargs.alpha_prior_scale
     prox_root_tol = prior_kwargs.prox_root_tol
     prox_root_maxiter = prior_kwargs.prox_root_maxiter
     mala_step_size = sampler_kwargs.mala_step_size
@@ -201,9 +200,9 @@ function main()
         write_table(joinpath(tables_dir, "univariate_cox_screen.csv"), screen_table)
     end
 
-    if alpha_prior_shape !== nothing
-        alpha_prior_shape += size(X, 2)
-    end
+    effective_prior_kwargs = effective_prior_hyperparameter_kwargs(prior_kwargs, size(X, 2))
+    effective_prior_metadata = prior_hyperparameter_metadata(effective_prior_kwargs)
+    alpha_prior_shape_effective = effective_prior_kwargs.alpha_prior_shape
 
     if tune_priorparams || tune_algparams
         tune_hyperparams_cindex(
@@ -314,7 +313,7 @@ function main()
             prox_block_adapt_every = prox_block_adapt_every,
             prox_block_divergence_threshold = prox_block_divergence_threshold,
             prox_block_metric = prox_block_metric,
-            prior_kwargs...,
+            effective_prior_kwargs...,
             realdata = true,
             progress = progress,
         )
@@ -390,7 +389,8 @@ function main()
                 "component_cols" => join(component_cols, ","),
                 "exclude_cols" => join(exclude_cols, ","),
                 "dropped_survival_rows" => dropped_survival_rows,
-            ), prior_metadata),
+                "alpha_prior_shape_base" => alpha_prior_shape,
+            ), effective_prior_metadata),
             settings = merge(Dict(
                 "n_samples" => n_samples,
                 "warmup" => warmup,
@@ -405,8 +405,9 @@ function main()
                 "constraint" => string(constraint),
                 "prox_sum0_lambda" => prox_sum0_lambda,
                 "prox_l1_lambda" => prox_l1_lambda,
-                "alpha_prior_shape" => alpha_prior_shape,
-                "alpha_prior_rate" => alpha_prior_rate,
+                "alpha_prior_shape_base" => alpha_prior_shape,
+                "alpha_prior_shape" => alpha_prior_shape_effective,
+                "alpha_prior_scale" => alpha_prior_scale,
                 "prox_root_tol" => prox_root_tol,
                 "prox_root_maxiter" => prox_root_maxiter,
                 "mala_step_size" => mala_step_size,
@@ -451,7 +452,8 @@ function main()
                 "component_cols" => join(component_cols, ","),
                 "exclude_cols" => join(exclude_cols, ","),
                 "dropped_survival_rows" => dropped_survival_rows,
-            ), prior_metadata),
+                "alpha_prior_shape_base" => alpha_prior_shape,
+            ), effective_prior_metadata),
             posterior_summary = summary,
         )
         if diagnose
@@ -485,7 +487,7 @@ function main()
         metrics = copy(fit.metrics)
         metrics.prior .= prior
         metrics.p0 .= fit.p0
-        add_prior_hyperparameter_columns!(metrics, prior_kwargs)
+        add_prior_hyperparameter_columns!(metrics, effective_prior_kwargs)
         append!(all_metrics, metrics; cols = :union)
     end
 

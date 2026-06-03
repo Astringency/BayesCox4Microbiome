@@ -41,7 +41,7 @@ set "PRIOR_LASSO=--lasso-lambda2-shape 1.0 --lasso-lambda2-rate 0.1"
 
 set "PRIOR_SSLASSO=--sslasso-spike-scale 1.0 --sslasso-slab-scale 10.0 --sslasso-theta-a 1.0 --sslasso-theta-b 1.0"
 
-set "PRIOR_PROXIMAL_L1=--prox-l1-lambda 1e-3 --alpha-prior-shape 1.0 --alpha-prior-rate 1.0 --prox-root-tol 1e-10 --prox-root-maxiter 100"
+set "PRIOR_PROXIMAL_L1=--prox-l1-lambda 1e-3 --alpha-prior-shape 1.0 --alpha-prior-scale 1.0 --prox-root-tol 1e-10 --prox-root-maxiter 100"
 
 set "PRIOR_CAR=--use-car true --car-distance bray --car-weight-quantile 0.75 --car-precision 1.0 --sample-car-strength false --car-strength-prior-a 1.0 --car-strength-prior-b 1.0 --car-degree-scale mean_active --car-kappa-init 0.5"
 

@@ -348,7 +348,7 @@ function _make_explicit_nuts_target(
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
-    alpha_prior_rate::Real,
+    alpha_prior_scale::Real,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     car_weights = nothing,
@@ -384,7 +384,7 @@ function _make_explicit_nuts_target(
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
-        alpha_prior_rate = alpha_prior_rate,
+        alpha_prior_scale = alpha_prior_scale,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -491,7 +491,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape,
-    alpha_prior_rate,
+    alpha_prior_scale,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
@@ -518,7 +518,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = alpha_prior_shape,
-                alpha_prior_rate = alpha_prior_rate,
+                alpha_prior_scale = alpha_prior_scale,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
                 progress = progress,
@@ -550,7 +550,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
                         prox_sum0_lambda = prox_sum0_lambda,
                         prox_l1_lambda = prox_l1_lambda,
                         alpha_prior_shape = alpha_prior_shape,
-                        alpha_prior_rate = alpha_prior_rate,
+                        alpha_prior_scale = alpha_prior_scale,
                         prox_root_tol = prox_root_tol,
                         prox_root_maxiter = prox_root_maxiter,
                         progress = progress,
@@ -580,7 +580,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
                         prox_sum0_lambda = prox_sum0_lambda,
                         prox_l1_lambda = prox_l1_lambda,
                         alpha_prior_shape = alpha_prior_shape,
-                        alpha_prior_rate = alpha_prior_rate,
+                        alpha_prior_scale = alpha_prior_scale,
                         prox_root_tol = prox_root_tol,
                         prox_root_maxiter = prox_root_maxiter,
                         progress = progress,
@@ -614,7 +614,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
     prox_sum0_lambda::Real,
     prox_l1_lambda::Real,
     alpha_prior_shape,
-    alpha_prior_rate,
+    alpha_prior_scale,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
@@ -622,7 +622,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
     progress_offset::Integer = 0,
 )
     p = size(data.z, 2)
-    a_shape, a_rate = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
+    a_shape, a_scale = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_scale)
     gamma = trues(p)
     theta = 0.5
     theta_ref = Ref(theta)
@@ -659,7 +659,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = a_shape,
-        alpha_prior_rate = a_rate,
+        alpha_prior_scale = a_scale,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -703,7 +703,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = a_shape,
-                alpha_prior_rate = a_rate,
+                alpha_prior_scale = a_scale,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
             )
@@ -754,7 +754,7 @@ function _sample_nuts_explicit(
     prox_sum0_lambda::Real = 1e-3,
     prox_l1_lambda::Real = 1e-3,
     alpha_prior_shape = nothing,
-    alpha_prior_rate = nothing,
+    alpha_prior_scale = nothing,
     prox_root_tol::Real = 1e-10,
     prox_root_maxiter::Integer = 100,
     car_weights = nothing,
@@ -781,7 +781,7 @@ function _sample_nuts_explicit(
     _check_positive(prox_l1_lambda, "prox_l1_lambda")
     _check_positive(prox_root_tol, "prox_root_tol")
     prox_root_maxiter > 0 || throw(ArgumentError("prox_root_maxiter must be positive."))
-    a_shape, a_rate = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_rate)
+    a_shape, a_scale = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_scale)
     if noncentered
         _check_noncentered_supported(prior)
     end
@@ -838,7 +838,7 @@ function _sample_nuts_explicit(
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = a_shape,
-                alpha_prior_rate = a_rate,
+                alpha_prior_scale = a_scale,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
                 progress = progress,
@@ -853,7 +853,7 @@ function _sample_nuts_explicit(
                 prox_sum0_lambda = prox_sum0_lambda,
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = a_shape,
-                alpha_prior_rate = a_rate,
+                alpha_prior_scale = a_scale,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
                 car_weights = car_weights,
@@ -890,7 +890,7 @@ function _sample_nuts_explicit(
                         prox_sum0_lambda = prox_sum0_lambda,
                         prox_l1_lambda = prox_l1_lambda,
                         alpha_prior_shape = a_shape,
-                        alpha_prior_rate = a_rate,
+                        alpha_prior_scale = a_scale,
                         prox_root_tol = prox_root_tol,
                         prox_root_maxiter = prox_root_maxiter,
                         car_weights = car_weights,
@@ -926,7 +926,7 @@ function _sample_nuts_explicit(
                         prox_sum0_lambda = prox_sum0_lambda,
                         prox_l1_lambda = prox_l1_lambda,
                         alpha_prior_shape = a_shape,
-                        alpha_prior_rate = a_rate,
+                        alpha_prior_scale = a_scale,
                         prox_root_tol = prox_root_tol,
                         prox_root_maxiter = prox_root_maxiter,
                         car_weights = car_weights,
