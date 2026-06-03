@@ -157,10 +157,7 @@ const DIAGNOSTIC_CLI_KEYS = (
 )
 const TUNING_CLI_KEYS = (
     "tune_priorsparams",
-    "tune_priorparams",
-    "tune-priorparams",
     "tune_algparams",
-    "tune-algparams",
     "cv-folds",
     "tune-seed",
     "tune-run-best",
@@ -401,13 +398,8 @@ end
 
 function tuning_cli_options(args)
     return (
-        tune_priorparams =
-            arg(args, "tune_priorsparams", false) ||
-            arg(args, "tune_priorparams", false) ||
-            arg(args, "tune-priorparams", false),
-        tune_algparams =
-            arg(args, "tune_algparams", false) ||
-            arg(args, "tune-algparams", false),
+        tune_priorparams = arg(args, "tune_priorsparams", false),
+        tune_algparams = arg(args, "tune_algparams", false),
         cv_folds = arg(args, "cv-folds", 5),
         tune_seed = arg(args, "tune-seed", 1),
         tune_run_best = arg(args, "tune-run-best", false),
