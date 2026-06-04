@@ -47,6 +47,7 @@ for n in "${n_vals[@]}"; do
                     --constraint prox \
                     --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso \
                     --target-accept 0.95 \
+                    --noncentered true \
                     --prox-sum0-lambda 1e-3 \
                     --prox-l1-lambda 1e-5 \
                     --alpha-prior-shape 1 \

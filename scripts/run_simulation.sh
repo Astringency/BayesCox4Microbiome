@@ -16,12 +16,12 @@ current_time=$(date "+%Y%m%d_%H%M%S")
 
 # MAIN LOOP
 # n_vals=(200 400)
-n_vals=(400)
+n_vals=(200)
 # p_vals=(50 150)
 p_vals=(50)
 # non_vals=(6 12)
 non_vals=(6)
-baseline_vals=("weibull" "exponential" "gompertz")
+baseline_vals=("weibull")
 # baseline_vals=("gompertz")
 sampler_vals=("hmc") # hmc, nuts, mala, ula
 # hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs
@@ -49,7 +49,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --thin 1 \
                         --chains 4 \
                         --multichains true \
-                        --target-accept 0.9 \
+                        --target-accept 0.95 \
                         --noncentered true \
                         --seed 1 \
                         --use-car true \
