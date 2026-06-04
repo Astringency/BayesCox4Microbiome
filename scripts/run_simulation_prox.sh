@@ -37,8 +37,9 @@ for n in "${n_vals[@]}"; do
                     --hmc-n-leapfrog 20 \
                     --samples 5000 \
                     --warmup 2000 \
+                    --thin 1 \
                     --chains 4 \
-                    --multichains \
+                    --multichains true \
                     --reps 50 \
                     --n "$n" \
                     --p "$p" \
