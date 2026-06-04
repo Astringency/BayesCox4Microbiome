@@ -117,6 +117,7 @@ const PROXIMAL_L1_PRIOR_CLI_KEYS = (
     "prox-l1-lambda",
     "alpha-prior-shape",
     "alpha-prior-scale",
+    "alpha-prior-kind",
     "prox-root-tol",
     "prox-root-maxiter",
 )
@@ -325,6 +326,7 @@ function prior_hyperparameter_kwargs(args)
         prox_l1_lambda = arg(args, "prox-l1-lambda", 1e-3),
         alpha_prior_shape = optional_float_arg(args, "alpha-prior-shape"),
         alpha_prior_scale = optional_float_arg(args, "alpha-prior-scale"),
+        alpha_prior_kind = Symbol(arg(args, "alpha-prior-kind", "invgamma")),
         prox_root_tol = arg(args, "prox-root-tol", 1e-10),
         prox_root_maxiter = arg(args, "prox-root-maxiter", 100),
     )
@@ -370,18 +372,9 @@ function prior_hyperparameter_metadata(kwargs)
         "prox_l1_lambda" => kwargs.prox_l1_lambda,
         "alpha_prior_shape" => kwargs.alpha_prior_shape,
         "alpha_prior_scale" => kwargs.alpha_prior_scale,
+        "alpha_prior_kind" => string(kwargs.alpha_prior_kind),
         "prox_root_tol" => kwargs.prox_root_tol,
         "prox_root_maxiter" => kwargs.prox_root_maxiter,
-    )
-end
-
-effective_alpha_prior_shape(alpha_prior_shape, p::Integer) =
-    alpha_prior_shape === nothing ? nothing : Float64(alpha_prior_shape) + p
-
-function effective_prior_hyperparameter_kwargs(kwargs, p::Integer)
-    return merge(
-        kwargs,
-        (alpha_prior_shape = effective_alpha_prior_shape(kwargs.alpha_prior_shape, p),),
     )
 end
 
@@ -1058,6 +1051,7 @@ function fit_and_evaluate(
     sslasso_theta_b::Real = 1.0,
     alpha_prior_shape = nothing,
     alpha_prior_scale = nothing,
+    alpha_prior_kind = :invgamma,
     progress::Bool = true,
 )
     pseudocount_value = pseudocount === nothing ? (realdata ? 1e-6 : 0.0) : Float64(pseudocount)
@@ -1130,6 +1124,7 @@ function fit_and_evaluate(
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = alpha_prior_shape,
                 alpha_prior_scale = alpha_prior_scale,
+                alpha_prior_kind = alpha_prior_kind,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
                 progress = progress,
@@ -1169,6 +1164,7 @@ function fit_and_evaluate(
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = alpha_prior_shape,
                 alpha_prior_scale = alpha_prior_scale,
+                alpha_prior_kind = alpha_prior_kind,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
                 max_depth = max_depth,
@@ -1297,6 +1293,7 @@ function fit_and_evaluate(
                 prox_l1_lambda = prox_l1_lambda,
                 alpha_prior_shape = alpha_prior_shape,
                 alpha_prior_scale = alpha_prior_scale,
+                alpha_prior_kind = alpha_prior_kind,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
                 progress = progress,

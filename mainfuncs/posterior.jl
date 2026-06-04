@@ -110,6 +110,7 @@ function _lasso_prox_logposterior(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -127,6 +128,7 @@ function _lasso_prox_logposterior(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -141,6 +143,7 @@ function _lasso_prox_gradient(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -156,6 +159,7 @@ function _lasso_prox_gradient(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -171,6 +175,7 @@ function _lasso_prox_gradient!(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -194,6 +199,7 @@ function _lasso_prox_gradient!(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -210,6 +216,7 @@ function _lasso_prox_logposterior_and_gradient!(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -238,6 +245,7 @@ function _lasso_prox_logposterior_and_gradient!(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -255,6 +263,7 @@ function _ssl_prox_logposterior(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -275,6 +284,7 @@ function _ssl_prox_logposterior(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -291,6 +301,7 @@ function _ssl_prox_gradient(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -308,6 +319,7 @@ function _ssl_prox_gradient(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -325,6 +337,7 @@ function _ssl_prox_gradient!(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -350,6 +363,7 @@ function _ssl_prox_gradient!(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -369,6 +383,7 @@ function _ssl_prox_logposterior_and_gradient!(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -400,6 +415,7 @@ function _ssl_prox_logposterior_and_gradient!(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )

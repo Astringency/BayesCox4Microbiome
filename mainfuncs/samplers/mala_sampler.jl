@@ -619,6 +619,7 @@ function _sample_lasso_prox_mala(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
@@ -638,6 +639,7 @@ function _sample_lasso_prox_mala(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -649,6 +651,7 @@ function _sample_lasso_prox_mala(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -663,6 +666,7 @@ function _sample_lasso_prox_mala(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -681,6 +685,7 @@ function _sample_lasso_prox_mala(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
         ridge = 0.0,
@@ -973,6 +978,7 @@ function _sample_ssl_prox_mala(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -993,6 +999,7 @@ function _sample_ssl_prox_mala(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -1168,6 +1175,7 @@ function _sample_mala(
     prox_l1_lambda::Real = 1e-3,
     alpha_prior_shape = nothing,
     alpha_prior_scale = nothing,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real = 1e-10,
     prox_root_maxiter::Integer = 100,
     car_weights = nothing,
@@ -1214,6 +1222,7 @@ function _sample_mala(
     prox_root_maxiter > 0 || throw(ArgumentError("prox_root_maxiter must be positive."))
     a_shape = Float64(something(alpha_prior_shape, prior isa BayesianLassoPrior ? prior.lambda2_shape : 1.0))
     a_scale = Float64(something(alpha_prior_scale, prior isa BayesianLassoPrior ? prior.lambda2_rate : 1.0))
+    a_kind = _normalize_alpha_prior_kind(alpha_prior_kind)
     _check_positive(a_shape, "alpha_prior_shape")
     _check_positive(a_scale, "alpha_prior_scale")
     use_proximal_prior = _is_proximal_l1_prior(prior)
@@ -1251,6 +1260,7 @@ function _sample_mala(
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
             alpha_prior_scale = a_scale,
+            alpha_prior_kind = a_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
             progress = progress,
@@ -1290,6 +1300,7 @@ function _sample_mala(
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
             alpha_prior_scale = a_scale,
+            alpha_prior_kind = a_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
             progress = progress,
@@ -1388,6 +1399,7 @@ function _sample_ula(
     prox_l1_lambda::Real = 1e-3,
     alpha_prior_shape = nothing,
     alpha_prior_scale = nothing,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real = 1e-10,
     prox_root_maxiter::Integer = 100,
     car_weights = nothing,
@@ -1422,6 +1434,7 @@ function _sample_ula(
     prox_root_maxiter > 0 || throw(ArgumentError("prox_root_maxiter must be positive."))
     a_shape = Float64(something(alpha_prior_shape, prior isa BayesianLassoPrior ? prior.lambda2_shape : 1.0))
     a_scale = Float64(something(alpha_prior_scale, prior isa BayesianLassoPrior ? prior.lambda2_rate : 1.0))
+    a_kind = _normalize_alpha_prior_kind(alpha_prior_kind)
     use_proximal_prior = _is_proximal_l1_prior(prior)
 
     if prior isa BayesianLassoPrior && use_proximal_prior
@@ -1436,6 +1449,7 @@ function _sample_ula(
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
             alpha_prior_scale = a_scale,
+            alpha_prior_kind = a_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
         )
@@ -1447,6 +1461,7 @@ function _sample_ula(
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
             alpha_prior_scale = a_scale,
+            alpha_prior_kind = a_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
         )
@@ -1461,6 +1476,7 @@ function _sample_ula(
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
             alpha_prior_scale = a_scale,
+            alpha_prior_kind = a_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
         )
@@ -1482,6 +1498,7 @@ function _sample_ula(
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
             alpha_prior_scale = a_scale,
+            alpha_prior_kind = a_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
             progress = progress,
@@ -1557,6 +1574,7 @@ function _sample_ssl_prox_ula(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
@@ -1589,6 +1607,7 @@ function _sample_ssl_prox_ula(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -1607,6 +1626,7 @@ function _sample_ssl_prox_ula(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -1624,6 +1644,7 @@ function _sample_ssl_prox_ula(
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = alpha_prior_shape,
             alpha_prior_scale = alpha_prior_scale,
+            alpha_prior_kind = alpha_prior_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
         )
@@ -1660,6 +1681,7 @@ function _sample_ssl_prox_ula(
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = alpha_prior_shape,
             alpha_prior_scale = alpha_prior_scale,
+            alpha_prior_kind = alpha_prior_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
         )

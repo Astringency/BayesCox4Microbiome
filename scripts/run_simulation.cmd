@@ -6,8 +6,8 @@ if not defined GKSwstype set "GKSwstype=100"
 
 for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd_HHmmss"') do set "timestamp=%%i"
 
-set test_n=2000
-set test_p=150
+set test_n=200
+set test_p=50
 set test_nonzero=6
 set test_baseline=exponential
 
@@ -15,24 +15,25 @@ REM explicit,turing
 REM soft_center,prox,none
 REM hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso,prox-lasso,prox-sslasso
 REM weibull,exponential,gompertz
+REM invgamma,halfcauchy
 
 julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
-    --outdir "results/simulation/test_n%test_n%_p%test_p%_non%test_nonzero%_%test_baseline%_%timestamp%" ^
+    --outdir "results/test/n%test_n%_p%test_p%_non%test_nonzero%_%test_baseline%_%timestamp%" ^
     --reps 1 ^
     --n "%test_n%" ^
     --p "%test_p%" ^
     --nonzero "%test_nonzero%" ^
     --baseline "%test_baseline%" ^
-    --priors prox-lasso ^
+    --priors hs ^
     --sampler hmc ^
     --nuts-backend explicit ^
     --hmc-n-leapfrog 20 ^
     --samples 5000 ^
-    --warmup 5000 ^
+    --warmup 2000 ^
     --thin 1 ^
     --chains 4 ^
     --multichains true ^
-    --target-accept 0.95 ^
+    --target-accept 0.9 ^
     --noncentered true ^
     --seed 1 ^
     --use-car true ^
@@ -47,7 +48,7 @@ julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --p0-alpha 0.05 ^
     --constraint prox ^
     --prox-sum0-lambda 1e-3 ^
-    --prox-l1-lambda 1e-3 ^
+    --prox-l1-lambda 1e-5 ^
     --prox-root-tol 1e-10 ^
     --prox-root-maxiter 100 ^
     --mala-step-size 1e-6 ^
@@ -70,6 +71,7 @@ julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --save-jld2 false ^
     --alpha-prior-shape 1 ^
     --alpha-prior-scale 1 ^
+    --alpha-prior-kind invgamma ^
     --rhs-slab-df 4 ^
     --rhs-slab-s2 2 ^
     --hs-tau-scale 1 ^

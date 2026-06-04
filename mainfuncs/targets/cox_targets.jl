@@ -8,6 +8,7 @@ struct CoxProxLassoTarget <: AbstractCoxTarget
     prox_l1_lambda::Float64
     alpha_prior_shape::Float64
     alpha_prior_scale::Float64
+    alpha_prior_kind::Symbol
     prox_root_tol::Float64
     prox_root_maxiter::Int
     work::ProxGradientWorkspace
@@ -21,6 +22,7 @@ function CoxProxLassoTarget(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -32,6 +34,7 @@ function CoxProxLassoTarget(
         Float64(prox_l1_lambda),
         Float64(alpha_prior_shape),
         Float64(alpha_prior_scale),
+        _normalize_alpha_prior_kind(alpha_prior_kind),
         Float64(prox_root_tol),
         Int(prox_root_maxiter),
         ProxGradientWorkspace(data),
@@ -48,6 +51,7 @@ struct CoxProxSSLassoTarget <: AbstractCoxTarget
     prox_l1_lambda::Float64
     alpha_prior_shape::Float64
     alpha_prior_scale::Float64
+    alpha_prior_kind::Symbol
     prox_root_tol::Float64
     prox_root_maxiter::Int
     work::ProxGradientWorkspace
@@ -124,6 +128,7 @@ function CoxProxSSLassoTarget(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -138,6 +143,7 @@ function CoxProxSSLassoTarget(
         Float64(prox_l1_lambda),
         Float64(alpha_prior_shape),
         Float64(alpha_prior_scale),
+        _normalize_alpha_prior_kind(alpha_prior_kind),
         Float64(prox_root_tol),
         Int(prox_root_maxiter),
         ProxGradientWorkspace(data),
@@ -217,6 +223,7 @@ function logdensity(target::CoxProxLassoTarget, u::AbstractVector)
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
         alpha_prior_scale = target.alpha_prior_scale,
+        alpha_prior_kind = target.alpha_prior_kind,
         prox_root_tol = target.prox_root_tol,
         prox_root_maxiter = target.prox_root_maxiter,
     )
@@ -234,6 +241,7 @@ function logdensity(target::CoxProxSSLassoTarget, u::AbstractVector)
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
         alpha_prior_scale = target.alpha_prior_scale,
+        alpha_prior_kind = target.alpha_prior_kind,
         prox_root_tol = target.prox_root_tol,
         prox_root_maxiter = target.prox_root_maxiter,
     )
@@ -268,6 +276,7 @@ function gradient!(grad::AbstractVector{Float64}, target::CoxProxLassoTarget, u:
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
         alpha_prior_scale = target.alpha_prior_scale,
+        alpha_prior_kind = target.alpha_prior_kind,
         prox_root_tol = target.prox_root_tol,
         prox_root_maxiter = target.prox_root_maxiter,
     )
@@ -286,6 +295,7 @@ function gradient!(grad::AbstractVector{Float64}, target::CoxProxSSLassoTarget, 
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
         alpha_prior_scale = target.alpha_prior_scale,
+        alpha_prior_kind = target.alpha_prior_kind,
         prox_root_tol = target.prox_root_tol,
         prox_root_maxiter = target.prox_root_maxiter,
     )
@@ -327,6 +337,7 @@ function logdensity_and_gradient!(
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
         alpha_prior_scale = target.alpha_prior_scale,
+        alpha_prior_kind = target.alpha_prior_kind,
         prox_root_tol = target.prox_root_tol,
         prox_root_maxiter = target.prox_root_maxiter,
     )
@@ -374,6 +385,7 @@ function logdensity_and_gradient!(
         prox_l1_lambda = target.prox_l1_lambda,
         alpha_prior_shape = target.alpha_prior_shape,
         alpha_prior_scale = target.alpha_prior_scale,
+        alpha_prior_kind = target.alpha_prior_kind,
         prox_root_tol = target.prox_root_tol,
         prox_root_maxiter = target.prox_root_maxiter,
     )

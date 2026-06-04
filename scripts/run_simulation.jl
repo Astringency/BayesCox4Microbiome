@@ -304,9 +304,7 @@ function main()
             seed = sim_seed,
             baseline_args...,
         )
-        effective_prior_kwargs = effective_prior_hyperparameter_kwargs(prior_kwargs, size(sim.X, 2))
-        effective_prior_metadata = prior_hyperparameter_metadata(effective_prior_kwargs)
-        alpha_prior_shape_effective = effective_prior_kwargs.alpha_prior_shape
+        prior_metadata = prior_hyperparameter_metadata(prior_kwargs)
 
         if tune_priorparams || tune_algparams
             p0_requested_for_tuning = p0_arg === :truth ? nonzero : p0_arg
@@ -371,7 +369,7 @@ function main()
                     p0_alpha = p0_alpha,
                     realdata = false,
                     pseudocount = pseudocount,
-                    prior_distribution_hyperparameter_kwargs(effective_prior_kwargs)...,
+                    prior_distribution_hyperparameter_kwargs(prior_kwargs)...,
                 )) :
                 p0_requested
             p0_value = p0_auto === missing ? nothing : p0_auto
@@ -410,8 +408,7 @@ function main()
                 "car_strength_prior_b" => car_strength_prior_b,
                 "car_degree_scale" => string(car_degree_scale),
                 "car_kappa_init" => car_kappa_init,
-                "alpha_prior_shape_base" => alpha_prior_shape,
-                "alpha_prior_shape" => alpha_prior_shape_effective,
+                "alpha_prior_shape" => alpha_prior_shape,
                 "alpha_prior_scale" => alpha_prior_scale,
                 "mala_precondition" => mala_precondition,
                 "mala_precondition_mode" => string(mala_precondition_mode),
@@ -438,7 +435,7 @@ function main()
                 "tie_method" => string(tie_method),
                 "seed" => sim_seed,
                 "git_commit_hash" => BayesCox4Micro._git_commit_hash(),
-            ), effective_prior_metadata)
+            ), prior_metadata)
             if resume && simulation_run_recoverable(run_dir) && simulation_metadata_matches(run_dir, expected_metadata)
                 try
                     recovered = load_or_recover_simulation_run(
@@ -546,7 +543,7 @@ function main()
                 prox_block_adapt_every = prox_block_adapt_every,
                 prox_block_divergence_threshold = prox_block_divergence_threshold,
                 prox_block_metric = prox_block_metric,
-                effective_prior_kwargs...,
+                prior_kwargs...,
                 progress = progress,
             )
             summary = copy(fit.summary)
@@ -566,7 +563,7 @@ function main()
                 baseline = baseline,
                 prior = prior,
             )
-            add_prior_hyperparameter_columns!(metrics, effective_prior_kwargs)
+            add_prior_hyperparameter_columns!(metrics, prior_kwargs)
             fd_table = simulation_false_discovery_table(
                 sim,
                 summary;
@@ -619,9 +616,8 @@ function main()
                 "hmc_n_leapfrog" => hmc_n_leapfrog,
                 "hmc_step_size" => hmc_step_size,
                 "max_depth" => max_depth,
-            ), effective_prior_metadata, Dict(
-                "alpha_prior_shape_base" => alpha_prior_shape,
-                "alpha_prior_shape" => alpha_prior_shape_effective,
+            ), prior_metadata, Dict(
+                "alpha_prior_shape" => alpha_prior_shape,
                 "alpha_prior_scale" => alpha_prior_scale,
             ))
             settings = merge(Dict(
@@ -641,8 +637,7 @@ function main()
                 "constraint" => string(constraint),
                 "prox_sum0_lambda" => prox_sum0_lambda,
                 "prox_l1_lambda" => prox_l1_lambda,
-                "alpha_prior_shape_base" => alpha_prior_shape,
-                "alpha_prior_shape" => alpha_prior_shape_effective,
+                "alpha_prior_shape" => alpha_prior_shape,
                 "alpha_prior_scale" => alpha_prior_scale,
                 "prox_root_tol" => prox_root_tol,
                 "prox_root_maxiter" => prox_root_maxiter,
@@ -689,7 +684,7 @@ function main()
                 "baseline_shape" => sim.baseline_shape,
                 "censoring_distribution" => string(sim.censoring_distribution),
                 "censoring_upper" => sim.censoring_upper,
-            ), effective_prior_metadata)
+            ), prior_metadata)
             save_run_outputs(
                 fit.result;
                 output_dir = run_dir,

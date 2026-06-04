@@ -26,6 +26,7 @@ function _ssl_prox_prior_logdensity(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -36,7 +37,13 @@ function _ssl_prox_prior_logdensity(
     alpha = exp(clamp(eta, -700.0, 700.0))
     weights = _ssl_weights(prior, gamma)
     lp = -weighted_l1_moreau(beta, alpha, weights, prox_l1_lambda; prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
-    lp += -Float64(alpha_prior_scale) * exp(-eta) - Float64(alpha_prior_shape) * eta + sum(log, weights)
+    lp += Float64(p) * eta
+    lp += _alpha_prior_logdensity_eta(
+        eta;
+        alpha_prior_shape = alpha_prior_shape,
+        alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
+    ) + sum(log, weights)
     theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
     lp += sum(gamma) * log(theta_clamped) + (length(gamma) - sum(gamma)) * log1p(-theta_clamped)
     return lp
@@ -49,6 +56,7 @@ function _ssl_prox_prior_gradient(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -63,6 +71,7 @@ function _ssl_prox_prior_gradient(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -77,6 +86,7 @@ function _ssl_prox_prior_gradient!(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -99,7 +109,12 @@ function _ssl_prox_prior_gradient!(
     @inbounds for j in 1:p
         grad[j] -= (Float64(beta[j]) - prox.beta[j]) / lambda_l1
     end
-    grad[p + 1] += Float64(alpha_prior_scale) * exp(-eta) - Float64(alpha_prior_shape) -
+    grad[p + 1] += Float64(p) + _alpha_prior_gradient_eta(
+        eta;
+        alpha_prior_shape = alpha_prior_shape,
+        alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
+    ) -
         alpha_deriv * (alpha - prox.alpha) / lambda_l1
     return grad
 end
@@ -114,6 +129,7 @@ function _ssl_prox_prior_logdensity_and_gradient!(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -140,10 +156,21 @@ function _ssl_prox_prior_logdensity_and_gradient!(
         grad[j] -= residual / lambda_l1
     end
     lp = -0.5 * dist2 / lambda_l1
-    lp += -Float64(alpha_prior_scale) * exp(-eta) - Float64(alpha_prior_shape) * eta + sum(log, weights)
+    lp += Float64(p) * eta
+    lp += _alpha_prior_logdensity_eta(
+        eta;
+        alpha_prior_shape = alpha_prior_shape,
+        alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
+    ) + sum(log, weights)
     theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
     lp += sum(gamma) * log(theta_clamped) + (length(gamma) - sum(gamma)) * log1p(-theta_clamped)
-    grad[p + 1] += Float64(alpha_prior_scale) * exp(-eta) - Float64(alpha_prior_shape) -
+    grad[p + 1] += Float64(p) + _alpha_prior_gradient_eta(
+        eta;
+        alpha_prior_shape = alpha_prior_shape,
+        alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
+    ) -
         alpha_deriv * (Float64(alpha) - Float64(prox.alpha)) / lambda_l1
     return lp, grad
 end

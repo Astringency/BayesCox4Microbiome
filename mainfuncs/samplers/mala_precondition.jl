@@ -461,6 +461,7 @@ function _lasso_moreau_observed_information!(
     eta::Real,
     lambda_l1::Real,
     alpha_prior_scale::Real;
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -497,7 +498,11 @@ function _lasso_moreau_observed_information!(
         end
         G[eta_idx, eta_idx] += (-alpha * nu + alpha^2 / (m + 1)) / lambda
     end
-    G[p + 1, p + 1] += Float64(alpha_prior_scale) / alpha
+    G[p + 1, p + 1] += _alpha_prior_observed_information_eta(
+        eta;
+        alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
+    )
     return G
 end
 
@@ -508,6 +513,7 @@ function _weighted_lasso_moreau_observed_information!(
     weights::AbstractVector,
     lambda_l1::Real,
     alpha_prior_scale::Real;
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
 )
@@ -548,7 +554,11 @@ function _weighted_lasso_moreau_observed_information!(
         end
         G[eta_idx, eta_idx] += (-alpha * nu + alpha^2 / D) / lambda
     end
-    G[p + 1, p + 1] += Float64(alpha_prior_scale) / alpha
+    G[p + 1, p + 1] += _alpha_prior_observed_information_eta(
+        eta;
+        alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
+    )
     return G
 end
 
@@ -562,6 +572,7 @@ function prox_lasso_observed_information!(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     ridge::Real = 0.0,
@@ -585,6 +596,7 @@ function prox_lasso_observed_information!(
         u[p + 1],
         prox_l1_lambda,
         alpha_prior_scale;
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -604,6 +616,7 @@ function prox_ssl_observed_information!(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     ridge::Real = 0.0,
@@ -630,6 +643,7 @@ function prox_ssl_observed_information!(
         weights,
         prox_l1_lambda,
         alpha_prior_scale;
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -685,6 +699,7 @@ function observed_information!(
             prox_l1_lambda = target.prox_l1_lambda,
             alpha_prior_shape = target.alpha_prior_shape,
             alpha_prior_scale = target.alpha_prior_scale,
+            alpha_prior_kind = target.alpha_prior_kind,
             prox_root_tol = target.prox_root_tol,
             prox_root_maxiter = target.prox_root_maxiter,
             ridge = ridge,
@@ -705,6 +720,7 @@ function observed_information!(
             prox_l1_lambda = target.prox_l1_lambda,
             alpha_prior_shape = target.alpha_prior_shape,
             alpha_prior_scale = target.alpha_prior_scale,
+            alpha_prior_kind = target.alpha_prior_kind,
             prox_root_tol = target.prox_root_tol,
             prox_root_maxiter = target.prox_root_maxiter,
             ridge = ridge,

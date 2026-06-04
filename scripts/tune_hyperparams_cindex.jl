@@ -314,9 +314,6 @@ function _actual_fit_kwargs(
         base_prior_kwargs,
         override_kwargs,
     )
-    if get(kwargs, :alpha_prior_shape, nothing) !== nothing
-        kwargs[:alpha_prior_shape] = effective_alpha_prior_shape(kwargs[:alpha_prior_shape], p)
-    end
     kwargs[:prior_name] = prior
     kwargs[:realdata] = realdata
     use_car = Bool(get(kwargs, :use_car, false))
@@ -617,8 +614,8 @@ function _summarize_prior_config(rows, cfg; mode, dataset_id, metadata_cols, pri
         :CV_Cindex_MAP_mean => _mean_or_missing(map_vals),
         :CV_Cindex_MAP_se => _se_or_missing(map_vals),
     )
-    alpha_effective = _finite_values(rows, :alpha_prior_shape_effective; estimate = "mean")
-    row[:alpha_prior_shape_effective] = isempty(alpha_effective) ? missing : first(alpha_effective)
+    alpha_effective = _finite_values(rows, :alpha_prior_shape; estimate = "mean")
+    row[:alpha_prior_shape] = isempty(alpha_effective) ? missing : first(alpha_effective)
     for metric in (:ELPD_LOO, :WAIC_pw1, :WAIC_pw2, :LPML, :LOOIC, :ParetoK_max, :Cindex, :MSE, :FDR, :FP, :FN, :TP, :TN)
         vals = _finite_values(rows, metric; estimate = "mean")
         row[Symbol(String(metric), "_mean")] = _mean_or_missing(vals)
@@ -701,7 +698,7 @@ function _run_prior_tuning(
                         row[:CV_Cindex] = row[:validation_Cindex]
                         row[:training_Cindex] = row[:Cindex]
                         row[:p0] = fit.p0 === nothing ? missing : fit.p0
-                        row[:alpha_prior_shape_effective] = get(fit_kwargs, :alpha_prior_shape, missing)
+                        row[:alpha_prior_shape] = get(fit_kwargs, :alpha_prior_shape, missing)
                         merge!(row, _simulation_accuracy(fit.summary, beta_true, estimate))
                         _add_common_row_fields!(row, metadata_cols, mode, dataset_id)
                         _add_config_fields!(row, cfg)
@@ -786,7 +783,7 @@ function _summarize_algorithm_config(rows, prior_cfg, alg_cfg; mode, dataset_id,
         :rhat_max, :rhat_median, :ess_bulk_min, :ess_bulk_median, :ess_tail_min,
         :ess_tail_median, :divergences, :acceptance_rate, :warmup_acceptance_rate,
         :final_step_mean, :warmup_seconds, :sample_seconds, :total_seconds,
-        :allocated_mb, :gc_seconds, :gc_percent, :alpha_prior_shape_effective,
+        :allocated_mb, :gc_seconds, :gc_percent, :alpha_prior_shape,
         :MSE, :FDR, :FP, :FN, :TP, :TN,
     )
         row[metric] = get(base, metric, missing)
@@ -854,7 +851,7 @@ function _run_algorithm_tuning(
                     row[:config_index] = config_index
                     row[:algorithm_config_index] = algorithm_config_index
                     row[:p0] = fit.p0 === nothing ? missing : fit.p0
-                    row[:alpha_prior_shape_effective] = get(fit_kwargs, :alpha_prior_shape, missing)
+                    row[:alpha_prior_shape] = get(fit_kwargs, :alpha_prior_shape, missing)
                     merge!(row, diagnostics)
                     merge!(row, _simulation_accuracy(fit.summary, beta_true, estimate))
                     _add_common_row_fields!(row, metadata_cols, mode, dataset_id)

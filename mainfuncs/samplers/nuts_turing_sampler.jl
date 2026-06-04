@@ -244,6 +244,7 @@ Turing.@model function _lasso_prox_turing_model(
     prox_l1_lambda::Float64,
     alpha_prior_shape::Float64,
     alpha_prior_scale::Float64,
+    alpha_prior_kind::Symbol,
     prox_root_tol::Float64,
     prox_root_maxiter::Int,
 )
@@ -260,6 +261,7 @@ Turing.@model function _lasso_prox_turing_model(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -277,6 +279,7 @@ Turing.@model function _ssl_prox_turing_block_model(
     prox_l1_lambda::Float64,
     alpha_prior_shape::Float64,
     alpha_prior_scale::Float64,
+    alpha_prior_kind::Symbol,
     prox_root_tol::Float64,
     prox_root_maxiter::Int,
 )
@@ -295,6 +298,7 @@ Turing.@model function _ssl_prox_turing_block_model(
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
@@ -334,6 +338,7 @@ function _sample_nuts(
     prox_l1_lambda::Real = 1e-3,
     alpha_prior_shape = nothing,
     alpha_prior_scale = nothing,
+    alpha_prior_kind = :invgamma,
     prox_root_tol::Real = 1e-10,
     prox_root_maxiter::Integer = 100,
     thin::Integer = 1,
@@ -377,6 +382,7 @@ function _sample_nuts(
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = alpha_prior_shape,
             alpha_prior_scale = alpha_prior_scale,
+            alpha_prior_kind = alpha_prior_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
             progress = progress,
@@ -397,6 +403,7 @@ function _sample_nuts(
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = alpha_prior_shape,
             alpha_prior_scale = alpha_prior_scale,
+            alpha_prior_kind = alpha_prior_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
             progress = progress,
@@ -532,6 +539,7 @@ function _sample_lasso_prox_nuts(
     prox_l1_lambda::Real,
     alpha_prior_shape,
     alpha_prior_scale,
+    alpha_prior_kind,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
@@ -539,6 +547,7 @@ function _sample_lasso_prox_nuts(
 )
     p = size(data.z, 2)
     a_shape, a_scale = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_scale)
+    a_kind = _normalize_alpha_prior_kind(alpha_prior_kind)
     model = _lasso_prox_turing_model(
         data,
         prior,
@@ -547,6 +556,7 @@ function _sample_lasso_prox_nuts(
         Float64(prox_l1_lambda),
         a_shape,
         a_scale,
+        a_kind,
         Float64(prox_root_tol),
         Int(prox_root_maxiter),
     )
@@ -570,6 +580,7 @@ function _sample_lasso_prox_nuts(
             prox_l1_lambda = prox_l1_lambda,
             alpha_prior_shape = a_shape,
             alpha_prior_scale = a_scale,
+            alpha_prior_kind = a_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
         ) for i in axes(draws, 1)]
@@ -594,6 +605,7 @@ function _sample_ssl_prox_nuts_gibbs(
     prox_l1_lambda::Real,
     alpha_prior_shape,
     alpha_prior_scale,
+    alpha_prior_kind,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
@@ -621,6 +633,7 @@ function _sample_ssl_prox_nuts_gibbs_one(
     prox_l1_lambda::Real,
     alpha_prior_shape,
     alpha_prior_scale,
+    alpha_prior_kind,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
