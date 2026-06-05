@@ -33,7 +33,7 @@ julia "+1.11.7" -t 4 --project=. scripts\run_simulation.jl ^
     --thin 1 ^
     --chains 4 ^
     --multichains true ^
-    --target-accept 0.9 ^
+    --target-accept 0.95 ^
     --noncentered true ^
     --seed 1 ^
     --use-car true ^

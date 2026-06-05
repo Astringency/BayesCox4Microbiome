@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(julia +1.11.7 --project=. -e \"using BayesCox4Micro; println\\(\\\\\"Module loaded successfully\\\\\"\\)\")",
+      "Bash(julia +1.11.7 --project=. -e \"using Pkg; Pkg.test\\(\\)\")",
+      "Bash(julia +1.11.7 --project=. -e 'using Pkg; Pkg.test\\(test_args=[\"mala_precondition\"]\\)')"
+    ]
+  }
+}

@@ -921,6 +921,7 @@ function _sample_ssl_prox_mala(
     prox_l1_lambda::Real,
     alpha_prior_shape::Real,
     alpha_prior_scale::Real,
+    alpha_prior_kind::Symbol,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     progress::Bool,
