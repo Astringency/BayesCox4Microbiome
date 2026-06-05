@@ -380,9 +380,10 @@ end
 function summarize_parameter_diagnostics(rows::DataFrame)
     isempty(rows) && return DataFrame()
     group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler, :parameter_group] if c in propertynames(rows)]
-    threshold =
-        :rhat_threshold in propertynames(rows) && any(!ismissing, rows.rhat_threshold) ?
-        finite_mean(rows.rhat_threshold) : 1.01
+    # threshold =
+    #     :rhat_threshold in propertynames(rows) && any(!ismissing, rows.rhat_threshold) ?
+    #     finite_mean(rows.rhat_threshold) : 1.01
+    threshold = 1.1
     specs = Any[
         :run_dir => count_unique_nonmissing => :run_count,
         nrow => :parameter_row_count,

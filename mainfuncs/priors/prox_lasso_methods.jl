@@ -76,7 +76,7 @@ function _lasso_prox_prior_logdensity(
     eta = u[p + 1]
     alpha = exp(clamp(eta, -700.0, 700.0))
     lp = -l1_moreau(beta, alpha, prox_l1_lambda; prox_root_tol = prox_root_tol, prox_root_maxiter = prox_root_maxiter)
-    lp += Float64(p) * eta
+    lp -= Float64(p) * eta
     lp += _alpha_prior_logdensity_eta(
         eta;
         alpha_prior_shape = alpha_prior_shape,
@@ -140,7 +140,7 @@ function _lasso_prox_prior_gradient!(
     @inbounds for j in 1:p
         grad[j] -= (Float64(beta[j]) - prox.beta[j]) / lambda_l1
     end
-    grad[p + 1] += Float64(p) + _alpha_prior_gradient_eta(
+    grad[p + 1] = - Float64(p) + _alpha_prior_gradient_eta(
         eta;
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
@@ -182,14 +182,14 @@ function _lasso_prox_prior_logdensity_and_gradient!(
         grad[j] -= residual / lambda_l1
     end
     lp = -0.5 * dist2 / lambda_l1
-    lp += Float64(p) * eta
+    lp -= Float64(p) * eta
     lp += _alpha_prior_logdensity_eta(
         eta;
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,
         alpha_prior_kind = alpha_prior_kind,
     )
-    grad[p + 1] += Float64(p) + _alpha_prior_gradient_eta(
+    grad[p + 1] = - Float64(p) + _alpha_prior_gradient_eta(
         eta;
         alpha_prior_shape = alpha_prior_shape,
         alpha_prior_scale = alpha_prior_scale,

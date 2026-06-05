@@ -18,11 +18,11 @@ current_time=$(date "+%Y%m%d_%H%M%S")
 # n_vals=(200 400)
 n_vals=(200)
 # p_vals=(50 150)
-p_vals=(50)
+p_vals=(10)
 # non_vals=(6 12)
-non_vals=(6)
-baseline_vals=("weibull")
-# baseline_vals=("gompertz")
+non_vals=(2)
+# baseline_vals=("weibull")
+baseline_vals=("gompertz")
 sampler_vals=("hmc") # hmc, nuts, mala, ula
 # hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs
 
@@ -40,18 +40,18 @@ for sampler in "${sampler_vals[@]}"; do
                         --p "$p" \
                         --nonzero "$nonzero" \
                         --baseline "$baseline" \
-                        --priors cox-rhs \
+                        --priors prox-lasso \
                         --sampler "$sampler" \
                         --nuts-backend explicit \
-                        --hmc-n-leapfrog 20 \
+                        --hmc-n-leapfrog 100 \
                         --samples 5000 \
                         --warmup 2000 \
                         --thin 1 \
                         --chains 4 \
                         --multichains true \
-                        --target-accept 0.95 \
+                        --target-accept 0.8 \
                         --noncentered true \
-                        --seed 1 \
+                        --seed 2 \
                         --use-car true \
                         --progress true \
                         --car-weight-quantile 0.99 \
@@ -72,7 +72,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --mala-adapt-every 1 \
                         --mala-min-step 1e-8 \
                         --mala-max-step 1.0 \
-                        --mala-precondition true \
+                        --mala-precondition false \
                         --mala-stepsize-schedule adaptive_sgld \
                         --mala-sgld-c0 1.0 \
                         --mala-sgld-adapt-c0 true \
@@ -91,6 +91,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --save-jld2 false \
                         --alpha-prior-shape 1 \
                         --alpha-prior-scale 1 \
+                        --alpha-prior-kind invgamma \
                         --rhs-slab-df 4 \
                         --rhs-slab-s2 2 \
                         --hs-tau-scale 1 \

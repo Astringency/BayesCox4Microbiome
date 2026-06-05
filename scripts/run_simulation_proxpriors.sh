@@ -22,6 +22,7 @@ p_vals=(50 150)
 non_vals=(6 12)
 # non_vals=(2)
 baseline_vals=("weibull" "exponential" "gompertz")
+# ,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso
 
 pids=()
 
@@ -31,12 +32,12 @@ for n in "${n_vals[@]}"; do
             for baseline in "${baseline_vals[@]}"; do
                 echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
 
-                julia "+1.11.7" -t 4 --project=. scripts/run_simulation.jl \
+                julia "+1.11.7" -t 4 --project=. ./scripts/run_simulation.jl \
                     --sampler hmc \
                     --nuts-backend explicit \
-                    --hmc-n-leapfrog 20 \
+                    --hmc-n-leapfrog 50 \
                     --samples 5000 \
-                    --warmup 2000 \
+                    --warmup 5000 \
                     --thin 1 \
                     --chains 4 \
                     --multichains true \
@@ -45,11 +46,11 @@ for n in "${n_vals[@]}"; do
                     --p "$p" \
                     --nonzero "$nonzero" \
                     --baseline "$baseline" \
-                    --constraint prox \
-                    --priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso \
-                    --target-accept 0.95 \
+                    --constraint soft_center \
+                    --priors hs \
+                    --target-accept 0.9 \
                     --noncentered true \
-                    --prox-sum0-lambda 1e-3 \
+                    --prox-sum0-lambda 1e-6 \
                     --prox-l1-lambda 1e-5 \
                     --alpha-prior-shape 1 \
                     --alpha-prior-scale 1 \
