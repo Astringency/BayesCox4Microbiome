@@ -65,9 +65,9 @@ end
 function initial_state(
     prior::RegularizedHorseshoePrior,
     p::Integer,
-    n_events::Integer;
+    n_events::Integer; init::Symbol = :zero,
     n_obs::Union{Nothing,Integer} = nothing,
-    beta0 = zeros(Float64, p),
+    beta0 = init == :rand ? _default_unconstrained_init(p) : zeros(Float64, p),
     car_weights = nothing,
     sample_car_strength::Bool = false,
     car_strength_prior_a::Real = 1.0,
@@ -86,13 +86,13 @@ function initial_state(
         )
     end
     tau0 = _resolved_tau_scale(prior, p, n_events; n_obs = n_obs)
-    init = vcat(collect(Float64, beta0), [log(_global_tau_cauchy_scale(tau0))], zeros(p), [log(prior.slab_s2)])
+    init_vec = vcat(collect(Float64, beta0), [log(_global_tau_cauchy_scale(tau0))], init == :rand ? _default_unconstrained_init(p) : zeros(p), [log(prior.slab_s2)])
     if prior.sample_pseudo_sigma
         pseudo_sigma2_init = prior.pseudo_sigma === nothing ? prior.pseudo_sigma_scale : prior.pseudo_sigma^2
-        push!(init, log(pseudo_sigma2_init))
+        push!(init_vec, log(pseudo_sigma2_init))
     end
-    sample_car_strength && push!(init, _logit_from_probability(car_kappa_init, "car_kappa_init"))
-    return init
+    sample_car_strength && push!(init_vec, _logit_from_probability(car_kappa_init, "car_kappa_init"))
+    return init_vec
 end
 
 function _prior_logposterior(

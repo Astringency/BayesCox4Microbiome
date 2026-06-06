@@ -3,7 +3,16 @@
     "allow": [
       "Bash(julia +1.11.7 --project=. -e \"using BayesCox4Micro; println\\(\\\\\"Module loaded successfully\\\\\"\\)\")",
       "Bash(julia +1.11.7 --project=. -e \"using Pkg; Pkg.test\\(\\)\")",
-      "Bash(julia +1.11.7 --project=. -e 'using Pkg; Pkg.test\\(test_args=[\"mala_precondition\"]\\)')"
+      "Bash(julia +1.11.7 --project=. -e 'using Pkg; Pkg.test\\(test_args=[\"mala_precondition\"]\\)')",
+      "Bash(cd *)",
+      "Bash(julia -e 'using Pkg; Pkg.activate\\(\".\"\\); include\\(\"src/BayesCox4Micro.jl\"\\)')",
+      "Bash(julia -e ' *)",
+      "Bash(grep -v \"Precompile\\\\|WARNING\\\\|Activating\\\\|^$\\\\|    [0-9]\")",
+      "Bash(sed -i '153d' scripts/analyze_real_data.jl)",
+      "Bash(sed -i '266d' scripts/run_simulation.jl)",
+      "Bash(julia *)",
+      "Bash(sed -i '511s/parallel_chains::Bool,/parallel_chains::Bool,\\\\n    init::Symbol = :zero,/' mainfuncs/samplers/nuts_explicit_sampler.jl)",
+      "Bash(sed -i '109s/parallel_chains::Bool,/parallel_chains::Bool,\\\\n    init::Symbol = :zero,/' mainfuncs/samplers/hmc_sampler.jl)"
     ]
   }
 }

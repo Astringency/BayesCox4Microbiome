@@ -44,9 +44,9 @@ end
 function _noncentered_initial_state(
     prior::HorseshoePrior,
     p::Integer,
-    n_events::Integer;
+    n_events::Integer; init::Symbol = :zero,
     n_obs::Union{Nothing,Integer} = nothing,
-    beta0 = zeros(Float64, p),
+    beta0 = init == :rand ? _default_unconstrained_init(p) : zeros(Float64, p),
     car_weights = nothing,
     sample_car_strength::Bool = false,
     car_strength_prior_a::Real = 1.0,
@@ -65,19 +65,19 @@ function _noncentered_initial_state(
         )
     end
     log_tau = log(_resolved_tau_scale(prior, p, n_events))
-    log_lambda = zeros(Float64, p)
+    log_lambda = init == :rand ? _default_unconstrained_init(p) : zeros(Float64, p)
     beta_raw = collect(Float64, beta0) ./ exp(log_tau)
-    init = vcat(beta_raw, [log_tau], log_lambda)
-    sample_car_strength && push!(init, _logit_from_probability(car_kappa_init, "car_kappa_init"))
-    return init
+    init_vec = vcat(beta_raw, [log_tau], log_lambda)
+    sample_car_strength && push!(init_vec, _logit_from_probability(car_kappa_init, "car_kappa_init"))
+    return init_vec
 end
 
 function _noncentered_initial_state(
     prior::RegularizedHorseshoePrior,
     p::Integer,
-    n_events::Integer;
+    n_events::Integer; init::Symbol = :zero,
     n_obs::Union{Nothing,Integer} = nothing,
-    beta0 = zeros(Float64, p),
+    beta0 = init == :rand ? _default_unconstrained_init(p) : zeros(Float64, p),
     car_weights = nothing,
     sample_car_strength::Bool = false,
     car_strength_prior_a::Real = 1.0,
@@ -95,7 +95,7 @@ function _noncentered_initial_state(
         sample_car_strength = sample_car_strength,
         car_strength_prior_a = car_strength_prior_a,
         car_strength_prior_b = car_strength_prior_b,
-        car_kappa_init = car_kappa_init,
+        car_kappa_init = car_kappa_init, init = init,
     )
     log_tau = centered[p + 1]
     log_lambda = view(centered, (p + 2):(2p + 1))

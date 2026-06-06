@@ -343,6 +343,7 @@ function _sample_nuts(
     prox_root_maxiter::Integer = 100,
     thin::Integer = 1,
     noncentered::Bool = false,
+    init::Symbol = :zero,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))

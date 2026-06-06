@@ -116,6 +116,7 @@ function _sample_mh(
     max_step::Real = 1.0,
     constraint::Symbol = :soft_center,
     prox_sum0_lambda::Real = 1e-3,
+    init::Symbol = :zero,
     center_beta_proposal::Bool = true,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
@@ -149,6 +150,7 @@ function _sample_mh(
                 p,
                 n_events;
                 n_obs = size(data.z, 1),
+                init = init,
                 car_weights = effective_car_weights,
                 sample_car_strength = sample_car_strength,
                 car_strength_prior_a = car_strength_prior_a,
@@ -160,6 +162,7 @@ function _sample_mh(
                 prior,
                 p,
                 n_events;
+                init = init,
                 car_weights = effective_car_weights,
                 sample_car_strength = prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ? sample_car_strength : false,
                 car_strength_prior_a = car_strength_prior_a,

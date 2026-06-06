@@ -367,6 +367,7 @@ function sample_bayes_cox(
     car_degree_scale::Symbol = :mean_active,
     car_kappa_init::Real = 0.5,
     noncentered::Bool = false,
+    init::Symbol = :zero,
     kwargs...,
 )
     car_weights !== nothing && car_distance !== nothing && use_car &&
@@ -430,6 +431,7 @@ function sample_bayes_cox(
     car_degree_scale::Symbol = :mean_active,
     car_kappa_init::Real = 0.5,
     noncentered::Bool = false,
+    init::Symbol = :zero,
     kwargs...,
 )
     car_weights !== nothing && car_distance !== nothing && use_car &&
@@ -480,6 +482,7 @@ function sample_bayes_cox(
                         data,
                         prior;
                         rng = rng,
+                        init = init,
                         car_weights = resolved_car_weights,
                         use_car = use_car,
                         car_precision = car_precision,
@@ -496,6 +499,7 @@ function sample_bayes_cox(
                         data,
                         prior;
                         rng = rng,
+                        init = init,
                         chains = chain_count,
                         car_weights = resolved_car_weights,
                         use_car = use_car,
@@ -515,6 +519,7 @@ function sample_bayes_cox(
                         data,
                         prior;
                         rng = rng,
+                        init = init,
                         multichains = multichains,
                         car_weights = resolved_car_weights,
                         use_car = use_car,
@@ -532,6 +537,7 @@ function sample_bayes_cox(
                         data,
                         prior;
                         rng = rng,
+                        init = init,
                         chains = chain_count,
                         multichains = multichains,
                         car_weights = resolved_car_weights,
@@ -555,6 +561,7 @@ function sample_bayes_cox(
             prior;
             rng = rng,
             chains = chain_count,
+            init = init,
             multichains = multichains,
             car_weights = resolved_car_weights,
             use_car = use_car,
@@ -670,6 +677,7 @@ function sample_bayes_cox(
                     prior,
                     chain_count;
                     rng = rng,
+                    init = init,
                     multichains = multichains,
                     kwargs...,
                 )
@@ -679,6 +687,7 @@ function sample_bayes_cox(
                     prior,
                     chain_count;
                     rng = rng,
+                    init = init,
                     multichains = multichains,
                     car_weights = resolved_car_weights,
                     use_car = use_car,

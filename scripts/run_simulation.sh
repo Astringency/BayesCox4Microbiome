@@ -23,7 +23,7 @@ p_vals=(10)
 non_vals=(2)
 # baseline_vals=("weibull")
 baseline_vals=("gompertz")
-sampler_vals=("hmc") # hmc, nuts, mala, ula
+sampler_vals=("nuts") # hmc, nuts, mala, ula
 # hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs
 
 for sampler in "${sampler_vals[@]}"; do
@@ -49,9 +49,10 @@ for sampler in "${sampler_vals[@]}"; do
                         --thin 1 \
                         --chains 4 \
                         --multichains true \
+                        --init rand \
                         --target-accept 0.8 \
                         --noncentered true \
-                        --seed 2 \
+                        --seed 1 \
                         --use-car true \
                         --progress true \
                         --car-weight-quantile 0.99 \
@@ -63,8 +64,8 @@ for sampler in "${sampler_vals[@]}"; do
                         --p0 truth \
                         --p0-alpha 0.05 \
                         --constraint prox \
-                        --prox-sum0-lambda 1e-3 \
-                        --prox-l1-lambda 1e-5 \
+                        --prox-sum0-lambda 1e-6 \
+                        --prox-l1-lambda 1e-4 \
                         --prox-root-tol 1e-10 \
                         --prox-root-maxiter 100 \
                         --mala-step-size 1e-2 \
@@ -89,7 +90,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --first-rep-sample-thin 1 \
                         --save-wide-csv true \
                         --save-jld2 false \
-                        --alpha-prior-shape 1 \
+                        --alpha-prior-shape 2 \
                         --alpha-prior-scale 1 \
                         --alpha-prior-kind invgamma \
                         --rhs-slab-df 4 \

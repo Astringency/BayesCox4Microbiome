@@ -5,9 +5,9 @@ end
 
 function _normalize_alpha_prior_kind(alpha_prior_kind)
     kind = Symbol(alpha_prior_kind)
-    if kind in (:invgamma, :inverse_gamma, :inv_gamma)
+    if kind == :invgamma
         return :invgamma
-    elseif kind in (:halfcauchy, :half_cauchy)
+    elseif kind == :halfcauchy
         return :halfcauchy
     end
     throw(ArgumentError("alpha_prior_kind must be :invgamma or :halfcauchy."))

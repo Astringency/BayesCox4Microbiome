@@ -11,6 +11,7 @@ struct CoxProxLassoTarget <: AbstractCoxTarget
     alpha_prior_kind::Symbol
     prox_root_tol::Float64
     prox_root_maxiter::Int
+    init::Symbol
     work::ProxGradientWorkspace
 end
 
@@ -25,6 +26,7 @@ function CoxProxLassoTarget(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    init::Symbol = :zero,
 )
     return CoxProxLassoTarget(
         data,
@@ -37,6 +39,7 @@ function CoxProxLassoTarget(
         _normalize_alpha_prior_kind(alpha_prior_kind),
         Float64(prox_root_tol),
         Int(prox_root_maxiter),
+        init,
         ProxGradientWorkspace(data),
     )
 end
@@ -54,6 +57,7 @@ struct CoxProxSSLassoTarget <: AbstractCoxTarget
     alpha_prior_kind::Symbol
     prox_root_tol::Float64
     prox_root_maxiter::Int
+    init::Symbol
     work::ProxGradientWorkspace
 end
 
@@ -131,6 +135,7 @@ function CoxProxSSLassoTarget(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    init::Symbol = :zero,
 )
     gamma_ref = gamma isa Vector{Bool} ? gamma : collect(Bool, gamma)
     return CoxProxSSLassoTarget(
@@ -146,6 +151,7 @@ function CoxProxSSLassoTarget(
         _normalize_alpha_prior_kind(alpha_prior_kind),
         Float64(prox_root_tol),
         Int(prox_root_maxiter),
+        init,
         ProxGradientWorkspace(data),
     )
 end
@@ -153,8 +159,14 @@ end
 dimension(target::AbstractCoxTarget) = length(state_names(target))
 dimension(target::CoxNoncenteredPosteriorTarget) = length(target.names)
 
-initial_state(target::Union{CoxProxLassoTarget,CoxProxSSLassoTarget}) =
-    vcat(zeros(Float64, size(target.data.z, 2)), [0.0])
+function initial_state(target::Union{CoxProxLassoTarget,CoxProxSSLassoTarget})
+    p = size(target.data.z, 2)
+    if target.init == :rand
+        return vcat(_default_unconstrained_init(p), _default_unconstrained_init(1))
+    else
+        return vcat(zeros(Float64, p), [0.0])
+    end
+end
 
 function initial_state(target::CoxNoncenteredPosteriorTarget)
     p = size(target.data.z, 2)

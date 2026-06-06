@@ -249,6 +249,7 @@ function _generic_explicit_initial(
     car_strength_prior_a::Real = 1.0,
     car_strength_prior_b::Real = 1.0,
     car_kappa_init::Real = 0.5,
+    init::Symbol = :zero,
 )
     initial !== nothing && return collect(Float64, initial)
     p = size(data.z, 2)
@@ -259,6 +260,7 @@ function _generic_explicit_initial(
             p,
             n_events;
             n_obs = size(data.z, 1),
+            init = init,
             car_weights = car_weights,
             sample_car_strength = sample_car_strength,
             car_strength_prior_a = car_strength_prior_a,
@@ -270,6 +272,7 @@ function _generic_explicit_initial(
             prior,
             p,
             n_events;
+            init = init,
             car_weights = car_weights,
             sample_car_strength = sample_car_strength,
             car_strength_prior_a = car_strength_prior_a,
@@ -289,6 +292,7 @@ function _generic_explicit_initial(
     car_strength_prior_a::Real = 1.0,
     car_strength_prior_b::Real = 1.0,
     car_kappa_init::Real = 0.5,
+    init::Symbol = :zero,
 )
     initial !== nothing && return collect(Float64, initial)
     p = size(data.z, 2)
@@ -300,6 +304,7 @@ function _generic_explicit_initial(
                 p,
                 n_events;
                 n_obs = size(data.z, 1),
+                init = init,
                 car_weights = car_weights,
                 sample_car_strength = sample_car_strength,
                 car_strength_prior_a = car_strength_prior_a,
@@ -310,6 +315,7 @@ function _generic_explicit_initial(
                 prior,
                 p,
                 n_events;
+                init = init,
                 car_weights = car_weights,
                 sample_car_strength = sample_car_strength,
                 car_strength_prior_a = car_strength_prior_a,
@@ -323,6 +329,7 @@ function _generic_explicit_initial(
             p,
             n_events;
             n_obs = size(data.z, 1),
+            init = init,
             car_weights = car_weights,
             sample_car_strength = sample_car_strength,
             car_strength_prior_a = car_strength_prior_a,
@@ -333,6 +340,7 @@ function _generic_explicit_initial(
             prior,
             p,
             n_events;
+            init = init,
             car_weights = car_weights,
             sample_car_strength = sample_car_strength,
             car_strength_prior_a = car_strength_prior_a,
@@ -352,6 +360,7 @@ function _make_explicit_nuts_target(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    init::Symbol = :zero,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
@@ -389,6 +398,7 @@ function _make_explicit_nuts_target(
         alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
+        init = init,
     )
 end
 
@@ -499,6 +509,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
     prox_root_maxiter::Integer,
     progress::Bool,
     parallel_chains::Bool,
+    init::Symbol = :zero,
 )
     timed = @timed begin
         if chains == 1
@@ -525,6 +536,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
                 alpha_prior_kind = alpha_prior_kind,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
+                init = init,
                 progress = progress,
                 progress_desc = "SSLASSO explicit prox NUTS-Gibbs",
                 progress_offset = 0,
@@ -624,6 +636,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
     alpha_prior_kind,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    init::Symbol = :zero,
     progress::Bool,
     progress_desc::AbstractString = "SSLASSO explicit prox NUTS-Gibbs",
     progress_offset::Integer = 0,
@@ -779,6 +792,7 @@ function _sample_nuts_explicit(
     progress::Bool = true,
     multichains::Bool = false,
     parallel_chains::Union{Nothing,Bool} = nothing,
+    init::Symbol = :zero,
     noncentered::Bool = false,
     kwargs...,
 )
@@ -812,6 +826,7 @@ function _sample_nuts_explicit(
             data,
             initial;
             noncentered = noncentered,
+            init = init,
             car_weights = effective_car_weights,
             sample_car_strength = sample_car_strength,
             car_strength_prior_a = car_strength_prior_a,
@@ -822,6 +837,7 @@ function _sample_nuts_explicit(
             prior,
             data,
             initial;
+            init = init,
             car_weights = effective_car_weights,
             sample_car_strength = false,
         )

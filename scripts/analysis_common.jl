@@ -42,6 +42,7 @@ const SAMPLER_GENERAL_CLI_KEYS = (
     "multichains",
     "target-accept",
     "noncentered",
+    "init",
     "seed",
     "progress",
 )
@@ -1052,6 +1053,7 @@ function fit_and_evaluate(
     alpha_prior_shape = nothing,
     alpha_prior_scale = nothing,
     alpha_prior_kind = :invgamma,
+    init::Symbol = :zero,
     progress::Bool = true,
 )
     pseudocount_value = pseudocount === nothing ? (realdata ? 1e-6 : 0.0) : Float64(pseudocount)
@@ -1127,6 +1129,7 @@ function fit_and_evaluate(
                 alpha_prior_kind = alpha_prior_kind,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
+                init = init,
                 progress = progress,
                 explicit_nuts_kwargs...,
             )
@@ -1174,6 +1177,7 @@ function fit_and_evaluate(
                 prox_block_adapt_every = prox_block_adapt_every,
                 prox_block_divergence_threshold = prox_block_divergence_threshold,
                 prox_block_metric = prox_block_metric,
+                init = init,
                 progress = progress,
             )
         elseif sampler == :mh || sampler == :mala || sampler == :ula
@@ -1229,6 +1233,7 @@ function fit_and_evaluate(
                     mala_sgld_adapt_every = mala_sgld_adapt_every,
                     mala_sgld_c0_min = mala_sgld_c0_min,
                     mala_sgld_c0_max = mala_sgld_c0_max,
+                    init = init,
                     progress = progress,
                 )
             else
@@ -1259,6 +1264,7 @@ function fit_and_evaluate(
                     tie_method = tie_method,
                     constraint = constraint,
                     prox_sum0_lambda = prox_sum0_lambda,
+                    init = init,
                     progress = progress,
                 )
             end
@@ -1296,6 +1302,7 @@ function fit_and_evaluate(
                 alpha_prior_kind = alpha_prior_kind,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
+                init = init,
                 progress = progress,
             )
         else

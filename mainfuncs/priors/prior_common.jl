@@ -149,3 +149,11 @@ function _positive_t_logpdf_derivative(x::Real, df::Real, scale::Real)
     return -(ν + 1.0) * Float64(x) / (ν * s^2 + Float64(x)^2)
 end
 
+
+"""
+    _default_unconstrained_init(n::Integer)
+
+Default unconstrained parameter initialization: draw `n` independent samples
+from Uniform(-2.0, 2.0). Used when `init = :rand`.
+"""
+_default_unconstrained_init(n::Integer) = 4.0 .* rand(Float64, n) .- 2.0

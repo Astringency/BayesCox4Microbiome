@@ -622,13 +622,20 @@ function _sample_lasso_prox_mala(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    init::Symbol = :zero,
     progress::Bool,
     progress_desc::AbstractString = "MALA sampling",
     progress_offset::Integer = 0,
 )
     p = size(data.z, 2)
-    init = initial === nothing ? vcat(zeros(Float64, p), [0.0]) : collect(Float64, initial)
-    length(init) == p + 1 || throw(DimensionMismatch("initial length must be p + 1 for prox LASSO MALA."))
+    init_vec = if initial !== nothing
+        collect(Float64, initial)
+    elseif init == :rand
+        vcat(_default_unconstrained_init(p), _default_unconstrained_init(1))
+    else
+        vcat(zeros(Float64, p), [0.0])
+    end
+    length(init_vec) == p + 1 || throw(DimensionMismatch("initial length must be p + 1 for prox LASSO MALA."))
     names = vcat(["beta[$j]" for j in 1:p], ["eta"])
     logpost = u -> _lasso_prox_logposterior(
         u,
@@ -691,7 +698,7 @@ function _sample_lasso_prox_mala(
         ridge = 0.0,
         diag_only = mala_precondition_diag,
     )
-    return _run_full_mala(logpost, gradient, init, names; n_samples = n_samples, warmup = warmup, thin = thin, rng = rng,
+    return _run_full_mala(logpost, gradient, init_vec, names; n_samples = n_samples, warmup = warmup, thin = thin, rng = rng,
         mala_step_size = mala_step_size, mala_target_accept = mala_target_accept, mala_adapt_every = mala_adapt_every,
         mala_min_step = mala_min_step, mala_max_step = mala_max_step, mala_precondition = mala_precondition,
         mala_metric_ridge = mala_metric_ridge, mala_metric_max_cholesky_tries = mala_metric_max_cholesky_tries,
@@ -924,6 +931,7 @@ function _sample_ssl_prox_mala(
     alpha_prior_kind::Symbol,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    init::Symbol = :zero,
     progress::Bool,
     progress_desc::AbstractString = "SSLASSO prox MALA",
     progress_offset::Integer = 0,
@@ -932,7 +940,13 @@ function _sample_ssl_prox_mala(
     # updated by Bernoulli Gibbs, while MALA only targets continuous beta/eta.
     # This is distinct from the marginal mixture-Laplace SSLASSO target.
     p = size(data.z, 2)
-    u = initial === nothing ? vcat(zeros(Float64, p), [0.0]) : collect(Float64, initial)
+    u = if initial !== nothing
+        collect(Float64, initial)
+    elseif init == :rand
+        vcat(_default_unconstrained_init(p), _default_unconstrained_init(1))
+    else
+        vcat(zeros(Float64, p), [0.0])
+    end
     length(u) == p + 1 || throw(DimensionMismatch("initial length must be p + 1 for prox SSLASSO MALA."))
     gamma = trues(p)
     theta = 0.5
@@ -1179,6 +1193,7 @@ function _sample_mala(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real = 1e-10,
     prox_root_maxiter::Integer = 100,
+    init::Symbol = :zero,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
@@ -1264,6 +1279,7 @@ function _sample_mala(
             alpha_prior_kind = a_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
+            init = init,
             progress = progress,
             progress_desc = progress_desc,
             progress_offset = progress_offset,
@@ -1304,13 +1320,14 @@ function _sample_mala(
             alpha_prior_kind = a_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
+            init = init,
             progress = progress,
             progress_desc = progress_desc,
             progress_offset = progress_offset,
         )
     end
 
-    init =
+    init_vec =
         if initial !== nothing
             collect(Float64, initial)
         elseif prior isa RegularizedHorseshoePrior
@@ -1319,6 +1336,7 @@ function _sample_mala(
                 p,
                 n_events;
                 n_obs = size(data.z, 1),
+                init = init,
                 car_weights = effective_car_weights,
                 sample_car_strength = sample_car_strength,
                 car_strength_prior_a = car_strength_prior_a,
@@ -1330,6 +1348,7 @@ function _sample_mala(
                 prior,
                 p,
                 n_events;
+                init = init,
                 car_weights = effective_car_weights,
                 sample_car_strength = prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ? sample_car_strength : false,
                 car_strength_prior_a = car_strength_prior_a,
@@ -1344,7 +1363,7 @@ function _sample_mala(
         warmup = warmup,
         thin = thin,
         rng = rng,
-        initial = init,
+        initial = init_vec,
         mala_step_size = mala_step_size,
         mala_target_accept = mala_target_accept,
         mala_adapt_every = mala_adapt_every,
@@ -1403,6 +1422,7 @@ function _sample_ula(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real = 1e-10,
     prox_root_maxiter::Integer = 100,
+    init::Symbol = :zero,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
@@ -1439,7 +1459,13 @@ function _sample_ula(
     use_proximal_prior = _is_proximal_l1_prior(prior)
 
     if prior isa BayesianLassoPrior && use_proximal_prior
-        init = initial === nothing ? vcat(zeros(Float64, p), [0.0]) : collect(Float64, initial)
+        init_vec = if initial !== nothing
+            collect(Float64, initial)
+        elseif init == :rand
+            vcat(_default_unconstrained_init(p), _default_unconstrained_init(1))
+        else
+            vcat(zeros(Float64, p), [0.0])
+        end
         names = vcat(["beta[$j]" for j in 1:p], ["eta"])
         logpost = u -> _lasso_prox_logposterior(
             u,
@@ -1481,7 +1507,7 @@ function _sample_ula(
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
         )
-        return _run_full_ula(logpost, gradient, init, names; n_samples = n_samples, warmup = warmup, thin = thin,
+        return _run_full_ula(logpost, gradient, init_vec, names; n_samples = n_samples, warmup = warmup, thin = thin,
             rng = rng, mala_step_size = mala_step_size, progress = progress,
             progress_desc = progress_desc, progress_offset = progress_offset, gradient! = gradient!)
     elseif prior isa SpikeSlabLassoPrior && use_proximal_prior
@@ -1502,13 +1528,14 @@ function _sample_ula(
             alpha_prior_kind = a_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
+            init = init,
             progress = progress,
             progress_desc = progress_desc,
             progress_offset = progress_offset,
         )
     end
 
-    init =
+    init_vec =
         if initial !== nothing
             collect(Float64, initial)
         elseif prior isa RegularizedHorseshoePrior
@@ -1517,6 +1544,7 @@ function _sample_ula(
                 p,
                 n_events;
                 n_obs = size(data.z, 1),
+                init = init,
                 car_weights = effective_car_weights,
                 sample_car_strength = sample_car_strength,
                 car_strength_prior_a = car_strength_prior_a,
@@ -1528,6 +1556,7 @@ function _sample_ula(
                 prior,
                 p,
                 n_events;
+                init = init,
                 car_weights = effective_car_weights,
                 sample_car_strength = prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ? sample_car_strength : false,
                 car_strength_prior_a = car_strength_prior_a,
@@ -1542,7 +1571,7 @@ function _sample_ula(
         warmup = warmup,
         thin = thin,
         rng = rng,
-        initial = init,
+        initial = init_vec,
         mala_step_size = mala_step_size,
         initial_step = initial_step,
         constraint = resolved_constraint,
@@ -1578,12 +1607,19 @@ function _sample_ssl_prox_ula(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    init::Symbol = :zero,
     progress::Bool,
     progress_desc::AbstractString = "SSLASSO prox ULA",
     progress_offset::Integer = 0,
 )
     p = size(data.z, 2)
-    u = initial === nothing ? vcat(zeros(Float64, p), [0.0]) : collect(Float64, initial)
+    u = if initial !== nothing
+        collect(Float64, initial)
+    elseif init == :rand
+        vcat(_default_unconstrained_init(p), _default_unconstrained_init(1))
+    else
+        vcat(zeros(Float64, p), [0.0])
+    end
     length(u) == p + 1 || throw(DimensionMismatch("initial length must be p + 1 for prox SSLASSO ULA."))
     gamma = trues(p)
     theta = 0.5

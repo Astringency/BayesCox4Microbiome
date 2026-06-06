@@ -75,6 +75,7 @@ function _sample_ssl_gibbs(
     max_step::Real = 1.0,
     constraint::Symbol = :soft_center,
     prox_sum0_lambda::Real = 1e-3,
+    init::Symbol = :zero,
     center_beta_proposal::Bool = true,
     chains::Integer = 1,
     progress::Bool = true,
@@ -90,7 +91,13 @@ function _sample_ssl_gibbs(
     _validate_prior(prior)
 
     p = size(data.z, 2)
-    beta = initial_beta === nothing ? zeros(Float64, p) : collect(Float64, initial_beta)
+    beta = if initial_beta !== nothing
+        collect(Float64, initial_beta)
+    elseif init == :rand
+        _default_unconstrained_init(p)
+    else
+        zeros(Float64, p)
+    end
     length(beta) == p || throw(DimensionMismatch("initial_beta length must match p."))
     theta = 0.5
     gamma = trues(p)
@@ -235,6 +242,7 @@ function _sample_coordinate_gibbs(
     max_step::Real = 1.0,
     constraint::Symbol = :soft_center,
     prox_sum0_lambda::Real = 1e-3,
+    init::Symbol = :zero,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
@@ -275,6 +283,7 @@ function _sample_coordinate_gibbs(
                 p,
                 n_events;
                 n_obs = size(data.z, 1),
+                init = init,
                 car_weights = effective_car_weights,
                 sample_car_strength = sample_car_strength,
                 car_strength_prior_a = car_strength_prior_a,
@@ -286,6 +295,7 @@ function _sample_coordinate_gibbs(
                 prior,
                 p,
                 n_events;
+                init = init,
                 car_weights = effective_car_weights,
                 sample_car_strength = prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ? sample_car_strength : false,
                 car_strength_prior_a = car_strength_prior_a,

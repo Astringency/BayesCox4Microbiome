@@ -111,6 +111,7 @@ function _sample_ssl_prox_explicit_hmc_gibbs(
     alpha_prior_kind,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    init::Symbol = :zero,
     progress::Bool,
     parallel_chains::Bool,
 )
@@ -242,6 +243,7 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
     alpha_prior_kind,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    init::Symbol = :zero,
     progress::Bool,
     progress_desc::AbstractString = "SSLASSO explicit prox HMC-Gibbs",
     progress_offset::Integer = 0,
@@ -291,6 +293,7 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
         alpha_prior_kind = a_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
+        init = init,
     )
     prog = _progress_meter(progress, total_iter, "SSLASSO explicit prox HMC-Gibbs"; progress_desc = progress_desc, progress_offset = progress_offset)
     for iter in 1:total_iter
@@ -389,6 +392,7 @@ function _sample_hmc_explicit(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real = 1e-10,
     prox_root_maxiter::Integer = 100,
+    init::Symbol = :zero,
     car_weights = nothing,
     use_car::Bool = car_weights !== nothing,
     car_precision::Real = 1.0,
@@ -433,6 +437,7 @@ function _sample_hmc_explicit(
             data,
             initial;
             noncentered = noncentered,
+            init = init,
             car_weights = effective_car_weights,
             sample_car_strength = sample_car_strength,
             car_strength_prior_a = car_strength_prior_a,
@@ -443,6 +448,7 @@ function _sample_hmc_explicit(
             prior,
             data,
             initial;
+            init = init,
             car_weights = effective_car_weights,
             sample_car_strength = false,
         )
