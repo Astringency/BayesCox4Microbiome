@@ -151,9 +151,17 @@ end
 
 
 """
+    _default_unconstrained_init(rng::AbstractRNG, n::Integer)
+
+Default unconstrained parameter initialization when a specific RNG is provided:
+draw `n` independent samples from Uniform(-2.0, 2.0). Used when `init = :rand`.
+"""
+_default_unconstrained_init(rng::AbstractRNG, n::Integer) = 4.0 .* rand(rng, Float64, n) .- 2.0
+
+"""
     _default_unconstrained_init(n::Integer)
 
-Default unconstrained parameter initialization: draw `n` independent samples
-from Uniform(-2.0, 2.0). Used when `init = :rand`.
+Default unconstrained parameter initialization using the global RNG:
+draw `n` independent samples from Uniform(-2.0, 2.0). Used when `init = :rand`.
 """
-_default_unconstrained_init(n::Integer) = 4.0 .* rand(Float64, n) .- 2.0
+_default_unconstrained_init(n::Integer) = _default_unconstrained_init(Random.default_rng(), n)

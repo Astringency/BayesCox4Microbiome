@@ -631,7 +631,7 @@ function _sample_lasso_prox_mala(
     init_vec = if initial !== nothing
         collect(Float64, initial)
     elseif init == :rand
-        vcat(_default_unconstrained_init(p), _default_unconstrained_init(1))
+        vcat(_default_unconstrained_init(rng, p), _default_unconstrained_init(rng, 1))
     else
         vcat(zeros(Float64, p), [0.0])
     end
@@ -943,7 +943,7 @@ function _sample_ssl_prox_mala(
     u = if initial !== nothing
         collect(Float64, initial)
     elseif init == :rand
-        vcat(_default_unconstrained_init(p), _default_unconstrained_init(1))
+        vcat(_default_unconstrained_init(rng, p), _default_unconstrained_init(rng, 1))
     else
         vcat(zeros(Float64, p), [0.0])
     end
@@ -1462,7 +1462,7 @@ function _sample_ula(
         init_vec = if initial !== nothing
             collect(Float64, initial)
         elseif init == :rand
-            vcat(_default_unconstrained_init(p), _default_unconstrained_init(1))
+            vcat(_default_unconstrained_init(rng, p), _default_unconstrained_init(rng, 1))
         else
             vcat(zeros(Float64, p), [0.0])
         end
@@ -1616,7 +1616,7 @@ function _sample_ssl_prox_ula(
     u = if initial !== nothing
         collect(Float64, initial)
     elseif init == :rand
-        vcat(_default_unconstrained_init(p), _default_unconstrained_init(1))
+        vcat(_default_unconstrained_init(rng, p), _default_unconstrained_init(rng, 1))
     else
         vcat(zeros(Float64, p), [0.0])
     end

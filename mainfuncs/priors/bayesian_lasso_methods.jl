@@ -18,8 +18,8 @@ end
 function initial_state(
     prior::BayesianLassoPrior,
     p::Integer,
-    n_events::Integer; init::Symbol = :zero,
-    beta0 = init == :rand ? _default_unconstrained_init(p) : zeros(Float64, p),
+    n_events::Integer; rng::AbstractRNG = Random.default_rng(), init::Symbol = :zero,
+    beta0 = init == :rand ? _default_unconstrained_init(rng, p) : zeros(Float64, p),
     kwargs...,
 )
     _validate_prior(prior)
@@ -27,10 +27,10 @@ function initial_state(
     if prior.lambda === nothing
         lambda2_init = prior.lambda2_shape / prior.lambda2_rate
         tau2_init = 2 / lambda2_init
-        return vcat(collect(Float64, beta0), init == :rand ? _default_unconstrained_init(p) : fill(log(tau2_init), p), [log(lambda2_init)])
+        return vcat(collect(Float64, beta0), init == :rand ? _default_unconstrained_init(rng, p) : fill(log(tau2_init), p), [log(lambda2_init)])
     else
         tau2_init = 2 / prior.lambda^2
-        return vcat(collect(Float64, beta0), init == :rand ? _default_unconstrained_init(p) : fill(log(tau2_init), p))
+        return vcat(collect(Float64, beta0), init == :rand ? _default_unconstrained_init(rng, p) : fill(log(tau2_init), p))
     end
 end
 

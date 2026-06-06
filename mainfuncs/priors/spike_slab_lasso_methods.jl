@@ -20,17 +20,17 @@ end
 function initial_state(
     prior::SpikeSlabLassoPrior,
     p::Integer,
-    n_events::Integer; init::Symbol = :zero,
-    beta0 = init == :rand ? _default_unconstrained_init(p) : zeros(Float64, p),
+    n_events::Integer; rng::AbstractRNG = Random.default_rng(), init::Symbol = :zero,
+    beta0 = init == :rand ? _default_unconstrained_init(rng, p) : zeros(Float64, p),
     kwargs...,
 )
     _validate_prior(prior)
     length(beta0) == p || throw(DimensionMismatch("length(beta0) must be p."))
     return vcat(
         collect(Float64, beta0),
-        init == :rand ? _default_unconstrained_init(p) : fill(log(2 * prior.spike_scale^2), p),
-        init == :rand ? _default_unconstrained_init(p) : fill(log(2 * prior.slab_scale^2), p),
-        init == :rand ? _default_unconstrained_init(1) : [0.0],
+        init == :rand ? _default_unconstrained_init(rng, p) : fill(log(2 * prior.spike_scale^2), p),
+        init == :rand ? _default_unconstrained_init(rng, p) : fill(log(2 * prior.slab_scale^2), p),
+        init == :rand ? _default_unconstrained_init(rng, 1) : [0.0],
     )
 end
 

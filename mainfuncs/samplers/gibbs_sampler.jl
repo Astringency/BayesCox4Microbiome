@@ -94,7 +94,7 @@ function _sample_ssl_gibbs(
     beta = if initial_beta !== nothing
         collect(Float64, initial_beta)
     elseif init == :rand
-        _default_unconstrained_init(p)
+        _default_unconstrained_init(rng, p)
     else
         zeros(Float64, p)
     end

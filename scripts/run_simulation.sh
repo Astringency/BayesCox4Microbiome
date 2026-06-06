@@ -18,9 +18,9 @@ current_time=$(date "+%Y%m%d_%H%M%S")
 # n_vals=(200 400)
 n_vals=(200)
 # p_vals=(50 150)
-p_vals=(10)
+p_vals=(50)
 # non_vals=(6 12)
-non_vals=(2)
+non_vals=(6)
 # baseline_vals=("weibull")
 baseline_vals=("gompertz")
 sampler_vals=("nuts") # hmc, nuts, mala, ula
@@ -49,7 +49,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --thin 1 \
                         --chains 4 \
                         --multichains true \
-                        --init rand \
+                        --init zero \
                         --target-accept 0.8 \
                         --noncentered true \
                         --seed 1 \
@@ -64,8 +64,8 @@ for sampler in "${sampler_vals[@]}"; do
                         --p0 truth \
                         --p0-alpha 0.05 \
                         --constraint prox \
-                        --prox-sum0-lambda 1e-6 \
-                        --prox-l1-lambda 1e-4 \
+                        --prox-sum0-lambda 1e-3 \
+                        --prox-l1-lambda 1e-2 \
                         --prox-root-tol 1e-10 \
                         --prox-root-maxiter 100 \
                         --mala-step-size 1e-2 \
@@ -90,8 +90,8 @@ for sampler in "${sampler_vals[@]}"; do
                         --first-rep-sample-thin 1 \
                         --save-wide-csv true \
                         --save-jld2 false \
-                        --alpha-prior-shape 2 \
-                        --alpha-prior-scale 1 \
+                        --alpha-prior-shape 1 \
+                        --alpha-prior-scale 100 \
                         --alpha-prior-kind invgamma \
                         --rhs-slab-df 4 \
                         --rhs-slab-s2 2 \

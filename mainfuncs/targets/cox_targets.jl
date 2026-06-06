@@ -159,16 +159,16 @@ end
 dimension(target::AbstractCoxTarget) = length(state_names(target))
 dimension(target::CoxNoncenteredPosteriorTarget) = length(target.names)
 
-function initial_state(target::Union{CoxProxLassoTarget,CoxProxSSLassoTarget})
+function initial_state(target::Union{CoxProxLassoTarget,CoxProxSSLassoTarget}, rng::AbstractRNG = Random.default_rng())
     p = size(target.data.z, 2)
     if target.init == :rand
-        return vcat(_default_unconstrained_init(p), _default_unconstrained_init(1))
+        return vcat(_default_unconstrained_init(rng, p), _default_unconstrained_init(rng, 1))
     else
         return vcat(zeros(Float64, p), [0.0])
     end
 end
 
-function initial_state(target::CoxNoncenteredPosteriorTarget)
+function initial_state(target::CoxNoncenteredPosteriorTarget, rng::AbstractRNG = Random.default_rng())
     p = size(target.data.z, 2)
     n_events = count(!=(0), target.data.event)
     if target.prior isa RegularizedHorseshoePrior
@@ -177,6 +177,7 @@ function initial_state(target::CoxNoncenteredPosteriorTarget)
             p,
             n_events;
             n_obs = size(target.data.z, 1),
+            rng = rng,
             car_weights = target.use_car ? target.car_weights : nothing,
             sample_car_strength = target.sample_car_strength,
             car_strength_prior_a = target.car_strength_prior_a,
@@ -188,6 +189,7 @@ function initial_state(target::CoxNoncenteredPosteriorTarget)
             target.prior,
             p,
             n_events;
+            rng = rng,
             car_weights = target.use_car ? target.car_weights : nothing,
             sample_car_strength = target.sample_car_strength,
             car_strength_prior_a = target.car_strength_prior_a,

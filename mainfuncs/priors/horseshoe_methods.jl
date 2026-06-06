@@ -23,8 +23,8 @@ end
 function initial_state(
     prior::HorseshoePrior,
     p::Integer,
-    n_events::Integer; init::Symbol = :zero,
-    beta0 = init == :rand ? _default_unconstrained_init(p) : zeros(Float64, p),
+    n_events::Integer; rng::AbstractRNG = Random.default_rng(), init::Symbol = :zero,
+    beta0 = init == :rand ? _default_unconstrained_init(rng, p) : zeros(Float64, p),
     car_weights = nothing,
     sample_car_strength::Bool = false,
     car_strength_prior_a::Real = 1.0,
@@ -43,7 +43,7 @@ function initial_state(
         )
     end
     tau0 = _resolved_tau_scale(prior, p, n_events)
-    init_vec = vcat(collect(Float64, beta0), [log(tau0)], init == :rand ? _default_unconstrained_init(p) : zeros(p))
+    init_vec = vcat(collect(Float64, beta0), [log(tau0)], init == :rand ? _default_unconstrained_init(rng, p) : zeros(p))
     sample_car_strength && push!(init_vec, _logit_from_probability(car_kappa_init, "car_kappa_init"))
     return init_vec
 end

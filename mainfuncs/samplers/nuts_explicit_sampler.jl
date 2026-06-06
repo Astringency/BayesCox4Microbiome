@@ -26,7 +26,7 @@ function _sample_explicit_nuts_one(
     max_depth > 0 || throw(ArgumentError("max_depth must be positive."))
     0 < target_accept < 1 || throw(ArgumentError("target_accept must be in (0, 1)."))
 
-    init = initial === nothing ? initial_state(target) : collect(Float64, initial)
+    init = initial === nothing ? initial_state(target, rng) : collect(Float64, initial)
     d = dimension(target)
     length(init) == d || throw(DimensionMismatch("initial length must match target dimension."))
     isfinite(logdensity(target, init)) ||
@@ -244,6 +244,7 @@ function _generic_explicit_initial(
     prior::AbstractCoxPrior,
     data::CoxPreparedData,
     initial;
+    rng::AbstractRNG = Random.default_rng(),
     car_weights = nothing,
     sample_car_strength::Bool = false,
     car_strength_prior_a::Real = 1.0,
@@ -259,6 +260,7 @@ function _generic_explicit_initial(
             prior,
             p,
             n_events;
+            rng = rng,
             n_obs = size(data.z, 1),
             init = init,
             car_weights = car_weights,
@@ -272,6 +274,7 @@ function _generic_explicit_initial(
             prior,
             p,
             n_events;
+            rng = rng,
             init = init,
             car_weights = car_weights,
             sample_car_strength = sample_car_strength,
@@ -286,6 +289,7 @@ function _generic_explicit_initial(
     prior::Union{HorseshoePrior,RegularizedHorseshoePrior},
     data::CoxPreparedData,
     initial;
+    rng::AbstractRNG = Random.default_rng(),
     noncentered::Bool = false,
     car_weights = nothing,
     sample_car_strength::Bool = false,
@@ -303,6 +307,7 @@ function _generic_explicit_initial(
                 prior,
                 p,
                 n_events;
+                rng = rng,
                 n_obs = size(data.z, 1),
                 init = init,
                 car_weights = car_weights,
@@ -315,6 +320,7 @@ function _generic_explicit_initial(
                 prior,
                 p,
                 n_events;
+                rng = rng,
                 init = init,
                 car_weights = car_weights,
                 sample_car_strength = sample_car_strength,
@@ -328,6 +334,7 @@ function _generic_explicit_initial(
             prior,
             p,
             n_events;
+            rng = rng,
             n_obs = size(data.z, 1),
             init = init,
             car_weights = car_weights,
@@ -340,6 +347,7 @@ function _generic_explicit_initial(
             prior,
             p,
             n_events;
+            rng = rng,
             init = init,
             car_weights = car_weights,
             sample_car_strength = sample_car_strength,
@@ -820,28 +828,7 @@ function _sample_nuts_explicit(
             car_kappa_init,
         )
     end
-    generic_initial = prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ?
-        _generic_explicit_initial(
-            prior,
-            data,
-            initial;
-            noncentered = noncentered,
-            init = init,
-            car_weights = effective_car_weights,
-            sample_car_strength = sample_car_strength,
-            car_strength_prior_a = car_strength_prior_a,
-            car_strength_prior_b = car_strength_prior_b,
-            car_kappa_init = car_kappa_init,
-        ) :
-        _generic_explicit_initial(
-            prior,
-            data,
-            initial;
-            init = init,
-            car_weights = effective_car_weights,
-            sample_car_strength = false,
-        )
-    run_parallel = chains > 1 && something(parallel_chains, multichains || chains > 1)
+    run_parallel = chains > 1 && something(parallel_chains, multichains)
     use_proximal_prior = _is_proximal_l1_prior(prior)
 
     timed = @timed begin
@@ -904,7 +891,18 @@ function _sample_nuts_explicit(
                 target_accept = target_accept,
                 max_depth = max_depth,
                 progress = progress,
-                initial = prior isa BayesianLassoPrior && use_proximal_prior ? initial : generic_initial,
+                initial = prior isa BayesianLassoPrior && use_proximal_prior ? initial :
+                    _generic_explicit_initial(
+                        prior, data, initial;
+                        rng = rng,
+                        noncentered = noncentered,
+                        init = init,
+                        car_weights = effective_car_weights,
+                        sample_car_strength = sample_car_strength,
+                        car_strength_prior_a = car_strength_prior_a,
+                        car_strength_prior_b = car_strength_prior_b,
+                        car_kappa_init = car_kappa_init,
+                    ),
             )
         else
             samples = Vector{MHSamples}(undef, chains)
@@ -944,7 +942,18 @@ function _sample_nuts_explicit(
                         progress = progress,
                         progress_desc = _chain_progress_desc("AdvancedHMC NUTS sampling", c, chains),
                         progress_offset = _chain_progress_offset(c, chains),
-                        initial = prior isa BayesianLassoPrior && use_proximal_prior ? initial : generic_initial,
+                        initial = prior isa BayesianLassoPrior && use_proximal_prior ? initial :
+                            _generic_explicit_initial(
+                                prior, data, initial;
+                                rng = rngs[c],
+                                noncentered = noncentered,
+                                init = init,
+                                car_weights = effective_car_weights,
+                                sample_car_strength = sample_car_strength,
+                                car_strength_prior_a = car_strength_prior_a,
+                                car_strength_prior_b = car_strength_prior_b,
+                                car_kappa_init = car_kappa_init,
+                            ),
                     )
                 end
             else
@@ -979,7 +988,18 @@ function _sample_nuts_explicit(
                         target_accept = target_accept,
                         max_depth = max_depth,
                         progress = progress,
-                        initial = prior isa BayesianLassoPrior && use_proximal_prior ? initial : generic_initial,
+                        initial = prior isa BayesianLassoPrior && use_proximal_prior ? initial :
+                            _generic_explicit_initial(
+                                prior, data, initial;
+                                rng = rngs[c],
+                                noncentered = noncentered,
+                                init = init,
+                                car_weights = effective_car_weights,
+                                sample_car_strength = sample_car_strength,
+                                car_strength_prior_a = car_strength_prior_a,
+                                car_strength_prior_b = car_strength_prior_b,
+                                car_kappa_init = car_kappa_init,
+                            ),
                     )
                 end
             end
