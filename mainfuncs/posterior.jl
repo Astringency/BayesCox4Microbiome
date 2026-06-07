@@ -12,11 +12,16 @@ function logposterior(
     car_strength_prior_b::Real = 1.0,
     car_degree_scale::Symbol = :mean_active,
     car_kappa_init::Real = 0.5,
+    approx = nothing,
 )
     _validate_prior(prior)
     p = size(data.z, 2)
     beta = view(u, 1:p)
-    lp = cox_logpartiallikelihood(data, beta)
+    if approx !== nothing
+        lp = cox_logpartiallikelihood_approx(data, beta, approx)
+    else
+        lp = cox_logpartiallikelihood(data, beta)
+    end
     resolved_constraint = _resolve_constraint(constraint)
     lp += _constraint_logpenalty(
         beta;
@@ -54,6 +59,7 @@ function logposterior_and_gradient!(
     car_strength_prior_b::Real = 1.0,
     car_degree_scale::Symbol = :mean_active,
     car_kappa_init::Real = 0.5,
+    approx = nothing,
 )
     _validate_prior(prior)
     p = size(data.z, 2)
@@ -61,7 +67,11 @@ function logposterior_and_gradient!(
     length(u) >= p || throw(DimensionMismatch("state is shorter than beta dimension."))
     beta = view(u, 1:p)
     fill!(grad, 0.0)
-    lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work)
+    if approx !== nothing
+        lp = cox_approx_loglik_and_gradient!(view(grad, 1:p), data, beta, approx)
+    else
+        lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work)
+    end
     resolved_constraint = _resolve_constraint(constraint)
     lp += _constraint_logpenalty(
         beta;
@@ -113,10 +123,15 @@ function _lasso_prox_logposterior(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    approx = nothing,
 )
     p = size(data.z, 2)
     beta = view(u, 1:p)
-    lp = cox_logpartiallikelihood(data, beta)
+    if approx !== nothing
+        lp = cox_logpartiallikelihood_approx(data, beta, approx)
+    else
+        lp = cox_logpartiallikelihood(data, beta)
+    end
     lp += _constraint_logpenalty(
         beta;
         constraint = constraint,
@@ -146,6 +161,7 @@ function _lasso_prox_gradient(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    approx = nothing,
 )
     grad = zeros(Float64, length(u))
     work = ProxGradientWorkspace(data)
@@ -162,6 +178,7 @@ function _lasso_prox_gradient(
         alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
+        approx = approx,
     )
 end
 
@@ -178,12 +195,17 @@ function _lasso_prox_gradient!(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    approx = nothing,
 )
     p = size(data.z, 2)
     length(u) == p + 1 || throw(DimensionMismatch("u length must be p + 1 for prox LASSO."))
     length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox LASSO."))
     beta = view(u, 1:p)
-    cox_score_gradient!(view(grad, 1:p), data, beta, work.cox)
+    if approx !== nothing
+        cox_approx_score_gradient!(view(grad, 1:p), data, beta, approx)
+    else
+        cox_score_gradient!(view(grad, 1:p), data, beta, work.cox)
+    end
     grad[p + 1] = 0.0
     _constraint_gradient_penalty!(
         view(grad, 1:p),
@@ -219,12 +241,17 @@ function _lasso_prox_logposterior_and_gradient!(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    approx = nothing,
 )
     p = size(data.z, 2)
     length(u) == p + 1 || throw(DimensionMismatch("u length must be p + 1 for prox LASSO."))
     length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox LASSO."))
     beta = view(u, 1:p)
-    lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work.cox)
+    if approx !== nothing
+        lp = cox_approx_loglik_and_gradient!(view(grad, 1:p), data, beta, approx)
+    else
+        lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work.cox)
+    end
     grad[p + 1] = 0.0
     lp += _constraint_logpenalty(
         beta;
@@ -266,11 +293,16 @@ function _ssl_prox_logposterior(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    approx = nothing,
 )
     p = size(data.z, 2)
     length(gamma) == p || throw(DimensionMismatch("gamma length must match beta dimension."))
     beta = view(u, 1:p)
-    lp = cox_logpartiallikelihood(data, beta)
+    if approx !== nothing
+        lp = cox_logpartiallikelihood_approx(data, beta, approx)
+    else
+        lp = cox_logpartiallikelihood(data, beta)
+    end
     lp += _constraint_logpenalty(
         beta;
         constraint = constraint,
@@ -304,6 +336,7 @@ function _ssl_prox_gradient(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    approx = nothing,
 )
     grad = zeros(Float64, length(u))
     work = ProxGradientWorkspace(data)
@@ -322,6 +355,7 @@ function _ssl_prox_gradient(
         alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
+        approx = approx,
     )
 end
 
@@ -340,13 +374,18 @@ function _ssl_prox_gradient!(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    approx = nothing,
 )
     p = size(data.z, 2)
     length(gamma) == p || throw(DimensionMismatch("gamma length must match beta dimension."))
     length(u) == p + 1 || throw(DimensionMismatch("u length must be p + 1 for prox SSLASSO."))
     length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox SSLASSO."))
     beta = view(u, 1:p)
-    cox_score_gradient!(view(grad, 1:p), data, beta, work.cox)
+    if approx !== nothing
+        cox_approx_score_gradient!(view(grad, 1:p), data, beta, approx)
+    else
+        cox_score_gradient!(view(grad, 1:p), data, beta, work.cox)
+    end
     grad[p + 1] = 0.0
     _constraint_gradient_penalty!(
         view(grad, 1:p),
@@ -386,13 +425,18 @@ function _ssl_prox_logposterior_and_gradient!(
     alpha_prior_kind = :invgamma,
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
+    approx = nothing,
 )
     p = size(data.z, 2)
     length(gamma) == p || throw(DimensionMismatch("gamma length must match beta dimension."))
     length(u) == p + 1 || throw(DimensionMismatch("u length must be p + 1 for prox SSLASSO."))
     length(grad) == p + 1 || throw(DimensionMismatch("grad length must be p + 1 for prox SSLASSO."))
     beta = view(u, 1:p)
-    lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work.cox)
+    if approx !== nothing
+        lp = cox_approx_loglik_and_gradient!(view(grad, 1:p), data, beta, approx)
+    else
+        lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work.cox)
+    end
     grad[p + 1] = 0.0
     lp += _constraint_logpenalty(
         beta;

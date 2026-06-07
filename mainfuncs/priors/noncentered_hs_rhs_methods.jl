@@ -273,13 +273,18 @@ function noncentered_logposterior(
     car_strength_prior_b::Real = 1.0,
     car_degree_scale::Symbol = :mean_active,
     car_kappa_init::Real = 0.5,
+    approx = nothing,
 )
     _validate_prior(prior)
     p = size(data.z, 2)
     beta = Vector{eltype(u)}(undef, p)
     _noncentered_beta!(beta, u, prior)
     resolved_constraint = _resolve_constraint(constraint)
-    lp = cox_logpartiallikelihood(data, beta)
+    if approx !== nothing
+        lp = cox_logpartiallikelihood_approx(data, beta, approx)
+    else
+        lp = cox_logpartiallikelihood(data, beta)
+    end
     lp += _constraint_logpenalty(
         beta;
         constraint = resolved_constraint,
@@ -316,6 +321,7 @@ function _noncentered_logposterior_and_gradient!(
     car_strength_prior_b::Real = 1.0,
     car_degree_scale::Symbol = :mean_active,
     car_kappa_init::Real = 0.5,
+    approx = nothing,
 )
     p = size(data.z, 2)
     expected = 2p + 1 + (sample_car_strength ? 1 : 0)
@@ -328,7 +334,11 @@ function _noncentered_logposterior_and_gradient!(
     _noncentered_beta!(beta, u, prior)
 
     fill!(grad, 0.0)
-    lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work)
+    if approx !== nothing
+        lp = cox_approx_loglik_and_gradient!(view(grad, 1:p), data, beta, approx)
+    else
+        lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work)
+    end
     resolved_constraint = _resolve_constraint(constraint)
     lp += _constraint_logpenalty(
         beta;
@@ -423,6 +433,7 @@ function _noncentered_logposterior_and_gradient!(
     car_strength_prior_b::Real = 1.0,
     car_degree_scale::Symbol = :mean_active,
     car_kappa_init::Real = 0.5,
+    approx = nothing,
 )
     p = size(data.z, 2)
     expected = (prior.sample_pseudo_sigma ? 2p + 3 : 2p + 2) + (sample_car_strength ? 1 : 0)
@@ -447,7 +458,11 @@ function _noncentered_logposterior_and_gradient!(
     _noncentered_beta!(beta, u, prior)
 
     fill!(grad, 0.0)
-    lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work)
+    if approx !== nothing
+        lp = cox_approx_loglik_and_gradient!(view(grad, 1:p), data, beta, approx)
+    else
+        lp = cox_logpartiallikelihood_and_score_gradient!(view(grad, 1:p), data, beta, work)
+    end
     resolved_constraint = _resolve_constraint(constraint)
     lp += _constraint_logpenalty(
         beta;

@@ -101,6 +101,7 @@ struct CoxPosteriorTarget <: AbstractCoxTarget
     car_kappa_init::Float64
     names::Vector{String}
     work::CoxGradientWorkspace
+    approx::Union{Nothing,CoxApproximation}
 end
 
 dimension(target::CoxPosteriorTarget) = length(target.names)
@@ -119,6 +120,7 @@ function CoxPosteriorTarget(
     car_strength_prior_b::Real = 1.0,
     car_degree_scale::Symbol = :mean_active,
     car_kappa_init::Real = 0.5,
+    approx = nothing,
 )
     p = size(data.z, 2)
     effective_car_weights = use_car ? car_weights : nothing
@@ -145,6 +147,7 @@ function CoxPosteriorTarget(
         Float64(car_kappa_init),
         _state_names(prior, p; sample_car_strength = sample_car_strength),
         CoxGradientWorkspace(data),
+        approx,
     )
 end
 
@@ -379,6 +382,7 @@ function _make_explicit_nuts_target(
     car_kappa_init::Real = 0.5,
     kwargs...,
 )
+    approx_val = get(kwargs, :approx, nothing)
     if !_is_proximal_l1_prior(prior)
         return CoxPosteriorTarget(
             data,
@@ -393,6 +397,7 @@ function _make_explicit_nuts_target(
             car_strength_prior_b = car_strength_prior_b,
             car_degree_scale = car_degree_scale,
             car_kappa_init = car_kappa_init,
+            approx = approx_val,
         )
     end
     return CoxProxLassoTarget(
@@ -426,6 +431,7 @@ function _make_explicit_nuts_target(
     car_kappa_init::Real = 0.5,
     kwargs...,
 )
+    approx_val = get(kwargs, :approx, nothing)
     if noncentered
         return CoxNoncenteredPosteriorTarget(
             data,
@@ -440,6 +446,7 @@ function _make_explicit_nuts_target(
             car_strength_prior_b = car_strength_prior_b,
             car_degree_scale = car_degree_scale,
             car_kappa_init = car_kappa_init,
+            approx = approx_val,
         )
     end
     return CoxPosteriorTarget(
@@ -455,6 +462,7 @@ function _make_explicit_nuts_target(
         car_strength_prior_b = car_strength_prior_b,
         car_degree_scale = car_degree_scale,
         car_kappa_init = car_kappa_init,
+        approx = approx_val,
     )
 end
 
@@ -472,6 +480,7 @@ function _make_explicit_nuts_target(
     car_strength_prior_b::Real = 1.0,
     car_degree_scale::Symbol = :mean_active,
     car_kappa_init::Real = 0.5,
+    approx = nothing,
     kwargs...,
 )
     noncentered && _check_noncentered_supported(prior)
@@ -488,6 +497,7 @@ function _make_explicit_nuts_target(
         car_strength_prior_b = car_strength_prior_b,
         car_degree_scale = car_degree_scale,
         car_kappa_init = car_kappa_init,
+        approx = approx,
     )
 end
 
@@ -802,6 +812,7 @@ function _sample_nuts_explicit(
     parallel_chains::Union{Nothing,Bool} = nothing,
     init::Symbol = :zero,
     noncentered::Bool = false,
+    approx = nothing,
     kwargs...,
 )
     thin == 1 ||
@@ -882,6 +893,7 @@ function _sample_nuts_explicit(
                 car_degree_scale = car_degree_scale,
                 car_kappa_init = car_kappa_init,
                 noncentered = noncentered,
+                approx = approx,
             )
             _sample_explicit_nuts_one(
                 target;
@@ -931,6 +943,7 @@ function _sample_nuts_explicit(
                         car_degree_scale = car_degree_scale,
                         car_kappa_init = car_kappa_init,
                         noncentered = noncentered,
+                        approx = approx,
                     )
                     samples[c] = _sample_explicit_nuts_one(
                         target;
@@ -979,6 +992,7 @@ function _sample_nuts_explicit(
                         car_degree_scale = car_degree_scale,
                         car_kappa_init = car_kappa_init,
                         noncentered = noncentered,
+                        approx = approx,
                     )
                     samples[c] = _sample_explicit_nuts_one(
                         target;

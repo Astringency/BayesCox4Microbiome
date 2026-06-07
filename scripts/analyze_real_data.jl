@@ -150,6 +150,8 @@ function main()
     prox_root_tol = prior_kwargs.prox_root_tol
     prox_root_maxiter = prior_kwargs.prox_root_maxiter
     init = Symbol(arg(args, "init", "zero"))
+    approx = arg(args, "approx", false)
+    approx_point = Symbol(arg(args, "approx-point", "zero"))
     mala_step_size = sampler_kwargs.mala_step_size
     mala_target_accept = sampler_kwargs.mala_target_accept
     mala_adapt_every = sampler_kwargs.mala_adapt_every
@@ -316,6 +318,8 @@ function main()
             init = init,
             realdata = true,
             progress = progress,
+            approx = approx,
+            approx_point = approx_point,
         )
         summary = copy(fit.summary)
         summary.variable = string.(component_cols)

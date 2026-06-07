@@ -12,6 +12,7 @@ Turing.@model function _bayes_cox_turing_model(
     car_degree_scale_value::Float64,
     car_rank::Int,
     noncentered::Bool,
+    approx = nothing,
 )
     p = size(data.z, 2)
     n_events = count(!=(0), data.event)
@@ -142,7 +143,11 @@ Turing.@model function _bayes_cox_turing_model(
         constraint = constraint,
         prox_sum0_lambda = prox_sum0_lambda,
     )
-    Turing.@addlogprob! cox_logpartiallikelihood(data, beta)
+    if approx !== nothing
+        Turing.@addlogprob! cox_logpartiallikelihood_approx(data, beta, approx)
+    else
+        Turing.@addlogprob! cox_logpartiallikelihood(data, beta)
+    end
     return beta
 end
 
@@ -247,6 +252,7 @@ Turing.@model function _lasso_prox_turing_model(
     alpha_prior_kind::Symbol,
     prox_root_tol::Float64,
     prox_root_maxiter::Int,
+    approx = nothing,
 )
     p = size(data.z, 2)
     beta ~ Turing.filldist(Normal(0, 1), p)
@@ -264,6 +270,7 @@ Turing.@model function _lasso_prox_turing_model(
         alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
+        approx = approx,
     )
     Turing.@addlogprob! lp - sum(logpdf.(Normal(0, 1), beta)) - logpdf(Normal(0, 1), eta)
     return beta
@@ -282,6 +289,7 @@ Turing.@model function _ssl_prox_turing_block_model(
     alpha_prior_kind::Symbol,
     prox_root_tol::Float64,
     prox_root_maxiter::Int,
+    approx = nothing,
 )
     p = size(data.z, 2)
     beta ~ Turing.filldist(Normal(0, 1), p)
@@ -301,6 +309,7 @@ Turing.@model function _ssl_prox_turing_block_model(
         alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
+        approx = approx,
     )
     Turing.@addlogprob! lp - sum(logpdf.(Normal(0, 1), beta)) - logpdf(Normal(0, 1), eta)
     return beta
@@ -344,6 +353,7 @@ function _sample_nuts(
     thin::Integer = 1,
     noncentered::Bool = false,
     init::Symbol = :zero,
+    approx = nothing,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -424,6 +434,7 @@ function _sample_nuts(
         Float64(car_degree_scale_value),
         Int(car_rank),
         noncentered,
+        approx,
     )
     sampler = Turing.NUTS(warmup, Float64(target_accept))
     start_ns = time_ns()
@@ -545,6 +556,7 @@ function _sample_lasso_prox_nuts(
     prox_root_maxiter::Integer,
     progress::Bool,
     callback = nothing,
+    approx = nothing,
 )
     p = size(data.z, 2)
     a_shape, a_scale = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_scale)
@@ -560,6 +572,7 @@ function _sample_lasso_prox_nuts(
         a_kind,
         Float64(prox_root_tol),
         Int(prox_root_maxiter),
+        approx,
     )
     sampler = Turing.NUTS(warmup, Float64(target_accept))
     timed = @timed if chains == 1
@@ -584,6 +597,7 @@ function _sample_lasso_prox_nuts(
             alpha_prior_kind = a_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
+            approx = approx,
         ) for i in axes(draws, 1)]
         samples[c] = MHSamples(draws, lps, names, NaN, NaN, fill(NaN, p + 1))
     end

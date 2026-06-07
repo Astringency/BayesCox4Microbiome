@@ -45,6 +45,8 @@ const SAMPLER_GENERAL_CLI_KEYS = (
     "init",
     "seed",
     "progress",
+    "approx",
+    "approx-point",
 )
 const NUTS_SAMPLER_CLI_KEYS = (
     "nuts-backend",
@@ -290,6 +292,8 @@ function sampler_hyperparameter_kwargs(args)
         prox_block_adapt_every = arg(args, "prox-block-adapt-every", 50),
         prox_block_divergence_threshold = arg(args, "prox-block-divergence-threshold", 1000.0),
         prox_block_metric = Symbol(arg(args, "prox-block-metric", "unit_diag")),
+        approx = arg(args, "approx", false),
+        approx_point = Symbol(arg(args, "approx-point", "zero")),
     )
 end
 
@@ -1055,6 +1059,8 @@ function fit_and_evaluate(
     alpha_prior_kind = :invgamma,
     init::Symbol = :zero,
     progress::Bool = true,
+    approx::Bool = false,
+    approx_point::Symbol = :zero,
 )
     pseudocount_value = pseudocount === nothing ? (realdata ? 1e-6 : 0.0) : Float64(pseudocount)
     prior = prior_from_name(
@@ -1131,6 +1137,8 @@ function fit_and_evaluate(
                 prox_root_maxiter = prox_root_maxiter,
                 init = init,
                 progress = progress,
+                approx = approx,
+                approx_point = approx_point,
                 explicit_nuts_kwargs...,
             )
         elseif sampler == :hmc
@@ -1179,6 +1187,8 @@ function fit_and_evaluate(
                 prox_block_metric = prox_block_metric,
                 init = init,
                 progress = progress,
+                approx = approx,
+                approx_point = approx_point,
             )
         elseif sampler == :mh || sampler == :mala || sampler == :ula
             if sampler == :mala || sampler == :ula
@@ -1235,6 +1245,8 @@ function fit_and_evaluate(
                     mala_sgld_c0_max = mala_sgld_c0_max,
                     init = init,
                     progress = progress,
+                    approx = approx,
+                    approx_point = approx_point,
                 )
             else
                 sample_bayes_cox(
@@ -1266,6 +1278,8 @@ function fit_and_evaluate(
                     prox_sum0_lambda = prox_sum0_lambda,
                     init = init,
                     progress = progress,
+                    approx = approx,
+                    approx_point = approx_point,
                 )
             end
         elseif sampler == :gibbs
@@ -1304,6 +1318,8 @@ function fit_and_evaluate(
                 prox_root_maxiter = prox_root_maxiter,
                 init = init,
                 progress = progress,
+                approx = approx,
+                approx_point = approx_point,
             )
         else
             throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :hmc, :mh, :mala, :ula, or :gibbs."))

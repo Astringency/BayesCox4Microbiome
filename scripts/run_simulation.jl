@@ -288,6 +288,8 @@ function main()
     prox_block_adapt_every = sampler_kwargs.prox_block_adapt_every
     prox_block_divergence_threshold = sampler_kwargs.prox_block_divergence_threshold
     prox_block_metric = sampler_kwargs.prox_block_metric
+    approx = sampler_kwargs.approx
+    approx_point = sampler_kwargs.approx_point
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
     figs_dir = ensure_dir(joinpath(outdir, "figures"))
@@ -547,6 +549,8 @@ function main()
                 prior_kwargs...,
                 init = init,
                 progress = progress,
+                approx = approx,
+                approx_point = approx_point,
             )
             summary = copy(fit.summary)
             summary.variable .= ["beta[$j]" for j in 1:p]

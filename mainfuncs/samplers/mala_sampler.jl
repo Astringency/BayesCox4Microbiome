@@ -57,6 +57,7 @@ function _mala_step!(
     gamma_L::Float64,
     rng::AbstractRNG,
     work::MALAWorkspace,
+    logpost_true::Function = logpost,
 )
     d = length(u)
     length(work.proposal) == d || throw(DimensionMismatch("MALA workspace dimension does not match state."))
@@ -70,9 +71,11 @@ function _mala_step!(
     if !isfinite(prop_lp)
         return current_lp, false
     end
+    prop_lp_true = logpost_true(work.proposal)
+    current_lp_true = logpost_true(u)
     gradient!(work.grad_prop, work.proposal)
-    log_alpha = prop_lp + _mala_logq!(work.diff, u, work.proposal, work.grad_prop, gamma_L) -
-        current_lp - _mala_logq!(work.diff, work.proposal, u, work.grad_u, gamma_L)
+    log_alpha = prop_lp_true + _mala_logq!(work.diff, u, work.proposal, work.grad_prop, gamma_L) -
+        current_lp_true - _mala_logq!(work.diff, work.proposal, u, work.grad_u, gamma_L)
     accepted = log(rand(rng)) < log_alpha
     return accepted ? prop_lp : current_lp, accepted
 end
@@ -84,10 +87,11 @@ function _mala_step(
     current_lp::Float64,
     gamma_L::Float64,
     rng::AbstractRNG,
+    logpost_true::Function = logpost,
 )
     work = MALAWorkspace(length(u))
     gradient! = (dest, x) -> _copy_gradient!(dest, gradient, x)
-    lp_new, accepted = _mala_step!(logpost, gradient!, u, current_lp, gamma_L, rng, work)
+    lp_new, accepted = _mala_step!(logpost, gradient!, u, current_lp, gamma_L, rng, work, logpost_true)
     return accepted ? copy(work.proposal) : u, lp_new, accepted
 end
 
@@ -127,10 +131,16 @@ function _full_logposterior_gradient_beta(
     prior::AbstractCoxPrior;
     constraint::Symbol,
     prox_sum0_lambda::Real,
+    approx = nothing,
 )
     p = size(data.z, 2)
     beta = view(u, 1:p)
-    grad = cox_score_gradient(data, beta)
+    if approx !== nothing
+        grad = zeros(Float64, p)
+        cox_approx_score_gradient!(grad, data, beta, approx)
+    else
+        grad = cox_score_gradient(data, beta)
+    end
     _constraint_gradient_penalty!(
         grad,
         beta;
@@ -225,6 +235,8 @@ function _hybrid_beta_mala(
     progress::Bool,
     progress_desc::AbstractString = "MALA sampling",
     progress_offset::Integer = 0,
+    approx = nothing,
+    kwargs...,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -289,8 +301,32 @@ function _hybrid_beta_mala(
         car_strength_prior_b = car_strength_prior_b,
         car_degree_scale = car_degree_scale,
         car_kappa_init = car_kappa_init,
+        approx = approx,
+    )
+    logpost_true = u -> logposterior(
+        u,
+        data,
+        prior;
+        constraint = constraint,
+        prox_sum0_lambda = prox_sum0_lambda,
+        car_weights = car_weights,
+        use_car = use_car,
+        car_precision = car_precision,
+        sample_car_strength = sample_car_strength,
+        car_strength_prior_a = car_strength_prior_a,
+        car_strength_prior_b = car_strength_prior_b,
+        car_degree_scale = car_degree_scale,
+        car_kappa_init = car_kappa_init,
     )
     beta_grad = u -> _full_logposterior_gradient_beta(
+        u,
+        data,
+        prior;
+        constraint = constraint,
+        prox_sum0_lambda = prox_sum0_lambda,
+        approx = approx,
+    )
+    beta_grad_true = u -> _full_logposterior_gradient_beta(
         u,
         data,
         prior;
@@ -339,16 +375,30 @@ function _hybrid_beta_mala(
             uu[1:p] .= b
             return logpost(uu)
         end
+        beta_logpost_current_true = b -> begin
+            uu = copy(u)
+            uu[1:p] .= b
+            return logpost_true(uu)
+        end
         beta_gradient_current = b -> begin
             uu = copy(u)
             uu[1:p] .= b
             return beta_grad(uu)
+        end
+        beta_gradient_current_true = b -> begin
+            uu = copy(u)
+            uu[1:p] .= b
+            return beta_grad_true(uu)
         end
         beta_state = collect(view(u, 1:p))
         beta_lp, accepted =
             if mala_precondition
                 beta_gradient_current! = (grad, b) -> begin
                     copyto!(grad, beta_gradient_current(b))
+                    return grad
+                end
+                beta_gradient_current_true! = (grad, b) -> begin
+                    copyto!(grad, beta_gradient_current_true(b))
                     return grad
                 end
                 beta_metric_current! = (G, b) -> begin
@@ -376,6 +426,7 @@ function _hybrid_beta_mala(
                     precond_work;
                     ridge = metric_ridge,
                     max_cholesky_tries = Int(mala_metric_max_cholesky_tries),
+                    logpost_true = beta_logpost_current_true,
                 )
             else
                 _mala_step!(
@@ -386,6 +437,7 @@ function _hybrid_beta_mala(
                     Float64(mala_step),
                     rng,
                     mala_work,
+                    beta_logpost_current_true,
                 )
             end
         if accepted
@@ -403,7 +455,9 @@ function _hybrid_beta_mala(
             prop = copy(u)
             prop[(p + 1):d] .+= hyper_step .* randn(rng, hdim)
             prop_lp = logpost(prop)
-            hyper_accepted = isfinite(prop_lp) && log(rand(rng)) < prop_lp - current_lp
+            prop_lp_true = logpost_true(prop)
+            current_lp_true = logpost_true(u)
+            hyper_accepted = isfinite(prop_lp) && isfinite(prop_lp_true) && log(rand(rng)) < prop_lp_true - current_lp_true
             if hyper_accepted
                 u = prop
                 current_lp = prop_lp
@@ -480,6 +534,7 @@ function _hybrid_beta_ula(
     progress::Bool,
     progress_desc::AbstractString = "ULA sampling",
     progress_offset::Integer = 0,
+    approx = nothing,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -520,8 +575,32 @@ function _hybrid_beta_ula(
         car_strength_prior_b = car_strength_prior_b,
         car_degree_scale = car_degree_scale,
         car_kappa_init = car_kappa_init,
+        approx = approx,
+    )
+    logpost_true = u -> logposterior(
+        u,
+        data,
+        prior;
+        constraint = constraint,
+        prox_sum0_lambda = prox_sum0_lambda,
+        car_weights = car_weights,
+        use_car = use_car,
+        car_precision = car_precision,
+        sample_car_strength = sample_car_strength,
+        car_strength_prior_a = car_strength_prior_a,
+        car_strength_prior_b = car_strength_prior_b,
+        car_degree_scale = car_degree_scale,
+        car_kappa_init = car_kappa_init,
     )
     beta_grad = u -> _full_logposterior_gradient_beta(
+        u,
+        data,
+        prior;
+        constraint = constraint,
+        prox_sum0_lambda = prox_sum0_lambda,
+        approx = approx,
+    )
+    beta_grad_true = u -> _full_logposterior_gradient_beta(
         u,
         data,
         prior;
@@ -560,7 +639,9 @@ function _hybrid_beta_ula(
             prop = copy(u)
             prop[(p + 1):d] .+= hyper_step .* randn(rng, hdim)
             prop_lp = logpost(prop)
-            hyper_accepted = isfinite(prop_lp) && log(rand(rng)) < prop_lp - current_lp
+            prop_lp_true = logpost_true(prop)
+            current_lp_true = logpost_true(u)
+            hyper_accepted = isfinite(prop_lp) && isfinite(prop_lp_true) && log(rand(rng)) < prop_lp_true - current_lp_true
             if hyper_accepted
                 u = prop
                 current_lp = prop_lp
@@ -626,6 +707,7 @@ function _sample_lasso_prox_mala(
     progress::Bool,
     progress_desc::AbstractString = "MALA sampling",
     progress_offset::Integer = 0,
+    approx = nothing,
 )
     p = size(data.z, 2)
     init_vec = if initial !== nothing
@@ -649,6 +731,20 @@ function _sample_lasso_prox_mala(
         alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
+        approx = approx,
+    )
+    logpost_true = u -> _lasso_prox_logposterior(
+        u,
+        data,
+        prior;
+        constraint = constraint,
+        prox_sum0_lambda = prox_sum0_lambda,
+        prox_l1_lambda = prox_l1_lambda,
+        alpha_prior_shape = alpha_prior_shape,
+        alpha_prior_scale = alpha_prior_scale,
+        alpha_prior_kind = alpha_prior_kind,
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
     )
     gradient = u -> _lasso_prox_gradient(
         u,
@@ -661,6 +757,7 @@ function _sample_lasso_prox_mala(
         alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
+        approx = approx,
     )
     work = ProxGradientWorkspace(data)
     gradient! = (grad, u) -> _lasso_prox_gradient!(
@@ -676,6 +773,7 @@ function _sample_lasso_prox_mala(
         alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
+        approx = approx,
     )
     if mala_precondition
         mode = mala_precondition_mode == :auto ? :full_dense : mala_precondition_mode
@@ -744,6 +842,7 @@ function _run_full_mala(
     progress_desc::AbstractString = "MALA sampling",
     progress_offset::Integer = 0,
     gradient! = nothing,
+    logpost_true::Function = logpost,
 )
     gamma_L = _check_positive(mala_step_size, "mala_step_size")
     gamma_min = _check_positive(mala_min_step, "mala_min_step")
@@ -801,9 +900,10 @@ function _run_full_mala(
                     precond_work;
                     ridge = metric_ridge,
                     max_cholesky_tries = Int(mala_metric_max_cholesky_tries),
+                    logpost_true = logpost_true,
                 )
             else
-                _mala_step!(logpost, gradient_bang, u, current_lp, Float64(mala_step), rng, work)
+                _mala_step!(logpost, gradient_bang, u, current_lp, Float64(mala_step), rng, work, logpost_true)
             end
         if accepted
             copyto!(u, mala_precondition ? precond_work.proposal : work.proposal)
@@ -935,6 +1035,7 @@ function _sample_ssl_prox_mala(
     progress::Bool,
     progress_desc::AbstractString = "SSLASSO prox MALA",
     progress_offset::Integer = 0,
+    approx = nothing,
 )
     # Conditional SSLASSO proximal epigraph sampler: gamma is discrete and is
     # updated by Bernoulli Gibbs, while MALA only targets continuous beta/eta.
@@ -996,6 +1097,7 @@ function _sample_ssl_prox_mala(
         alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
+        approx = approx,
     )
     current_lp = logpost(u)
     isfinite(current_lp) || throw(ArgumentError("initial state has non-finite log posterior."))
@@ -1017,6 +1119,7 @@ function _sample_ssl_prox_mala(
         alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
+        approx = approx,
     )
     accept_warmup = 0
     accept_sample = 0
@@ -1205,6 +1308,8 @@ function _sample_mala(
     progress::Bool = true,
     progress_desc::AbstractString = "MALA sampling",
     progress_offset::Integer = 0,
+    approx = nothing,
+    kwargs...,
 )
     _validate_prior(prior)
     _validate_mala_schedule_options(
@@ -1220,6 +1325,7 @@ function _sample_mala(
     _check_positive(mala_metric_ridge, "mala_metric_ridge")
     mala_metric_max_cholesky_tries > 0 ||
         throw(ArgumentError("mala_metric_max_cholesky_tries must be positive."))
+    approx = get(kwargs, :approx, nothing)
     p = size(data.z, 2)
     n_events = count(!=(0), data.event)
     resolved_constraint = _resolve_constraint(constraint)
@@ -1283,6 +1389,7 @@ function _sample_mala(
             progress = progress,
             progress_desc = progress_desc,
             progress_offset = progress_offset,
+            approx = approx,
         )
     elseif prior isa SpikeSlabLassoPrior && use_proximal_prior
         return _sample_ssl_prox_mala(
@@ -1324,6 +1431,7 @@ function _sample_mala(
             progress = progress,
             progress_desc = progress_desc,
             progress_offset = progress_offset,
+            approx = approx,
         )
     end
 
@@ -1401,6 +1509,7 @@ function _sample_mala(
         progress = progress,
         progress_desc = progress_desc,
         progress_offset = progress_offset,
+        approx = approx,
     )
 end
 
@@ -1457,6 +1566,7 @@ function _sample_ula(
     a_scale = Float64(something(alpha_prior_scale, prior isa BayesianLassoPrior ? prior.lambda2_rate : 1.0))
     a_kind = _normalize_alpha_prior_kind(alpha_prior_kind)
     use_proximal_prior = _is_proximal_l1_prior(prior)
+    approx_val = get(kwargs, :approx, nothing)
 
     if prior isa BayesianLassoPrior && use_proximal_prior
         init_vec = if initial !== nothing
@@ -1479,6 +1589,7 @@ function _sample_ula(
             alpha_prior_kind = a_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
+            approx = approx_val,
         )
         gradient = u -> _lasso_prox_gradient(
             u,
@@ -1491,6 +1602,7 @@ function _sample_ula(
             alpha_prior_kind = a_kind,
             prox_root_tol = prox_root_tol,
             prox_root_maxiter = prox_root_maxiter,
+            approx = approx_val,
         )
         work = ProxGradientWorkspace(data)
         gradient! = (grad, u) -> _lasso_prox_gradient!(
@@ -1532,6 +1644,7 @@ function _sample_ula(
             progress = progress,
             progress_desc = progress_desc,
             progress_offset = progress_offset,
+            approx = approx_val,
         )
     end
 
@@ -1611,6 +1724,7 @@ function _sample_ssl_prox_ula(
     progress::Bool,
     progress_desc::AbstractString = "SSLASSO prox ULA",
     progress_offset::Integer = 0,
+    approx = nothing,
 )
     p = size(data.z, 2)
     u = if initial !== nothing
@@ -1647,6 +1761,7 @@ function _sample_ssl_prox_ula(
         alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
+        approx = approx,
     )
     saved = 0
     mala_work = MALAWorkspace(p + 1)
@@ -1666,6 +1781,7 @@ function _sample_ssl_prox_ula(
         alpha_prior_kind = alpha_prior_kind,
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
+        approx = approx,
     )
     prog = _progress_meter(progress, total_iter, "SSLASSO prox ULA"; progress_desc = progress_desc, progress_offset = progress_offset)
     for iter in 1:total_iter

@@ -17,10 +17,13 @@ pids=()
 status=0
 
 # MAIN LOOP
-n_vals=(200 400)
+# n_vals=(200 400)
+n_vals=(400)
 p_vals=(50 150)
+# p_vals=(150)
 non_vals=(6 12)
-baseline_vals=("weibull" "exponential" "gompertz")
+# baseline_vals=("weibull" "exponential" "gompertz")
+baseline_vals=("gompertz")
 constraint_vals=("prox" "soft_center")
 # --outdir "/large_storage/zhangxf/BayesCox/results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
 # ,est-rhs

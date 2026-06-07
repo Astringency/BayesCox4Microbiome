@@ -18,12 +18,12 @@ current_time=$(date "+%Y%m%d_%H%M%S")
 # n_vals=(200 400)
 n_vals=(200)
 # p_vals=(50 150)
-p_vals=(50)
+p_vals=(10)
 # non_vals=(6 12)
-non_vals=(6)
-# baseline_vals=("weibull")
+non_vals=(2)
+# baseline_vals=("weibull" "exponential" "gompertz")
 baseline_vals=("gompertz")
-sampler_vals=("nuts") # hmc, nuts, mala, ula
+sampler_vals=("hmc") # hmc, nuts, mala, ula
 # hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs
 
 for sampler in "${sampler_vals[@]}"; do
@@ -49,10 +49,12 @@ for sampler in "${sampler_vals[@]}"; do
                         --thin 1 \
                         --chains 4 \
                         --multichains true \
-                        --init zero \
+                        --init rand \
                         --target-accept 0.8 \
                         --noncentered true \
                         --seed 1 \
+                        --approx true \
+                        --approx-point zero \
                         --use-car true \
                         --progress true \
                         --car-weight-quantile 0.99 \
@@ -91,7 +93,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --save-wide-csv true \
                         --save-jld2 false \
                         --alpha-prior-shape 1 \
-                        --alpha-prior-scale 100 \
+                        --alpha-prior-scale "$p" \
                         --alpha-prior-kind invgamma \
                         --rhs-slab-df 4 \
                         --rhs-slab-s2 2 \
