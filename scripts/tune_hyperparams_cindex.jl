@@ -72,7 +72,7 @@ const PRIOR_PARAM_GRID_VALUES = Dict{String,Vector{Pair{String,Any}}}(
     "lasso" => Pair{String,Any}[
         "lasso_lambda" => Any[nothing],
         "lasso_lambda2_shape" => [1.0],
-        "lasso_lambda2_rate" => [0.1, 1.0],
+        "lasso_lambda2_rate" => [0.1, 0.5, 1.0, 2.0, 10.0],
     ],
     "sslasso" => Pair{String,Any}[
         "sslasso_spike_scale" =>  [0.04, 0.1, 0.5, 1.0, 2.0],

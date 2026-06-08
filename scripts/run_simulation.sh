@@ -18,11 +18,11 @@ current_time=$(date "+%Y%m%d_%H%M%S")
 # n_vals=(200 400)
 n_vals=(200)
 # p_vals=(50 150)
-p_vals=(10)
+p_vals=(50)
 # non_vals=(6 12)
-non_vals=(2)
+non_vals=(12)
 # baseline_vals=("weibull" "exponential" "gompertz")
-baseline_vals=("gompertz")
+baseline_vals=("weibull")
 sampler_vals=("hmc") # hmc, nuts, mala, ula
 # hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs
 
@@ -40,7 +40,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --p "$p" \
                         --nonzero "$nonzero" \
                         --baseline "$baseline" \
-                        --priors prox-lasso \
+                        --priors prox-sslasso \
                         --sampler "$sampler" \
                         --nuts-backend explicit \
                         --hmc-n-leapfrog 100 \
@@ -53,21 +53,21 @@ for sampler in "${sampler_vals[@]}"; do
                         --target-accept 0.8 \
                         --noncentered true \
                         --seed 1 \
-                        --approx true \
-                        --approx-point zero \
+                        --approx false \
+                        --approx-point PMLE \
                         --use-car true \
                         --progress true \
                         --car-weight-quantile 0.99 \
                         --car-precision 1 \
                         --sample-car-strength true \
                         --car-strength-prior-a 1 \
-                        --car-strength-prior-b 1 \
+                        --car-strength-prior-b "$p" \
                         --car-distance "bray" \
                         --p0 truth \
                         --p0-alpha 0.05 \
                         --constraint prox \
                         --prox-sum0-lambda 1e-3 \
-                        --prox-l1-lambda 1e-2 \
+                        --prox-l1-lambda 1e-4 \
                         --prox-root-tol 1e-10 \
                         --prox-root-maxiter 100 \
                         --mala-step-size 1e-2 \
