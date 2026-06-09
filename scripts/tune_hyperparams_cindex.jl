@@ -30,12 +30,12 @@ function _expand_named_grid_values(grids::Dict{Name,Vector{Pair{K,Any}}}) where 
         combos = _expand_grid_values(grid)
 
         combos = filter(combos) do cfg
-            has_spike = haskey(cfg, convert(K, "sslasso_spike_scale"))
-            has_slab  = haskey(cfg, convert(K, "sslasso_slab_scale"))
+            has_spike = haskey(cfg, K("sslasso_spike_scale"))
+            has_slab  = haskey(cfg, K("sslasso_slab_scale"))
 
             if has_spike && has_slab
-                cfg[convert(K, "sslasso_spike_scale")] <
-                cfg[convert(K, "sslasso_slab_scale")]
+                cfg[K("sslasso_spike_scale")] <
+                cfg[K("sslasso_slab_scale")]
             else
                 true
             end
