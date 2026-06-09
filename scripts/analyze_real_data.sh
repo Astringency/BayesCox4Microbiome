@@ -248,16 +248,22 @@ optional_arg() {
 # ---------------------------------------------------------------------------
 # 1. T1D data: data/T1D.csv
 # ---------------------------------------------------------------------------
-# run_realdata "${T1D_DATA[@]}" "${COMMON[@]}" "$@"
+echo ">>> RUN T1D DATA ANALYSIS"
+run_realdata "${T1D_DATA[@]}" "${COMMON[@]}" "$@"
 
 # ---------------------------------------------------------------------------
 # 2. HCT data: data/HCT.csv
 # ---------------------------------------------------------------------------
+echo ">>> RUN HCT DATA ANALYSIS"
 run_realdata "${HCT_DATA[@]}" "${COMMON[@]}" "$@"
 
 # ---------------------------------------------------------------------------
 # 3. TCGA CIBERSORT data: 8 cancer-specific OS analyses
 # ---------------------------------------------------------------------------
+# echo ">>> RUN TCGA DATA ANALYSIS"
 # for cancer in BLCA BRCA COAD HNSC LIHC LUAD OV STAD; do
 #     run_tcga "${cancer}" "$@"
 # done
+
+
+echo "ALL DONE."
