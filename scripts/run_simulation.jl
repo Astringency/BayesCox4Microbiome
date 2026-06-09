@@ -310,7 +310,7 @@ function main()
 
         if tune_priorparams || tune_algparams
             p0_requested_for_tuning = p0_arg === :truth ? nonzero : p0_arg
-            tune_hyperparams_cindex(
+            tuning_result = tune_hyperparams_cindex(
                 sim.X,
                 sim.time,
                 sim.event;
@@ -485,6 +485,17 @@ function main()
             elseif resume && simulation_run_recoverable(run_dir)
                 @info "Existing run uses a different or old censoring setup; rerunning." label run_dir
             end
+            # Merge per-prior best tuning config into prior_kwargs
+            prior_kwargs_dict = Dict(pairs(prior_kwargs))
+            if @isdefined(tuning_result) && tuning_result !== nothing
+                best_for_prior = get(tuning_result.best_prior_configs, prior, nothing)
+                if best_for_prior !== nothing
+                    for (k, v) in pairs(best_for_prior)
+                        v !== nothing && (prior_kwargs_dict[Symbol(k)] = v)
+                    end
+                end
+            end
+
             fit = fit_and_evaluate(
                 sim.X,
                 sim.time,
@@ -544,7 +555,7 @@ function main()
                 prox_block_adapt_every = prox_block_adapt_every,
                 prox_block_divergence_threshold = prox_block_divergence_threshold,
                 prox_block_metric = prox_block_metric,
-                prior_kwargs...,
+                prior_kwargs_dict...,
                 init = init,
                 progress = progress,
                 approx = approx,

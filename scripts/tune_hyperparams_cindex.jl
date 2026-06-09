@@ -933,6 +933,38 @@ function _best_prior_index(summary::DataFrame)
     ))
     return first(ordered)
 end
+function _best_prior_configs(summary::DataFrame, config_records::Dict{Int,Tuple{String,Dict{Symbol,Any}}})
+    nrow(summary) == 0 && return Dict{String,Dict{String,Any}}()
+    result = Dict{String,Dict{String,Any}}()
+    prior_groups = groupby(summary, :prior)
+    for group_df in prior_groups
+        prior_name = String(first(group_df[!, :prior]))
+        candidates = Int[]
+        for i in 1:nrow(group_df)
+            get(group_df[i, :], :status, "failed") == "failed" && continue
+            _finite_number(group_df[i, :CV_Cindex_mean]) === nothing && continue
+            push!(candidates, i)
+        end
+        isempty(candidates) && continue
+        ordered = sort(candidates; by = i -> (
+            -Float64(group_df[i, :CV_Cindex_mean]),
+            something(_finite_number(group_df[i, :CV_Cindex_se]), Inf),
+            Int(group_df[i, :config_index]),
+        ))
+        best_local_idx = first(ordered)
+        config_idx = Int(group_df[best_local_idx, :config_index])
+        _, cfg = config_records[config_idx]
+        cfg_out = Dict{String,Any}()
+        for (k, v) in pairs(cfg)
+            k_str = String(k)
+            k_str == "p0" && continue
+            cfg_out[k_str] = v === nothing ? nothing : v isa Symbol ? String(v) : v
+        end
+        result[prior_name] = cfg_out
+    end
+    return result
+end
+
 
 function _best_algorithm_index(summary::DataFrame)
     nrow(summary) == 0 && return nothing
@@ -985,6 +1017,7 @@ function tune_hyperparams_cindex(
     best_prior_idx = nothing
     best_algorithm_idx = nothing
     algorithm_prior_configs = nothing
+    best_prior_configs = nothing
 
     if tune_priorparams
         prior_result = _run_prior_tuning(
@@ -1011,6 +1044,8 @@ function tune_hyperparams_cindex(
             prior, cfg = prior_result.config_records[cfg_index]
             algorithm_prior_configs = [(prior, cfg)]
         end
+        best_prior_configs = _best_prior_configs(prior_result.summary, prior_result.config_records)
+        _write_tuning_json(joinpath(tuning_dir, "best_prior_configs.json"), best_prior_configs)
     end
 
     if tune_algparams
@@ -1078,5 +1113,6 @@ function tune_hyperparams_cindex(
         prior = prior_result,
         algorithm = algorithm_result,
         best = best,
+        best_prior_configs = best_prior_configs,
     )
 end
