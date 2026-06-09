@@ -144,26 +144,6 @@ function write_simulation_diagnostics_from_saved_run(
     return nothing
 end
 
-function metadata_value_matches(actual, expected)
-    actual === missing && return expected === missing
-    actual === nothing && return expected === nothing
-    if expected isa Number
-        actual_number =
-            if actual isa Number
-                Float64(actual)
-            elseif actual isa AbstractString
-                try
-                    parse(Float64, actual)
-                catch
-                    return false
-                end
-            else
-                return false
-            end
-        return isapprox(actual_number, Float64(expected); rtol = 1e-10, atol = 1e-10)
-    end
-    return string(actual) == string(expected)
-end
 
 function simulation_metadata_matches(run_dir::AbstractString, expected::AbstractDict)
     meta = read_run_metadata(run_dir)
@@ -483,9 +463,8 @@ function main()
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
                 "seed" => sim_seed,
-                "git_commit_hash" => BayesCox4Micro._git_commit_hash(),
             ), prior_metadata)
-            if resume && simulation_run_recoverable(run_dir) && simulation_metadata_matches(run_dir, expected_metadata)
+            if resume && simulation_run_recoverable(run_dir) && simulation_metadata_matches_typed(run_dir, expected_metadata)
                 try
                     recovered = load_or_recover_simulation_run(
                         run_dir,

@@ -1668,6 +1668,159 @@ function _metadata_string(run_dir::AbstractString, key::AbstractString, default:
     return string(value)
 end
 
+# Generic metadata value comparison (moved from run_simulation.jl)
+function metadata_value_matches(actual, expected)
+    actual === missing && return expected === missing
+    actual === nothing && return expected === nothing
+    if expected isa Number
+        actual_number =
+            if actual isa Number
+                Float64(actual)
+            elseif actual isa AbstractString
+                try
+                    parse(Float64, actual)
+                catch
+                    return false
+                end
+            else
+                return false
+            end
+        return isapprox(actual_number, Float64(expected); rtol = 1e-10, atol = 1e-10)
+    end
+    return string(actual) == string(expected)
+end
+
+# ===== Type-aware metadata comparison for resume logic =====
+
+const COMMON_SAMPLER_METADATA_KEYS = [
+    "sampler", "samples", "n_samples", "warmup", "chains"
+]
+
+const HMC_SAMPLER_METADATA_KEYS = [
+    "nuts_backend", "target_accept", "max_depth",
+    "hmc_n_leapfrog", "hmc_step_size", "noncentered"
+]
+
+const MALA_SAMPLER_METADATA_KEYS = [
+    "mala_step_size", "mala_target_accept", "mala_adapt_every",
+    "mala_min_step", "mala_max_step", "mala_precondition",
+    "mala_precondition_mode", "mala_precondition_diag",
+    "mala_metric_ridge", "mala_metric_max_cholesky_tries",
+    "mala_stepsize_schedule", "mala_sgld_c0", "mala_sgld_target_accept",
+    "mala_sgld_accept_low", "mala_sgld_accept_high", "mala_sgld_adapt_c0",
+    "mala_sgld_adapt_every", "mala_sgld_c0_min", "mala_sgld_c0_max"
+]
+
+const PROX_BLOCK_SAMPLER_METADATA_KEYS = [
+    "prox_block_step_size", "prox_block_min_step_size",
+    "prox_block_max_step_size", "prox_block_adapt_every",
+    "prox_block_divergence_threshold", "prox_block_metric"
+]
+
+const HS_PRIOR_METADATA_KEYS = ["hs_tau_scale", "hs_local_scale"]
+
+const RHS_PRIOR_METADATA_KEYS = [
+    "rhs_tau_scale", "rhs_local_scale", "rhs_slab_df",
+    "rhs_slab_s2", "rhs_pseudo_sigma_df", "rhs_pseudo_sigma_scale"
+]
+
+const LASSO_PRIOR_METADATA_KEYS = ["lasso_lambda", "lasso_lambda2_shape", "lasso_lambda2_rate"]
+
+const SSLASSO_PRIOR_METADATA_KEYS = [
+    "sslasso_spike_scale", "sslasso_slab_scale",
+    "sslasso_theta_a", "sslasso_theta_b"
+]
+
+const PROX_PRIOR_METADATA_KEYS = [
+    "prox_l1_lambda", "alpha_prior_shape", "alpha_prior_scale",
+    "alpha_prior_kind", "prox_root_tol", "prox_root_maxiter"
+]
+
+const CAR_METADATA_KEYS = [
+    "use_car", "car_distance", "car_weight_quantile", "car_precision",
+    "sample_car_strength", "car_strength_prior_a", "car_strength_prior_b",
+    "car_degree_scale", "car_kappa_init"
+]
+
+const ALWAYS_COMPARED_METADATA_KEYS = [
+    "baseline_rate", "baseline_scale", "baseline_shape",
+    "censoring_distribution", "censoring_upper",
+    "p0", "constraint",
+    "pseudocount", "standardize", "tie_method", "seed"
+]
+
+_is_hs_family(prior::AbstractString) = occursin("hs", lowercase(prior))
+
+function _relevant_prior_keys(prior::AbstractString)
+    keys = String[]
+    if prior in ("hs", "cox-hs")
+        append!(keys, HS_PRIOR_METADATA_KEYS)
+    end
+    if prior in ("rhs", "new-rhs", "est-rhs", "cox-rhs")
+        append!(keys, RHS_PRIOR_METADATA_KEYS)
+    end
+    if prior == "lasso"
+        append!(keys, LASSO_PRIOR_METADATA_KEYS)
+    end
+    if prior == "sslasso"
+        append!(keys, SSLASSO_PRIOR_METADATA_KEYS)
+    end
+    if prior in ("prox-lasso", "prox-sslasso")
+        append!(keys, PROX_PRIOR_METADATA_KEYS)
+    end
+    return keys
+end
+
+function _relevant_sampler_keys(sampler::AbstractString)
+    keys = copy(COMMON_SAMPLER_METADATA_KEYS)
+    if sampler in ("nuts", "hmc")
+        append!(keys, HMC_SAMPLER_METADATA_KEYS)
+    elseif sampler == "mala"
+        append!(keys, MALA_SAMPLER_METADATA_KEYS)
+    elseif sampler == "prox_block"
+        append!(keys, PROX_BLOCK_SAMPLER_METADATA_KEYS)
+    end
+    return keys
+end
+
+function simulation_metadata_matches_typed(run_dir::AbstractString, expected::AbstractDict)
+    saved = read_run_metadata(run_dir)
+    isempty(saved) && return false
+
+    # Only compare keys present in BOTH saved and expected
+    function _match(key)
+        haskey(expected, key) || return true
+        haskey(saved, key) || return true
+        return metadata_value_matches(saved[key], expected[key])
+    end
+
+    # 1. Always-compared parameters
+    for key in ALWAYS_COMPARED_METADATA_KEYS
+        _match(key) || return false
+    end
+
+    # 2. Sampler: first check type, then type-specific params
+    _match("sampler") || return false
+    for key in _relevant_sampler_keys(string(get(expected, "sampler", "")))
+        _match(key) || return false
+    end
+
+    # 3. Prior: first check type, then type-specific params
+    _match("prior") || return false
+    for key in _relevant_prior_keys(string(get(expected, "prior", "")))
+        _match(key) || return false
+    end
+
+    # 4. CAR params: only for hs-family priors
+    if _is_hs_family(string(get(expected, "prior", "")))
+        for key in CAR_METADATA_KEYS
+            _match(key) || return false
+        end
+    end
+
+    return true
+end
+
 function _metadata_bool(run_dir::AbstractString, key::AbstractString, default::Bool)
     meta = read_run_metadata(run_dir)
     haskey(meta, key) || return default
