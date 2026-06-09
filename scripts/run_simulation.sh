@@ -40,7 +40,7 @@ for sampler in "${sampler_vals[@]}"; do
                         --p "$p" \
                         --nonzero "$nonzero" \
                         --baseline "$baseline" \
-                        --priors prox-sslasso \
+                        --priors prox-lasso \
                         --sampler "$sampler" \
                         --nuts-backend explicit \
                         --hmc-n-leapfrog 100 \

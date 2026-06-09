@@ -140,7 +140,6 @@ function main()
     tune_algparams = tuning_kwargs.tune_algparams
     cv_folds = tuning_kwargs.cv_folds
     tune_seed = tuning_kwargs.tune_seed
-    tune_run_best = tuning_kwargs.tune_run_best
     diagnose_formats = diagnostic_kwargs.diagnose_formats
     diagnose_top_k_beta = diagnostic_kwargs.diagnose_top_k_beta
     diagnose_max_lag = diagnostic_kwargs.diagnose_max_lag
@@ -244,7 +243,6 @@ function main()
                 "exclude_cols" => join(exclude_cols, ","),
                 "dropped_survival_rows" => dropped_survival_rows,
             ),
-            tune_run_best = tune_run_best,
         )
     end
 
@@ -495,7 +493,7 @@ function main()
     add_elpd_diffs!(all_metrics; group_cols = [:estimate])
     write_table(joinpath(tables_dir, "model_metrics.csv"), all_metrics)
     write_table(joinpath(tables_dir, "component_columns.csv"), DataFrame(component = string.(component_cols)))
-    metrics_plot(all_metrics, joinpath(figs_dir, "model_metrics.pdf"); title = "T1D model metrics")
+    metrics_plot(all_metrics, joinpath(figs_dir, "model_metrics.pdf"); title = "Model metrics")
     println("Real-data outputs written to $(abspath(outdir))")
 end
 

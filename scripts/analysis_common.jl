@@ -410,7 +410,6 @@ function tuning_cli_options(args)
         tune_algparams = arg(args, "tune_algparams", false),
         cv_folds = arg(args, "cv-folds", 5),
         tune_seed = arg(args, "tune-seed", 1),
-        tune_run_best = arg(args, "tune-run-best", false),
     )
 end
 

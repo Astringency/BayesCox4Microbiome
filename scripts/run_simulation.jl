@@ -244,7 +244,6 @@ function main()
     tune_algparams = tuning_kwargs.tune_algparams
     cv_folds = tuning_kwargs.cv_folds
     tune_seed = tuning_kwargs.tune_seed
-    tune_run_best = tuning_kwargs.tune_run_best
     debug = arg(args, "debug", false)
     diagnose_formats = diagnostic_kwargs.diagnose_formats
     diagnose_top_k_beta = diagnostic_kwargs.diagnose_top_k_beta
@@ -353,7 +352,6 @@ function main()
                     "censoring_upper" => sim.censoring_upper,
                     "beta" => sim.beta,
                 ),
-                tune_run_best = tune_run_best,
             )
         end
         for prior in priors

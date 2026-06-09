@@ -166,7 +166,6 @@ TUNING=(
     --tune_algparams false
     --cv-folds 5
     --tune-seed 42
-    --tune-run-best true
 )
 
 # Keep COMMON as the single reusable argument bundle used by all analyses.
@@ -249,12 +248,12 @@ optional_arg() {
 # ---------------------------------------------------------------------------
 # 1. T1D data: data/T1D.csv
 # ---------------------------------------------------------------------------
-run_realdata "${T1D_DATA[@]}" "${COMMON[@]}" "$@"
+# run_realdata "${T1D_DATA[@]}" "${COMMON[@]}" "$@"
 
 # ---------------------------------------------------------------------------
 # 2. HCT data: data/HCT.csv
 # ---------------------------------------------------------------------------
-# run_realdata "${HCT_DATA[@]}" "${COMMON[@]}" "$@"
+run_realdata "${HCT_DATA[@]}" "${COMMON[@]}" "$@"
 
 # ---------------------------------------------------------------------------
 # 3. TCGA CIBERSORT data: 8 cancer-specific OS analyses

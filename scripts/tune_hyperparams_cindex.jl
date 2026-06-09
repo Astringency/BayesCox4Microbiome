@@ -25,15 +25,30 @@ end
 
 function _expand_named_grid_values(grids::Dict{Name,Vector{Pair{K,Any}}}) where {Name,K}
     out = Dict{Name,Vector{Dict{K,Any}}}()
+
     for (name, grid) in pairs(grids)
-        out[name] = _expand_grid_values(grid)
+        combos = _expand_grid_values(grid)
+
+        combos = filter(combos) do cfg
+            has_spike = haskey(cfg, convert(K, "sslasso_spike_scale"))
+            has_slab  = haskey(cfg, convert(K, "sslasso_slab_scale"))
+
+            if has_spike && has_slab
+                cfg[convert(K, "sslasso_spike_scale")] <
+                cfg[convert(K, "sslasso_slab_scale")]
+            else
+                true
+            end
+        end
+
+        out[name] = combos
     end
+
     return out
 end
 
 # Edit these candidate-value lists directly to change the tuning search space.
 # The script forms the Cartesian product within each prior/sampler grid.
-# Grid values are intentionally not accepted through CLI arguments.
 const PRIOR_PARAM_GRID_VALUES = Dict{String,Vector{Pair{String,Any}}}(
     "hs" => Pair{String,Any}[
         "p0" => Any[nothing],
@@ -962,7 +977,6 @@ function tune_hyperparams_cindex(
     seed::Integer = 1,
     realdata::Bool = false,
     simulation_metadata = Dict{String,Any}(),
-    tune_run_best::Bool = false,
 )
     tune_priorparams || tune_algparams || return nothing
     tuning_dir = ensure_dir(joinpath(outdir, "tuning"))
@@ -1056,7 +1070,6 @@ function tune_hyperparams_cindex(
         "seed" => seed,
         "best_prior_config" => best_prior_idx === nothing ? nothing : _row_dict(prior_result.summary, best_prior_idx),
         "best_algorithm_config" => best_algorithm_idx === nothing ? nothing : _row_dict(algorithm_result.summary, best_algorithm_idx),
-        "tune_run_best" => tune_run_best,
     )
     _write_tuning_json(joinpath(tuning_dir, TUNING_OUTPUT_FILES.best_config), best)
 
