@@ -306,7 +306,6 @@ function main()
             seed = sim_seed,
             baseline_args...,
         )
-        prior_metadata = prior_hyperparameter_metadata(prior_kwargs)
 
         if tune_priorparams || tune_algparams
             p0_requested_for_tuning = p0_arg === :truth ? nonzero : p0_arg
@@ -380,6 +379,55 @@ function main()
             run_dir = joinpath(outdir, "runs", label)
             coef_path = joinpath(tables_dir, "coef_$label.csv")
             should_plot = !plot_first_rep_only || rep == 1
+            # Merge per-prior best tuning config into prior_kwargs
+            prior_kwargs_dict = Dict(pairs(prior_kwargs))
+            if @isdefined(tuning_result) && tuning_result !== nothing
+                best_for_prior = tuning_result.best_prior_configs !== nothing ? get(tuning_result.best_prior_configs, prior, nothing) : nothing
+                if best_for_prior !== nothing
+                    for (k, v) in pairs(best_for_prior)
+                        v !== nothing && (prior_kwargs_dict[Symbol(k)] = v)
+                    end
+                end
+            end
+
+
+            # Update local prior variables from merged dict (may include tuned values)
+            alpha_prior_shape = get(prior_kwargs_dict, :alpha_prior_shape, alpha_prior_shape)
+            alpha_prior_scale  = get(prior_kwargs_dict, :alpha_prior_scale, alpha_prior_scale)
+            prox_l1_lambda     = get(prior_kwargs_dict, :prox_l1_lambda, prox_l1_lambda)
+            prox_root_tol      = get(prior_kwargs_dict, :prox_root_tol, prox_root_tol)
+            prox_root_maxiter  = get(prior_kwargs_dict, :prox_root_maxiter, prox_root_maxiter)
+
+            # Recompute prior_metadata from actual (possibly tuned) prior params
+            prior_metadata = prior_hyperparameter_metadata(prior_kwargs_dict)
+
+            # Merge algorithm tuning results into sampler params
+            if tune_algparams && @isdefined(tuning_result) && tuning_result !== nothing
+                best_alg = get(tuning_result.best, "best_algorithm_config", nothing)
+                if best_alg !== nothing
+                    alg_params = _extract_algorithm_params(best_alg)
+                    for (k, v) in pairs(alg_params)
+                        v !== nothing || continue
+                        if k == :sampler
+                            sampler = Symbol(v)
+                        elseif k == :nuts_backend
+                            nuts_backend = Symbol(v)
+                        elseif k == :target_accept
+                            target_accept = Float64(v)
+                        elseif k == :max_depth
+                            max_depth = Int(v)
+                        elseif k == :hmc_n_leapfrog
+                            hmc_n_leapfrog = Int(v)
+                        elseif k == :hmc_step_size
+                            hmc_step_size = v
+                        elseif k == :mala_step_size
+                            mala_step_size = Float64(v)
+                        elseif k == :mala_precondition
+                            mala_precondition = Bool(v)
+                        end
+                    end
+                end
+            end
             expected_metadata = merge(Dict(
                 "baseline_rate" => sim.baseline_rate,
                 "baseline_scale" => sim.baseline_scale,
@@ -485,17 +533,6 @@ function main()
             elseif resume && simulation_run_recoverable(run_dir)
                 @info "Existing run uses a different or old censoring setup; rerunning." label run_dir
             end
-            # Merge per-prior best tuning config into prior_kwargs
-            prior_kwargs_dict = Dict(pairs(prior_kwargs))
-            if @isdefined(tuning_result) && tuning_result !== nothing
-                best_for_prior = get(tuning_result.best_prior_configs, prior, nothing)
-                if best_for_prior !== nothing
-                    for (k, v) in pairs(best_for_prior)
-                        v !== nothing && (prior_kwargs_dict[Symbol(k)] = v)
-                    end
-                end
-            end
-
             fit = fit_and_evaluate(
                 sim.X,
                 sim.time,
@@ -578,7 +615,7 @@ function main()
                 baseline = baseline,
                 prior = prior,
             )
-            add_prior_hyperparameter_columns!(metrics, prior_kwargs)
+            add_prior_hyperparameter_columns!(metrics, prior_kwargs_dict)
             fd_table = simulation_false_discovery_table(
                 sim,
                 summary;
@@ -631,10 +668,7 @@ function main()
                 "hmc_n_leapfrog" => hmc_n_leapfrog,
                 "hmc_step_size" => hmc_step_size,
                 "max_depth" => max_depth,
-            ), prior_metadata, Dict(
-                "alpha_prior_shape" => alpha_prior_shape,
-                "alpha_prior_scale" => alpha_prior_scale,
-            ))
+            ), prior_metadata)
             settings = merge(Dict(
                 "samples" => n_samples,
                 "n_samples" => n_samples,

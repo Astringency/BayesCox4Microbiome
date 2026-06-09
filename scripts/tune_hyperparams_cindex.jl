@@ -302,6 +302,18 @@ function _add_config_fields!(row, cfg::AbstractDict; prefix::AbstractString = ""
     return row
 end
 
+function _extract_algorithm_params(cfg::AbstractDict)
+    result = Dict{Symbol,Any}()
+    for (k, v) in pairs(cfg)
+        startswith(String(k), "alg_") || continue
+        v === nothing && continue
+        ismissing(v) && continue
+        param_name = Symbol(String(k)[5:end])  # strip "alg_" prefix
+        result[param_name] = v isa AbstractString ? v : v
+    end
+    return result
+end
+
 function _p0_for_config(cfg::AbstractDict)
     haskey(cfg, :p0) && return cfg[:p0]
     haskey(cfg, "p0") && return cfg["p0"]

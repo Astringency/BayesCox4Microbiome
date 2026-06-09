@@ -202,10 +202,9 @@ function main()
         write_table(joinpath(tables_dir, "univariate_cox_screen.csv"), screen_table)
     end
 
-    prior_metadata = prior_hyperparameter_metadata(prior_kwargs)
 
     if tune_priorparams || tune_algparams
-        tune_hyperparams_cindex(
+        tuning_result = tune_hyperparams_cindex(
             X,
             time,
             event;
@@ -253,6 +252,55 @@ function main()
         end
         actual_use_car = use_car && occursin("hs", lowercase(prior))
         actual_sample_car_strength = actual_use_car && sample_car_strength
+
+        # Merge per-prior best tuning config into prior_kwargs
+        prior_kwargs_dict = Dict(pairs(prior_kwargs))
+        if @isdefined(tuning_result) && tuning_result !== nothing
+            best_for_prior = tuning_result.best_prior_configs !== nothing ? get(tuning_result.best_prior_configs, prior, nothing) : nothing
+            if best_for_prior !== nothing
+                for (k, v) in pairs(best_for_prior)
+                    v !== nothing && (prior_kwargs_dict[Symbol(k)] = v)
+                end
+            end
+        end
+
+        # Update local prior variables from merged dict (may include tuned values)
+        alpha_prior_shape = get(prior_kwargs_dict, :alpha_prior_shape, alpha_prior_shape)
+        alpha_prior_scale  = get(prior_kwargs_dict, :alpha_prior_scale, alpha_prior_scale)
+        prox_l1_lambda     = get(prior_kwargs_dict, :prox_l1_lambda, prox_l1_lambda)
+        prox_root_tol      = get(prior_kwargs_dict, :prox_root_tol, prox_root_tol)
+        prox_root_maxiter  = get(prior_kwargs_dict, :prox_root_maxiter, prox_root_maxiter)
+
+        # Recompute prior_metadata from actual (possibly tuned) prior params
+        prior_metadata = prior_hyperparameter_metadata(prior_kwargs_dict)
+
+        # Merge algorithm tuning results into sampler params
+        if tune_algparams && @isdefined(tuning_result) && tuning_result !== nothing
+            best_alg = get(tuning_result.best, "best_algorithm_config", nothing)
+            if best_alg !== nothing
+                alg_params = _extract_algorithm_params(best_alg)
+                for (k, v) in pairs(alg_params)
+                    v !== nothing || continue
+                    if k == :sampler
+                        sampler = Symbol(v)
+                    elseif k == :nuts_backend
+                        nuts_backend = Symbol(v)
+                    elseif k == :target_accept
+                        target_accept = Float64(v)
+                    elseif k == :max_depth
+                        max_depth = Int(v)
+                    elseif k == :hmc_n_leapfrog
+                        hmc_n_leapfrog = Int(v)
+                    elseif k == :hmc_step_size
+                        hmc_step_size = v
+                    elseif k == :mala_step_size
+                        mala_step_size = Float64(v)
+                    elseif k == :mala_precondition
+                        mala_precondition = Bool(v)
+                    end
+                end
+            end
+        end
         fit = fit_and_evaluate(
             X,
             time,
@@ -312,7 +360,7 @@ function main()
             prox_block_adapt_every = prox_block_adapt_every,
             prox_block_divergence_threshold = prox_block_divergence_threshold,
             prox_block_metric = prox_block_metric,
-            prior_kwargs...,
+            prior_kwargs_dict...,
             init = init,
             realdata = true,
             progress = progress,
@@ -486,7 +534,7 @@ function main()
         metrics = copy(fit.metrics)
         metrics.prior .= prior
         metrics.p0 .= fit.p0
-        add_prior_hyperparameter_columns!(metrics, prior_kwargs)
+        add_prior_hyperparameter_columns!(metrics, prior_kwargs_dict)
         append!(all_metrics, metrics; cols = :union)
     end
 
