@@ -32,11 +32,23 @@ function _sample_explicit_nuts_one(
     isfinite(logdensity(target, init)) ||
         throw(ArgumentError("initial state has non-finite log posterior."))
 
+    # === DIAGNOSTIC A1: initial state diagnostics ===
+    let
+        lp0, grad0 = LogDensityProblems.logdensity_and_gradient(target, init)
+        d0 = length(init)
+        p0 = d0 - 1
+        @info "Prox-lasso NUTS init" logdensity=lp0 norm_grad=norm(grad0) max_abs_grad_beta=maximum(abs, view(grad0, 1:p0)) grad_eta=grad0[d0] alpha=exp(clamp(init[d0], -700.0, 700.0))
+    end
+    # === END DIAGNOSTIC A1 ===
+
     logp = u -> logdensity(target, u)
     gradlogp = u -> LogDensityProblems.logdensity_and_gradient(target, u)
     metric = AdvancedHMC.DiagEuclideanMetric(d)
     hamiltonian = AdvancedHMC.Hamiltonian(metric, logp, gradlogp)
     initial_step = AdvancedHMC.find_good_stepsize(rng, hamiltonian, init)
+    # === DIAGNOSTIC A2: auto step size ===
+    @info "Prox-lasso NUTS auto step size" initial_step
+    # === END DIAGNOSTIC A2 ===
     integrator = AdvancedHMC.Leapfrog(initial_step)
     kernel = AdvancedHMC.HMCKernel(
         AdvancedHMC.Trajectory{AdvancedHMC.MultinomialTS}(
@@ -69,6 +81,30 @@ function _sample_explicit_nuts_one(
         verbose = false,
         pm_next! = progress_next!,
     )
+
+    # === DIAGNOSTIC A3: post-sampling summary ===
+    begin
+        nd = 0
+        ars = Float64[]
+        ees = Float64[]
+        tds = Int[]
+        for s in stats
+            if haskey(s, :numerical_error) && Bool(s[:numerical_error])
+                nd += 1
+            end
+            if haskey(s, :acceptance_rate)
+                push!(ars, Float64(s[:acceptance_rate]))
+            end
+            if haskey(s, :hamiltonian_energy_error)
+                push!(ees, Float64(s[:hamiltonian_energy_error]))
+            end
+            if haskey(s, :tree_depth)
+                push!(tds, Int(s[:tree_depth]))
+            end
+        end
+        @info "Prox-lasso NUTS sampling summary" n_divergent=nd n_total=length(stats) divergence_rate=nd/length(stats) mean_accept=isempty(ars) ? NaN : mean(ars) max_energy_error=isempty(ees) ? NaN : maximum(ees) max_tree_depth=isempty(tds) ? 0 : maximum(tds)
+    end
+    # === END DIAGNOSTIC A3 ===
 
     output_names = sample_state_names(target)
     draws = Matrix{Float64}(undef, n_samples, length(output_names))

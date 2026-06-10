@@ -18,9 +18,9 @@ current_time=$(date "+%Y%m%d_%H%M%S")
 # n_vals=(200 400)
 n_vals=(200)
 # p_vals=(50 150)
-p_vals=(50)
+p_vals=(150)
 # non_vals=(6 12)
-non_vals=(12)
+non_vals=(6)
 # baseline_vals=("weibull" "exponential" "gompertz")
 baseline_vals=("weibull")
 sampler_vals=("hmc") # hmc, nuts, mala, ula
@@ -43,13 +43,13 @@ for sampler in "${sampler_vals[@]}"; do
                         --priors prox-lasso \
                         --sampler "$sampler" \
                         --nuts-backend explicit \
-                        --hmc-n-leapfrog 100 \
+                        --hmc-n-leapfrog 20 \
                         --samples 5000 \
                         --warmup 2000 \
                         --thin 1 \
                         --chains 4 \
                         --multichains true \
-                        --init rand \
+                        --init zero \
                         --target-accept 0.8 \
                         --noncentered true \
                         --seed 1 \
@@ -66,16 +66,16 @@ for sampler in "${sampler_vals[@]}"; do
                         --p0 truth \
                         --p0-alpha 0.05 \
                         --constraint prox \
-                        --prox-sum0-lambda 1e-3 \
+                        --prox-sum0-lambda 1e-6 \
                         --prox-l1-lambda 1e-4 \
                         --prox-root-tol 1e-10 \
                         --prox-root-maxiter 100 \
-                        --mala-step-size 1e-2 \
+                        --mala-step-size 10 \
                         --mala-target-accept 0.574 \
                         --mala-adapt-every 1 \
                         --mala-min-step 1e-8 \
                         --mala-max-step 1.0 \
-                        --mala-precondition false \
+                        --mala-precondition true \
                         --mala-stepsize-schedule adaptive_sgld \
                         --mala-sgld-c0 1.0 \
                         --mala-sgld-adapt-c0 true \

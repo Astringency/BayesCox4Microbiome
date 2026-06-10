@@ -171,9 +171,9 @@ dimension(target::CoxNoncenteredPosteriorTarget) = length(target.names)
 function initial_state(target::Union{CoxProxLassoTarget,CoxProxSSLassoTarget}, rng::AbstractRNG = Random.default_rng())
     p = size(target.data.z, 2)
     if target.init == :rand
-        return vcat(_default_unconstrained_init(rng, p), _default_unconstrained_init(rng, 1))
+        return vcat(_default_unconstrained_init(rng, p), [0.0])  # η=0 → α=1 avoids gradient explosion with small prox_l1_lambda
     else
-        return vcat(zeros(Float64, p), [0.0])
+        return vcat(zeros(Float64, p), [log(2)])
     end
 end
 

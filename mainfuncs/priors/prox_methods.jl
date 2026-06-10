@@ -49,6 +49,12 @@ function _l1_projection_root(
             hi = mid
         end
     end
+    # === DIAGNOSTIC C: root not converged ===
+    begin
+        final_val = f(0.5 * (lo + hi))
+        @warn "L1 projection root did not converge!" maxiter=prox_root_maxiter tol=prox_root_tol final_residual=abs(final_val) lo hi l1_norm=sum(abs, beta) alpha
+    end
+    # === END DIAGNOSTIC C ===
     return 0.5 * (lo + hi)
 end
 

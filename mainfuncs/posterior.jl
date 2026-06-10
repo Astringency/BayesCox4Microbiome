@@ -225,6 +225,11 @@ function _lasso_prox_gradient!(
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
+    # === DIAGNOSTIC D: non-finite gradient check ===
+    if any(x -> !isfinite(x), grad)
+        @error "Non-finite gradient in _lasso_prox_gradient!" nonfinite_idx=findall(x -> !isfinite(x), grad) grad_nonfinite=grad[findall(x -> !isfinite(x), grad)]
+    end
+    # === END DIAGNOSTIC D ===
     return grad
 end
 

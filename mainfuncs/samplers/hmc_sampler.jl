@@ -25,6 +25,15 @@ function _sample_explicit_hmc_one(
     isfinite(logdensity(target, init)) ||
         throw(ArgumentError("initial state has non-finite log posterior."))
 
+    # === DIAGNOSTIC B1: initial state diagnostics ===
+    let
+        lp0, grad0 = LogDensityProblems.logdensity_and_gradient(target, init)
+        d0 = length(init)
+        p0 = d0 - 1
+        @info "Prox-lasso HMC init" logdensity=lp0 norm_grad=norm(grad0) max_abs_grad_beta=maximum(abs, view(grad0, 1:p0)) grad_eta=grad0[d0] alpha=exp(clamp(init[d0], -700.0, 700.0))
+    end
+    # === END DIAGNOSTIC B1 ===
+
     logp = u -> logdensity(target, u)
     gradlogp = u -> LogDensityProblems.logdensity_and_gradient(target, u)
     metric = AdvancedHMC.DiagEuclideanMetric(d)
@@ -32,6 +41,9 @@ function _sample_explicit_hmc_one(
     initial_step = hmc_step_size === nothing ?
         AdvancedHMC.find_good_stepsize(rng, hamiltonian, init) :
         Float64(hmc_step_size)
+    # === DIAGNOSTIC B2: step size ===
+    @info "Prox-lasso HMC step size" initial_step hmc_step_size
+    # === END DIAGNOSTIC B2 ===
     integrator = AdvancedHMC.Leapfrog(initial_step)
     kernel = AdvancedHMC.HMCKernel(
         AdvancedHMC.Trajectory{AdvancedHMC.EndPointTS}(
@@ -65,6 +77,26 @@ function _sample_explicit_hmc_one(
         verbose = false,
         pm_next! = progress_next!,
     )
+
+    # === DIAGNOSTIC B3: post-sampling summary ===
+    begin
+        nd = 0
+        ars = Float64[]
+        ees = Float64[]
+        for s in stats
+            if haskey(s, :numerical_error) && Bool(s[:numerical_error])
+                nd += 1
+            end
+            if haskey(s, :acceptance_rate)
+                push!(ars, Float64(s[:acceptance_rate]))
+            end
+            if haskey(s, :hamiltonian_energy_error)
+                push!(ees, Float64(s[:hamiltonian_energy_error]))
+            end
+        end
+        @info "Prox-lasso HMC sampling summary" n_divergent=nd n_total=length(stats) divergence_rate=nd/length(stats) mean_accept=isempty(ars) ? NaN : mean(ars) max_energy_error=isempty(ees) ? NaN : maximum(ees)
+    end
+    # === END DIAGNOSTIC B3 ===
 
     length(samples) == saved_iter ||
         throw(ArgumentError("AdvancedHMC returned an unexpected number of post-warmup states."))
