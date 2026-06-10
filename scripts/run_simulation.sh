@@ -18,12 +18,12 @@ current_time=$(date "+%Y%m%d_%H%M%S")
 # n_vals=(200 400)
 n_vals=(200)
 # p_vals=(50 150)
-p_vals=(150)
+p_vals=(50)
 # non_vals=(6 12)
-non_vals=(6)
+non_vals=(12)
 # baseline_vals=("weibull" "exponential" "gompertz")
 baseline_vals=("weibull")
-sampler_vals=("hmc") # hmc, nuts, mala, ula
+sampler_vals=("nuts") # hmc, nuts, mala, ula
 # hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs
 
 for sampler in "${sampler_vals[@]}"; do
@@ -43,13 +43,13 @@ for sampler in "${sampler_vals[@]}"; do
                         --priors prox-lasso \
                         --sampler "$sampler" \
                         --nuts-backend explicit \
-                        --hmc-n-leapfrog 20 \
+                        --hmc-n-leapfrog 5 \
                         --samples 5000 \
                         --warmup 2000 \
                         --thin 1 \
                         --chains 4 \
                         --multichains true \
-                        --init zero \
+                        --init rand \
                         --target-accept 0.8 \
                         --noncentered true \
                         --seed 1 \

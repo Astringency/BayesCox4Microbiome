@@ -40,7 +40,7 @@ for n in "${n_vals[@]}"; do
                     --nonzero "$nonzero" \
                     --baseline "$baseline" \
                     --priors prox-lasso \
-                    --sampler hmc \
+                    --sampler nuts \
                     --nuts-backend explicit \
                     --hmc-n-leapfrog 100 \
                     --samples 5000 \
@@ -48,7 +48,7 @@ for n in "${n_vals[@]}"; do
                     --thin 1 \
                     --chains 4 \
                     --multichains true \
-                    --init rand \
+                    --init zero \
                     --target-accept 0.8 \
                     --noncentered true \
                     --seed 1 \
@@ -65,7 +65,7 @@ for n in "${n_vals[@]}"; do
                     --p0 truth \
                     --p0-alpha 0.05 \
                     --constraint prox \
-                    --prox-sum0-lambda 1e-3 \
+                    --prox-sum0-lambda 1e-6 \
                     --prox-l1-lambda 1e-4 \
                     --prox-root-tol 1e-10 \
                     --prox-root-maxiter 100 \
@@ -83,7 +83,7 @@ for n in "${n_vals[@]}"; do
                     --diagnose-format "pdf" \
                     --diagnose-top-k-beta 10 \
                     --diagnose-max-lag 50 \
-                    --resume true \
+                    --resume false \
                     --pseudocount 0.0 \
                     --standardize false \
                     --plot-first-rep-only true \

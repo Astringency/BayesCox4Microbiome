@@ -33,13 +33,15 @@ function _sample_explicit_nuts_one(
         throw(ArgumentError("initial state has non-finite log posterior."))
 
     # === DIAGNOSTIC A1: initial state diagnostics ===
-    let
-        lp0, grad0 = LogDensityProblems.logdensity_and_gradient(target, init)
-        d0 = length(init)
-        p0 = d0 - 1
-        @info "Prox-lasso NUTS init" logdensity=lp0 norm_grad=norm(grad0) max_abs_grad_beta=maximum(abs, view(grad0, 1:p0)) grad_eta=grad0[d0] alpha=exp(clamp(init[d0], -700.0, 700.0))
+    if BayesCox4Micro.DIAG_DEBUG[]
+        let
+            lp0, grad0 = LogDensityProblems.logdensity_and_gradient(target, init)
+            d0 = length(init)
+            p0 = d0 - 1
+            @info "Prox-lasso NUTS init" logdensity=lp0 norm_grad=norm(grad0) max_abs_grad_beta=maximum(abs, view(grad0, 1:p0)) grad_eta=grad0[d0] alpha=exp(clamp(init[d0], -700.0, 700.0))
+        end
     end
-    # === END DIAGNOSTIC A1 ===
+    # === END DIAGNOSTIC A1
 
     logp = u -> logdensity(target, u)
     gradlogp = u -> LogDensityProblems.logdensity_and_gradient(target, u)
@@ -47,7 +49,7 @@ function _sample_explicit_nuts_one(
     hamiltonian = AdvancedHMC.Hamiltonian(metric, logp, gradlogp)
     initial_step = AdvancedHMC.find_good_stepsize(rng, hamiltonian, init)
     # === DIAGNOSTIC A2: auto step size ===
-    @info "Prox-lasso NUTS auto step size" initial_step
+    BayesCox4Micro.DIAG_DEBUG[] && @info "Prox-lasso NUTS auto step size" initial_step
     # === END DIAGNOSTIC A2 ===
     integrator = AdvancedHMC.Leapfrog(initial_step)
     kernel = AdvancedHMC.HMCKernel(
@@ -83,6 +85,7 @@ function _sample_explicit_nuts_one(
     )
 
     # === DIAGNOSTIC A3: post-sampling summary ===
+    if BayesCox4Micro.DIAG_DEBUG[]
     begin
         nd = 0
         ars = Float64[]
@@ -103,6 +106,7 @@ function _sample_explicit_nuts_one(
             end
         end
         @info "Prox-lasso NUTS sampling summary" n_divergent=nd n_total=length(stats) divergence_rate=nd/length(stats) mean_accept=isempty(ars) ? NaN : mean(ars) max_energy_error=isempty(ees) ? NaN : maximum(ees) max_tree_depth=isempty(tds) ? 0 : maximum(tds)
+    end
     end
     # === END DIAGNOSTIC A3 ===
 

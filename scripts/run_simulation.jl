@@ -225,6 +225,7 @@ function main()
     cv_folds = tuning_kwargs.cv_folds
     tune_seed = tuning_kwargs.tune_seed
     debug = arg(args, "debug", false)
+    BayesCox4Micro.DIAG_DEBUG[] = debug
     diagnose_formats = diagnostic_kwargs.diagnose_formats
     diagnose_top_k_beta = diagnostic_kwargs.diagnose_top_k_beta
     diagnose_max_lag = diagnostic_kwargs.diagnose_max_lag

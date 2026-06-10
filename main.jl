@@ -11,7 +11,10 @@ import AdvancedHMC
 import LogDensityProblems
 import Turing
 
-export AbstractCoxPrior,
+const DIAG_DEBUG = Ref(false)
+
+export DIAG_DEBUG,
+    AbstractCoxPrior,
     AbstractCoxTarget,
     HorseshoePrior,
     RegularizedHorseshoePrior,

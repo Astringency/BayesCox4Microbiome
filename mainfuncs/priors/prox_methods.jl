@@ -50,11 +50,13 @@ function _l1_projection_root(
         end
     end
     # === DIAGNOSTIC C: root not converged ===
-    begin
-        final_val = f(0.5 * (lo + hi))
-        @warn "L1 projection root did not converge!" maxiter=prox_root_maxiter tol=prox_root_tol final_residual=abs(final_val) lo hi l1_norm=sum(abs, beta) alpha
+    if BayesCox4Micro.DIAG_DEBUG[]
+        begin
+            final_val = f(0.5 * (lo + hi))
+            @warn "L1 projection root did not converge!" maxiter=prox_root_maxiter tol=prox_root_tol final_residual=abs(final_val) lo hi l1_norm=sum(abs, beta) alpha
+        end
     end
-    # === END DIAGNOSTIC C ===
+    # === END DIAGNOSTIC C
     return 0.5 * (lo + hi)
 end
 
