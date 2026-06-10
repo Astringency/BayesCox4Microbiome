@@ -18,10 +18,15 @@ status=0
 
 # MAIN LOOP
 n_vals=(200 400)
+# n_vals=(400)
 p_vals=(50 150)
+# p_vals=(150)
 non_vals=(6 12)
+# non_vals=(12)
 baseline_vals=("weibull" "exponential" "gompertz")
-constraint_vals=("prox" "soft_center")
+# baseline_vals=("gompertz")
+# constraint_vals=("prox" "soft_center")
+constraint_vals=("prox")
 # --priors lasso,sslasso \
 # --outdir "/large_storage/zhangxf/BayesCox/results/simulation/softcenter/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
 
@@ -31,73 +36,68 @@ for n in "${n_vals[@]}"; do
     for p in "${p_vals[@]}"; do
         for nonzero in "${non_vals[@]}"; do
             for constraint in "${constraint_vals[@]}"; do
+                for baseline in "${baseline_vals[@]}"; do
+                    echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
 
-                (
-                    for baseline in "${baseline_vals[@]}"; do
-                        echo "[SIMULATION] n=${n}, p=${p}, ${nonzero} nonzero coeffs with ${baseline} baseline."
-
-                        julia "+1.11.7" -t 4 --project=. ./scripts/run_simulation.jl \
-                            --outdir "/large_storage/zhangxf/BayesCox/results/simulation/${constraint}/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
-                            --reps 50 \
-                            --n "$n" \
-                            --p "$p" \
-                            --nonzero "$nonzero" \
-                            --baseline "$baseline" \
-                            --priors lasso,sslasso \
-                            --sampler hmc \
-                            --nuts-backend explicit \
-                            --hmc-n-leapfrog 100 \
-                            --samples 5000 \
-                            --warmup 2000 \
-                            --thin 1 \
-                            --chains 4 \
-                            --multichains true \
-                            --target-accept 0.8 \
-                            --noncentered true \
-                            --seed 1 \
-                            --use-car true \
-                            --progress true \
-                            --car-weight-quantile 0.99 \
-                            --car-precision 1 \
-                            --sample-car-strength true \
-                            --car-strength-prior-a 1 \
-                            --car-strength-prior-b 1 \
-                            --car-distance "bray" \
-                            --p0 truth \
-                            --p0-alpha 0.05 \
-                            --constraint "$constraint" \
-                            --diagnose true \
-                            --debug false \
-                            --diagnose-format "pdf" \
-                            --diagnose-top-k-beta 12 \
-                            --diagnose-max-lag 36 \
-                            --resume true \
-                            --pseudocount 0.0 \
-                            --standardize false \
-                            --plot-first-rep-only true \
-                            --sample-thin 10 \
-                            --first-rep-sample-thin 1 \
-                            --save-wide-csv true \
-                            --save-jld2 false \
-                            --rhs-slab-df 4 \
-                            --rhs-slab-s2 2 \
-                            --hs-tau-scale 1 \
-                            --hs-local-scale 1 \
-                            --rhs-tau-scale 1 \
-                            --rhs-local-scale 1 \
-                            --rhs-pseudo-sigma-df 3 \
-                            --rhs-pseudo-sigma-scale 10 \
-                            --lasso-lambda2-shape 1 \
-                            --lasso-lambda2-rate 0.1 \
-                            --sslasso-spike-scale 0.04 \
-                            --sslasso-slab-scale 0.5 \
-                            --sslasso-theta-a 1 \
-                            --sslasso-theta-b 1
-
-                    done
-                ) &
-
+                    julia "+1.11.7" -t 4 --project=. ./scripts/run_simulation.jl \
+                        --outdir "./results/simulation/${constraint}/n${n}_p${p}_nonzero${nonzero}_${baseline}" \
+                        --reps 50 \
+                        --n "$n" \
+                        --p "$p" \
+                        --nonzero "$nonzero" \
+                        --baseline "$baseline" \
+                        --priors lasso,sslasso \
+                        --sampler hmc \
+                        --nuts-backend explicit \
+                        --hmc-n-leapfrog 100 \
+                        --samples 5000 \
+                        --warmup 2000 \
+                        --thin 1 \
+                        --chains 4 \
+                        --multichains true \
+                        --target-accept 0.8 \
+                        --noncentered true \
+                        --seed 1 \
+                        --use-car true \
+                        --progress true \
+                        --car-weight-quantile 0.99 \
+                        --car-precision 1 \
+                        --sample-car-strength true \
+                        --car-strength-prior-a 1 \
+                        --car-strength-prior-b 1 \
+                        --car-distance "bray" \
+                        --p0 truth \
+                        --p0-alpha 0.05 \
+                        --constraint "$constraint" \
+                        --diagnose true \
+                        --debug false \
+                        --diagnose-format "pdf" \
+                        --diagnose-top-k-beta 12 \
+                        --diagnose-max-lag 36 \
+                        --resume true \
+                        --pseudocount 0.0 \
+                        --standardize false \
+                        --plot-first-rep-only true \
+                        --sample-thin 10 \
+                        --first-rep-sample-thin 1 \
+                        --save-wide-csv true \
+                        --save-jld2 false \
+                        --rhs-slab-df 4 \
+                        --rhs-slab-s2 2 \
+                        --hs-tau-scale 1 \
+                        --hs-local-scale 1 \
+                        --rhs-tau-scale 1 \
+                        --rhs-local-scale 1 \
+                        --rhs-pseudo-sigma-df 3 \
+                        --rhs-pseudo-sigma-scale 10 \
+                        --lasso-lambda2-shape 1 \
+                        --lasso-lambda2-rate 0.1 \
+                        --sslasso-spike-scale 0.04 \
+                        --sslasso-slab-scale 0.5 \
+                        --sslasso-theta-a 1 \
+                        --sslasso-theta-b 1 &
                 pids+=("$!")
+                done
             done
         done
     done
