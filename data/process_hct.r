@@ -58,3 +58,20 @@ HCT_005 <- cbind(bac_id, bac_005_recomp, gvhd_df)
 
 write.csv(HCT_005, "HCT_005.csv", row.names = FALSE)
 cat("Successfully generated: HCT_005.csv (Retained covariates: ", sum(keep_prev_idx), ")\n", sep="")
+
+# ---------------------------------------------------------
+# Task 4: BCor-SIS filter (HCT_bcorsis.csv)
+# ---------------------------------------------------------
+library(Ball)
+fit.bcorsis <- bcorsis(x = bacteria, y = gvhd, method = "survival")
+bac_bcorsis <- bacteria[, fit.bcorsis$ix]
+bac_bcorsis_comp <- bac_bcorsis / rowSums(bac_bcorsis)
+HCT_bacorsis <- cbind(bac_id, bac_bcorsis_comp, gvhd_df)
+HCT_bacorsis_clean <- na.omit(HCT_bacorsis)
+
+
+write.csv(HCT_bacorsis_clean, "HCT_bcorsis.csv", row.names = FALSE)
+cat("Successfully generated: HCT_bcorsis.csv", sep="")
+
+
+

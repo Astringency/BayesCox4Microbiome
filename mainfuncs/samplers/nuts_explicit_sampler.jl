@@ -288,6 +288,7 @@ function _generic_explicit_initial(
     data::CoxPreparedData,
     initial;
     rng::AbstractRNG = Random.default_rng(),
+    noncentered::Bool = false,
     car_weights = nothing,
     sample_car_strength::Bool = false,
     car_strength_prior_a::Real = 1.0,

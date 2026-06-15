@@ -13,15 +13,15 @@ JULIA=(julia +1.11.7 -t 4 --project=.)
 # ---------------------------------------------------------------------------
 # Real-data CLI defaults from scripts/analyze_real_data.jl
 # ---------------------------------------------------------------------------
-REALDATA_PRIORS=(--priors hs,rhs,new-rhs,cox-hs,cox-rhs,lasso,sslasso)
-# REALDATA_PRIORS=(--priors prox-lasso,prox-sslasso)
+# REALDATA_PRIORS=(--priors hs,rhs,new-rhs,cox-hs,cox-rhs,lasso,sslasso)
+REALDATA_PRIORS=(--priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso,prox-lasso,prox-sslasso)
 # REALDATA_PRIORS=(--priors est-rhs)
 
 # ---------------------------------------------------------------------------
 # Sampler interfaces: general, NUTS, HMC, MALA, MALA-SGLD, Proximal block
 # ---------------------------------------------------------------------------
 SAMPLER_GENERAL=(
-    --sampler hmc
+    --sampler nuts
     --samples 5000
     --warmup 4000
     --thin 1
@@ -130,29 +130,29 @@ PRIOR_CAR=(
 # ---------------------------------------------------------------------------
 # Cox model and diagnostics interfaces
 # ---------------------------------------------------------------------------
-COX_MODEL=(
-    --p0 auto
-    --p0-alpha 0.05
-    --constraint soft_center
-    --prox-sum0-lambda 1e-3
-    --pseudocount 1e-6
-    --standardize false
-    --tie-method efron
-    --approx false
-  --approx-point zero
-)
-
 # COX_MODEL=(
 #     --p0 auto
 #     --p0-alpha 0.05
-#     --constraint prox
-#     --prox-sum0-lambda 1e-3
+#     --constraint soft_center
+#     --prox-sum0-lambda 1e-6
 #     --pseudocount 1e-6
 #     --standardize false
 #     --tie-method efron
 #     --approx false
 #     --approx-point zero
 # )
+
+COX_MODEL=(
+    --p0 auto
+    --p0-alpha 0.05
+    --constraint prox
+    --prox-sum0-lambda 1e-6
+    --pseudocount 1e-6
+    --standardize false
+    --tie-method efron
+    --approx false
+    --approx-point zero
+)
 
 DIAGNOSTICS=(
     --diagnose true
@@ -209,6 +209,15 @@ HCT_DATA=(
     --exclude-cols sample_id
 )
 
+HCT_DATA_001=(
+    --input data/HCT_001.csv
+    --outdir results/realdata/HCT_001
+    --time-col time
+    --status-col status
+    --comp-cols none
+    --exclude-cols sample_id
+)
+
 TCGA_EXCLUDE="dataset,patient,cancer_type,sample_id,sample_type,pfi_time,pfi,dfi_time,dfi,dss_time,dss,os_censor,pfi_censor,dfi_censor,dss_censor"
 
 run_realdata() {
@@ -246,24 +255,27 @@ optional_arg() {
 }
 
 # ---------------------------------------------------------------------------
-# 1. T1D data: data/T1D.csv
+# 1. T1D data: data/T1D.csv (173, 30)
 # ---------------------------------------------------------------------------
 # echo ">>> RUN T1D DATA ANALYSIS"
 # run_realdata "${T1D_DATA[@]}" "${COMMON[@]}" "$@"
 
 # ---------------------------------------------------------------------------
-# 2. HCT data: data/HCT.csv
+# 2. HCT data: data/HCT.csv (63, 139/33)
 # ---------------------------------------------------------------------------
 # echo ">>> RUN HCT DATA ANALYSIS"
 # run_realdata "${HCT_DATA[@]}" "${COMMON[@]}" "$@"
 
+echo ">>> RUN PROCESSED HCT DATA ANALYSIS"
+run_realdata "${HCT_DATA_001[@]}" "${COMMON[@]}" "$@"
+
 # ---------------------------------------------------------------------------
-# 3. TCGA CIBERSORT data: 8 cancer-specific OS analyses
+# 3. TCGA CIBERSORT data: 8 cancer-specific OS analyses (n, 22)
 # ---------------------------------------------------------------------------
-echo ">>> RUN TCGA DATA ANALYSIS"
-for cancer in BLCA BRCA COAD HNSC LIHC LUAD OV STAD; do
-    run_tcga "${cancer}" "$@"
-done
+# echo ">>> RUN TCGA DATA ANALYSIS"
+# for cancer in BLCA BRCA COAD HNSC LIHC LUAD OV STAD; do
+#     run_tcga "${cancer}" "$@"
+# done
 
 
 echo "ALL DONE."
