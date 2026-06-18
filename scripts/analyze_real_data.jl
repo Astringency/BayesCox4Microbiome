@@ -88,6 +88,37 @@ function realdata_cli_valid_keys()
     )
 end
 
+function load_prior_config_overrides(path::AbstractString)
+    raw_path = strip(path)
+    if isempty(raw_path) || lowercase(raw_path) in ("none", "nothing", "missing")
+        return Dict{String,Dict{Symbol,Any}}()
+    end
+    isfile(raw_path) || throw(ArgumentError("--prior-configs file was not found: $raw_path"))
+    parsed = JSON.parsefile(raw_path)
+    parsed isa AbstractDict || throw(ArgumentError("--prior-configs must contain a JSON object."))
+    out = Dict{String,Dict{Symbol,Any}}()
+    for (prior, cfg) in pairs(parsed)
+        cfg isa AbstractDict ||
+            throw(ArgumentError("--prior-configs entry for $prior must be a JSON object."))
+        cfg_out = Dict{Symbol,Any}()
+        for (k, v) in pairs(cfg)
+            v === nothing && continue
+            cfg_out[Symbol(k)] = v
+        end
+        out[String(prior)] = cfg_out
+    end
+    return out
+end
+
+function merge_prior_config!(prior_kwargs_dict::Dict, prior::AbstractString, configs)
+    best_for_prior = get(configs, prior, nothing)
+    best_for_prior === nothing && return prior_kwargs_dict
+    for (k, v) in pairs(best_for_prior)
+        v !== nothing && (prior_kwargs_dict[Symbol(k)] = v)
+    end
+    return prior_kwargs_dict
+end
+
 function main()
     args = parse_cli_args()
     require_known_args!(args, realdata_cli_valid_keys())
@@ -104,6 +135,11 @@ function main()
     diagnostic_kwargs = diagnostic_cli_options(args)
     tuning_kwargs = tuning_cli_options(args)
     prior_kwargs = prior_hyperparameter_kwargs(args)
+    prior_config_source = arg(args, "prior-configs", "")
+    external_prior_configs = load_prior_config_overrides(prior_config_source)
+    if !isempty(external_prior_configs)
+        @info "Loaded prior hyperparameter overrides." prior_config_source priors = sort(collect(keys(external_prior_configs)))
+    end
     sampler = sampler_kwargs.sampler
     nuts_backend = sampler_kwargs.nuts_backend
     n_samples = sampler_kwargs.n_samples
@@ -255,6 +291,7 @@ function main()
 
         # Merge per-prior best tuning config into prior_kwargs
         prior_kwargs_dict = Dict(pairs(prior_kwargs))
+        merge_prior_config!(prior_kwargs_dict, prior, external_prior_configs)
         if @isdefined(tuning_result) && tuning_result !== nothing
             best_for_prior = tuning_result.best_prior_configs !== nothing ? get(tuning_result.best_prior_configs, prior, nothing) : nothing
             if best_for_prior !== nothing
@@ -435,6 +472,7 @@ function main()
                 "car_degree_scale" => string(car_degree_scale),
                 "car_kappa_init" => car_kappa_init,
                 "input" => input,
+                "prior_config_source" => prior_config_source,
                 "comp_cols" => join(comp_cols_arg, ","),
                 "component_cols" => join(component_cols, ","),
                 "exclude_cols" => join(exclude_cols, ","),
@@ -496,6 +534,7 @@ function main()
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
                 "p0_alpha" => p0_alpha,
+                "prior_config_source" => prior_config_source,
                 "comp_cols" => join(comp_cols_arg, ","),
                 "component_cols" => join(component_cols, ","),
                 "exclude_cols" => join(exclude_cols, ","),

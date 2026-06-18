@@ -98,14 +98,14 @@ const PRIOR_PARAM_GRID_VALUES = Dict{String,Vector{Pair{String,Any}}}(
     "prox-lasso" => Pair{String,Any}[
         "prox_l1_lambda" => [1e-5, 1e-4, 1e-3],
         "alpha_prior_shape" => [1.0],
-        "alpha_prior_scale" => [33.0],
+        "alpha_prior_scale" => [22.0],
     ],
     "prox-sslasso" => Pair{String,Any}[
         "sslasso_spike_scale" => [0.04, 0.1, 0.5, 1.0, 2.0],
         "sslasso_slab_scale" => [0.5, 1.0, 2.0, 5.0, 10.0],
         "prox_l1_lambda" => [1e-5, 1e-4, 1e-3],
         "alpha_prior_shape" => [1.0],
-        "alpha_prior_scale" => [33.0],
+        "alpha_prior_scale" => [22.0],
     ],
 )
         # "alpha_prior_shape" => [0.1, 0.5, 1.0],

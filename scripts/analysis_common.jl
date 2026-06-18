@@ -165,6 +165,7 @@ const TUNING_CLI_KEYS = (
     "cv-folds",
     "tune-seed",
     "tune-run-best",
+    "prior-configs",
 )
 const COMMON_ANALYSIS_CLI_KEYS = _unique_cli_keys(
     SAMPLER_HYPERPARAMETER_CLI_KEYS,

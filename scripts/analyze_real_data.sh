@@ -13,9 +13,12 @@ JULIA=(julia +1.11.7 -t 4 --project=.)
 # ---------------------------------------------------------------------------
 # Real-data CLI defaults from scripts/analyze_real_data.jl
 # ---------------------------------------------------------------------------
-# REALDATA_PRIORS=(--priors hs,rhs,new-rhs,cox-hs,cox-rhs,lasso,sslasso)
-REALDATA_PRIORS=(--priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso,prox-lasso,prox-sslasso)
+REALDATA_PRIORS=(--priors hs,rhs,new-rhs,cox-hs,cox-rhs,lasso,sslasso)
+# REALDATA_PRIORS=(--priors hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso,prox-lasso,prox-sslasso)
 # REALDATA_PRIORS=(--priors est-rhs)
+constraint="${CONSTRAINT:-prox}"
+OUT_ROOT="${OUT_ROOT:-results/realdata_${constraint}}"
+SOFT_CONFIG_ROOT="${SOFT_CONFIG_ROOT:-results/realdata_soft_center}"
 
 # ---------------------------------------------------------------------------
 # Sampler interfaces: general, NUTS, HMC, MALA, MALA-SGLD, Proximal block
@@ -30,7 +33,7 @@ SAMPLER_GENERAL=(
     --target-accept 0.8
     --noncentered true
     --seed 1
-    --progress true
+    --progress false
 )
 
 SAMPLER_NUTS=(
@@ -130,22 +133,10 @@ PRIOR_CAR=(
 # ---------------------------------------------------------------------------
 # Cox model and diagnostics interfaces
 # ---------------------------------------------------------------------------
-# COX_MODEL=(
-#     --p0 auto
-#     --p0-alpha 0.05
-#     --constraint soft_center
-#     --prox-sum0-lambda 1e-6
-#     --pseudocount 1e-6
-#     --standardize false
-#     --tie-method efron
-#     --approx false
-#     --approx-point zero
-# )
-
 COX_MODEL=(
     --p0 auto
     --p0-alpha 0.05
-    --constraint prox
+    --constraint "$constraint"
     --prox-sum0-lambda 1e-6
     --pseudocount 1e-6
     --standardize false
@@ -153,6 +144,18 @@ COX_MODEL=(
     --approx false
     --approx-point zero
 )
+
+# COX_MODEL=(
+#     --p0 auto
+#     --p0-alpha 0.05
+#     --constraint prox
+#     --prox-sum0-lambda 1e-6
+#     --pseudocount 1e-6
+#     --standardize false
+#     --tie-method efron
+#     --approx false
+#     --approx-point zero
+# )
 
 DIAGNOSTICS=(
     --diagnose true
@@ -162,7 +165,7 @@ DIAGNOSTICS=(
 )
 
 TUNING=(
-    --tune_priorsparams true
+    --tune_priorsparams false
     --tune_algparams false
     --cv-folds 5
     --tune-seed 42
@@ -193,29 +196,42 @@ COMMON=(
 # ---------------------------------------------------------------------------
 T1D_DATA=(
     --input data/T1D.csv
-    --outdir results/realdata/T1D
+    --outdir "${OUT_ROOT}/T1D"
     --time-col time
     --status-col status
     --comp-cols none
     --exclude-cols Sex,Antibiotics
+    --prior-configs "${SOFT_CONFIG_ROOT}/T1D/tuning/best_prior_configs.json"
 )
 
 HCT_DATA=(
     --input data/HCT.csv
-    --outdir results/realdata/HCT
+    --outdir "${OUT_ROOT}/HCT"
     --time-col time
     --status-col status
     --comp-cols none
     --exclude-cols sample_id
+    --prior-configs "${SOFT_CONFIG_ROOT}/HCT/tuning/best_prior_configs.json"
 )
 
 HCT_DATA_001=(
     --input data/HCT_001.csv
-    --outdir results/realdata/HCT_001
+    --outdir "${OUT_ROOT}/HCT_001"
     --time-col time
     --status-col status
     --comp-cols none
     --exclude-cols sample_id
+    --prior-configs "${SOFT_CONFIG_ROOT}/HCT_001/tuning/best_prior_configs.json"
+)
+
+HCT_DATA_bcorsis=(
+    --input data/HCT_bcorsis.csv
+    --outdir "${OUT_ROOT}/HCT_bcorsis"
+    --time-col time
+    --status-col status
+    --comp-cols none
+    --exclude-cols sample_id
+    --prior-configs "${SOFT_CONFIG_ROOT}/HCT_001/tuning/best_prior_configs.json"
 )
 
 TCGA_EXCLUDE="dataset,patient,cancer_type,sample_id,sample_type,pfi_time,pfi,dfi_time,dfi,dss_time,dss,os_censor,pfi_censor,dfi_censor,dss_censor"
@@ -228,11 +244,12 @@ run_tcga() {
     local cancer="$1"
     local tcga_data=(
         --input "data/TCGA/cibersort/TCGA_${cancer}_CIBERSORT_survival.csv"
-        --outdir "results/realdata/TCGA_${cancer}_CIBERSORT_OS"
+        --outdir "${OUT_ROOT}/TCGA_${cancer}_CIBERSORT_OS"
         --time-col os_time
         --status-col os
         --comp-cols none
         --exclude-cols "${TCGA_EXCLUDE}"
+        --prior-configs "${SOFT_CONFIG_ROOT}/TCGA_${cancer}_CIBERSORT_OS/tuning/best_prior_configs.json"
     )
 
     run_realdata "${tcga_data[@]}" "${COMMON[@]}" "$@"
@@ -254,28 +271,45 @@ optional_arg() {
     fi
 }
 
-# ---------------------------------------------------------------------------
-# 1. T1D data: data/T1D.csv (173, 30)
-# ---------------------------------------------------------------------------
-# echo ">>> RUN T1D DATA ANALYSIS"
-# run_realdata "${T1D_DATA[@]}" "${COMMON[@]}" "$@"
+run_named_dataset() {
+    local dataset="$1"
+    case "$dataset" in
+        T1D)
+            echo ">>> RUN T1D DATA ANALYSIS"
+            run_realdata "${T1D_DATA[@]}" "${COMMON[@]}" "$@"
+            ;;
+        HCT)
+            echo ">>> RUN HCT DATA ANALYSIS"
+            run_realdata "${HCT_DATA[@]}" "${COMMON[@]}" "$@"
+            ;;
+        HCT_001)
+            echo ">>> RUN PROCESSED HCT DATA ANALYSIS"
+            run_realdata "${HCT_DATA_001[@]}" "${COMMON[@]}" "$@"
+            ;;
+        HCT_bcorsis)
+            echo ">>> RUN BALLCOV PROCESSED HCT DATA ANALYSIS"
+            run_realdata "${HCT_DATA_bcorsis[@]}" "${COMMON[@]}" "$@"
+            ;;
+        TCGA_*)
+            run_tcga "${dataset#TCGA_}" "$@"
+            ;;
+        all)
+            RUN_DATASETS="T1D,HCT,HCT_001,HCT_bcorsis,TCGA_BLCA,TCGA_BRCA,TCGA_COAD,TCGA_HNSC,TCGA_LIHC,TCGA_LUAD,TCGA_OV,TCGA_STAD" \
+                "$0" "$@"
+            ;;
+        *)
+            echo "Unknown dataset selector: $dataset" >&2
+            return 2
+            ;;
+    esac
+}
 
-# ---------------------------------------------------------------------------
-# 2. HCT data: data/HCT.csv (63, 139/33)
-# ---------------------------------------------------------------------------
-# echo ">>> RUN HCT DATA ANALYSIS"
-# run_realdata "${HCT_DATA[@]}" "${COMMON[@]}" "$@"
-
-echo ">>> RUN PROCESSED HCT DATA ANALYSIS"
-run_realdata "${HCT_DATA_001[@]}" "${COMMON[@]}" "$@"
-
-# ---------------------------------------------------------------------------
-# 3. TCGA CIBERSORT data: 8 cancer-specific OS analyses (n, 22)
-# ---------------------------------------------------------------------------
-# echo ">>> RUN TCGA DATA ANALYSIS"
-# for cancer in BLCA BRCA COAD HNSC LIHC LUAD OV STAD; do
-#     run_tcga "${cancer}" "$@"
-# done
+IFS=',' read -r -a REQUESTED_DATASETS <<< "${RUN_DATASETS:-HCT_bcorsis}"
+for dataset in "${REQUESTED_DATASETS[@]}"; do
+    dataset="${dataset//[[:space:]]/}"
+    [[ -z "$dataset" ]] && continue
+    run_named_dataset "$dataset" "$@"
+done
 
 
 echo "ALL DONE."
