@@ -231,11 +231,14 @@ function main()
     X = matrix_without_missing(df, component_cols)
     time = Float64.(df[!, time_col])
     event = Int.(df[!, status_col])
+    p0_requested = p0_arg === nothing ? "auto" : string(p0_arg)
+    p0_value = p0_arg
     if p0_arg === nothing
         screen_table, screen = univariate_screen_table(X, time, event; names = component_cols, alpha = p0_alpha)
         screen_table.p0 .= screen.p0
         screen_table.alpha .= screen.alpha
         write_table(joinpath(tables_dir, "univariate_cox_screen.csv"), screen_table)
+        p0_value = screen.p0
     end
 
 
@@ -249,7 +252,7 @@ function main()
             base_prior_kwargs = prior_kwargs,
             base_car_kwargs = car_kwargs,
             base_model_kwargs = (
-                p0 = p0_arg,
+                p0 = p0_value,
                 p0_alpha = p0_alpha,
                 constraint = constraint,
                 prox_sum0_lambda = prox_sum0_lambda,
@@ -277,6 +280,8 @@ function main()
                 "component_cols" => join(component_cols, ","),
                 "exclude_cols" => join(exclude_cols, ","),
                 "dropped_survival_rows" => dropped_survival_rows,
+                "p0" => p0_value,
+                "p0_requested" => p0_requested,
             ),
         )
     end
@@ -368,7 +373,7 @@ function main()
             pseudocount = pseudocount,
             standardize = standardize,
             tie_method = tie_method,
-            p0 = p0_arg,
+            p0 = p0_value,
             p0_alpha = p0_alpha,
             constraint = constraint,
             prox_sum0_lambda = prox_sum0_lambda,
@@ -431,7 +436,8 @@ function main()
                 "hmc_n_leapfrog" => hmc_n_leapfrog,
                 "hmc_step_size" => hmc_step_size,
                 "noncentered" => noncentered,
-                "p0" => fit.p0,
+                "p0" => p0_value,
+                "p0_requested" => p0_requested,
                 "pseudocount" => pseudocount,
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
@@ -472,6 +478,8 @@ function main()
                 "car_degree_scale" => string(car_degree_scale),
                 "car_kappa_init" => car_kappa_init,
                 "input" => input,
+                "time_col" => string(time_col),
+                "status_col" => string(status_col),
                 "prior_config_source" => prior_config_source,
                 "comp_cols" => join(comp_cols_arg, ","),
                 "component_cols" => join(component_cols, ","),
@@ -530,11 +538,15 @@ function main()
                 "car_strength_prior_b" => car_strength_prior_b,
                 "car_degree_scale" => string(car_degree_scale),
                 "car_kappa_init" => car_kappa_init,
+                "p0_requested" => p0_requested,
+                "p0" => p0_value,
                 "pseudocount" => pseudocount,
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
                 "p0_alpha" => p0_alpha,
                 "prior_config_source" => prior_config_source,
+                "time_col" => string(time_col),
+                "status_col" => string(status_col),
                 "comp_cols" => join(comp_cols_arg, ","),
                 "component_cols" => join(component_cols, ","),
                 "exclude_cols" => join(exclude_cols, ","),
@@ -572,13 +584,22 @@ function main()
 
         metrics = copy(fit.metrics)
         metrics.prior .= prior
-        metrics.p0 .= fit.p0
+        metrics.p0 .= p0_value
         add_prior_hyperparameter_columns!(metrics, prior_kwargs_dict)
         append!(all_metrics, metrics; cols = :union)
     end
 
+    metrics_path = joinpath(tables_dir, "model_metrics.csv")
+    if isfile(metrics_path)
+        existing_metrics = CSV.read(metrics_path, DataFrame; normalizenames = false)
+        if nrow(existing_metrics) > 0 && :prior in propertynames(existing_metrics)
+            rerun_priors = Set(String.(priors))
+            keep = [!(string(prior) in rerun_priors) for prior in existing_metrics.prior]
+            all_metrics = vcat(existing_metrics[keep, :], all_metrics; cols = :union)
+        end
+    end
     add_elpd_diffs!(all_metrics; group_cols = [:estimate])
-    write_table(joinpath(tables_dir, "model_metrics.csv"), all_metrics)
+    write_table(metrics_path, all_metrics)
     write_table(joinpath(tables_dir, "component_columns.csv"), DataFrame(component = string.(component_cols)))
     metrics_plot(all_metrics, joinpath(figs_dir, "model_metrics.pdf"); title = "Model metrics")
     println("Real-data outputs written to $(abspath(outdir))")
