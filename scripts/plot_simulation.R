@@ -414,6 +414,30 @@ safe_parse_beta <- function(x) {
   parse(text = as.character(x))
 }
 
+SUBSCRIPT_DIGITS <- c(
+  "0" = "\u2080",
+  "1" = "\u2081",
+  "2" = "\u2082",
+  "3" = "\u2083",
+  "4" = "\u2084",
+  "5" = "\u2085",
+  "6" = "\u2086",
+  "7" = "\u2087",
+  "8" = "\u2088",
+  "9" = "\u2089"
+)
+
+subscript_number <- function(x) {
+  vapply(as.character(x), function(value) {
+    chars <- strsplit(value, "", fixed = TRUE)[[1]]
+    paste0(SUBSCRIPT_DIGITS[chars], collapse = "")
+  }, character(1))
+}
+
+beta_symbol_label <- function(index) {
+  paste0("\u03b2", subscript_number(index))
+}
+
 PLOT_FONT_FAMILY <- "Times New Roman"
 PLOT_TEXT_COLOUR <- "black"
 PLOT_BASE_SIZE <- 12
@@ -473,7 +497,7 @@ plot_acf_rhat <- function(diag, acf_data, p_dim) {
       ~parameter,
       ncol = 3,
       scales = "free_y",
-      labeller = labeller(parameter = function(x) safe_parse_beta(x))
+      labeller = labeller(parameter = function(x) beta_symbol_label(parameter_index(x)))
     ) +
     scale_color_viridis_d(name = "Chain", option = "D") +
     labs(x = "Lag", y = "Autocorrelation") +
@@ -481,7 +505,12 @@ plot_acf_rhat <- function(diag, acf_data, p_dim) {
     theme(
       legend.position = "bottom",
       legend.key.size = grid::unit(0.4, "cm"),
-      strip.text = element_text(size = 9.5, family = PLOT_FONT_FAMILY, colour = PLOT_TEXT_COLOUR)
+      strip.text = element_text(
+        size = 9.5,
+        family = PLOT_FONT_FAMILY,
+        face = "italic",
+        colour = PLOT_TEXT_COLOUR
+      )
     )
 
   plot_grid(
@@ -508,7 +537,7 @@ plot_trace_density <- function(samples, posterior) {
   plot_list <- vector("list", n_nz)
   for (i in seq_len(n_nz)) {
     param_name <- nonzero_params$variable[[i]]
-    param_label <- sprintf("beta[%d]", nonzero_params$beta_index[[i]])
+    param_label <- beta_symbol_label(nonzero_params$beta_index[[i]])
     true_val <- nonzero_params$true_beta[[i]]
     post_mean <- nonzero_params$mean[[i]]
     param_samples <- samples[parameter == param_name]
@@ -532,13 +561,12 @@ plot_trace_density <- function(samples, posterior) {
         vjust = 1.15,
         label = param_label,
         size = 3.2,
-        fontface = "bold",
+        fontface = "italic",
         family = PLOT_FONT_FAMILY,
         colour = PLOT_TEXT_COLOUR,
         label.size = 0.15,
         fill = "white",
-        alpha = 0.9,
-        parse = TRUE
+        alpha = 0.9
       ) +
       scale_color_viridis_d(option = "D") +
       labs(x = NULL, y = NULL) +
