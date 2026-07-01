@@ -1,6 +1,7 @@
 #!/usr/bin/env Rscript
 
 args <- commandArgs(trailingOnly = TRUE)
+initial_rplots_exists <- file.exists("Rplots.pdf")
 
 arg_value <- function(name, default = NULL) {
   key <- paste0("--", name)
@@ -11,7 +12,36 @@ arg_value <- function(name, default = NULL) {
   args[[idx + 1]]
 }
 
+arg_flag <- function(name, default = FALSE) {
+  value <- arg_value(name, NULL)
+  if (is.null(value)) {
+    return(default)
+  }
+  tolower(value) %in% c("1", "true", "yes", "y")
+}
+
+arg_list <- function(name, default = character()) {
+  value <- arg_value(name, NULL)
+  if (is.null(value) || !nzchar(value)) {
+    return(default)
+  }
+  trimws(strsplit(value, ",", fixed = TRUE)[[1]])
+}
+
 summary_dir <- arg_value("summary-dir", file.path("results", "summary", "realdata", "method_comparison"))
+combined_layouts <- arg_list("combined-layouts", "none")
+combined_layouts <- setdiff(tolower(combined_layouts), c("", "none"))
+valid_combined_layouts <- c("stacked", "aligned", "summary")
+bad_combined_layouts <- setdiff(combined_layouts, valid_combined_layouts)
+if (length(bad_combined_layouts) > 0) {
+  stop("Unknown --combined-layouts value(s): ", paste(bad_combined_layouts, collapse = ", "), call. = FALSE)
+}
+combined_datasets <- arg_list("combined-datasets", "all")
+combined_only <- arg_flag("combined-only", FALSE)
+if (combined_only && length(combined_layouts) == 0) {
+  stop("--combined-only requires --combined-layouts.", call. = FALSE)
+}
+
 font_family <- Sys.getenv("REALDATA_PLOT_FONT", "Times New Roman")
 read_scale <- function(env_name, default) {
   value <- suppressWarnings(as.numeric(Sys.getenv(env_name, as.character(default))))
@@ -23,6 +53,12 @@ read_scale <- function(env_name, default) {
 forest_font_scale <- read_scale("REALDATA_FOREST_FONT_SCALE", 2.5)
 rhat_font_scale <- read_scale("REALDATA_RHAT_FONT_SCALE", 2.5)
 select_font_scale <- read_scale("REALDATA_SELECT_FONT_SCALE", 3.0)
+combined_font_scale <- read_scale("REALDATA_COMBINED_FONT_SCALE", forest_font_scale)
+combined_axis_text_scale <- read_scale("REALDATA_COMBINED_AXIS_TEXT_SCALE", 1.12)
+combined_axis_title_scale <- read_scale("REALDATA_COMBINED_AXIS_TITLE_SCALE", 1.15)
+combined_legend_text_scale <- read_scale("REALDATA_COMBINED_LEGEND_TEXT_SCALE", 1.15)
+combined_strip_text_scale <- read_scale("REALDATA_COMBINED_STRIP_TEXT_SCALE", 1.12)
+combined_height_scale <- read_scale("REALDATA_COMBINED_HEIGHT_SCALE", 1.12)
 select_layout_scale <- 1.5
 select_point_size <- 3.3
 select_legend_point_size <- 4.5
@@ -44,7 +80,7 @@ legend_ncol_for_width <- function(labels, width, text_size, max_cols = 4) {
   legend_ncol(n_items, max_cols = min(max_cols, max_cols_by_width))
 }
 
-needed <- c("ggplot2", "dplyr", "readr")
+needed <- c("ggplot2", "dplyr", "readr", "gtable")
 missing_pkgs <- needed[!vapply(needed, requireNamespace, logical(1), quietly = TRUE)]
 if (length(missing_pkgs) > 0) {
   stop("Missing R packages: ", paste(missing_pkgs, collapse = ", "), call. = FALSE)
@@ -53,6 +89,14 @@ if (length(missing_pkgs) > 0) {
 library(ggplot2)
 library(dplyr)
 library(readr)
+
+draw_plot <- function(plot) {
+  if (inherits(plot, "grob") || inherits(plot, "gTree") || inherits(plot, "gtable")) {
+    grid::grid.draw(plot)
+  } else {
+    print(plot)
+  }
+}
 
 safe_name <- function(x) {
   x <- gsub("[^A-Za-z0-9_]+", "_", x)
@@ -66,20 +110,45 @@ ensure_dir <- function(path) {
   path
 }
 
-save_plot_bundle <- function(plot, pathroot, width, height) {
+save_grob_bundle <- function(plot, pathroot, width, height) {
+  had_rplots <- file.exists("Rplots.pdf")
+  on.exit(
+    {
+      while (grDevices::dev.cur() > 1) {
+        grDevices::dev.off()
+      }
+      if (!had_rplots && file.exists("Rplots.pdf")) {
+        unlink("Rplots.pdf")
+      }
+    },
+    add = TRUE
+  )
+
+  draw_to_device <- function(open_device) {
+    open_device()
+    on.exit(grDevices::dev.off(), add = TRUE)
+    grid::grid.newpage()
+    draw_plot(plot)
+  }
+
   tryCatch(
-    ggsave(paste0(pathroot, ".pdf"), plot, width = width, height = height, units = "in", device = grDevices::cairo_pdf, limitsize = FALSE),
+    {
+      draw_to_device(function() {
+        grDevices::cairo_pdf(paste0(pathroot, ".pdf"), width = width, height = height, bg = "white")
+      })
+    },
     error = function(e) {
       tryCatch(
         {
-          grDevices::pdf(
-            paste0(pathroot, ".pdf"),
-            width = width,
-            height = height,
-            family = "Times"
-          )
-          on.exit(grDevices::dev.off(), add = TRUE)
-          print(plot)
+          draw_to_device(function() {
+            grDevices::pdf(
+              paste0(pathroot, ".pdf"),
+              width = width,
+              height = height,
+              family = "Times",
+              bg = "white"
+            )
+          })
         },
         error = function(e2) {
           warning("Could not write PDF for ", pathroot, ": ", conditionMessage(e2), call. = FALSE)
@@ -87,9 +156,64 @@ save_plot_bundle <- function(plot, pathroot, width, height) {
       )
     }
   )
-  ggsave(paste0(pathroot, ".png"), plot, width = width, height = height, units = "in", dpi = 300, limitsize = FALSE)
+
+  draw_to_device(function() {
+    grDevices::png(paste0(pathroot, ".png"), width = width, height = height, units = "in", res = 300, bg = "white")
+  })
+
   tryCatch(
-    ggsave(paste0(pathroot, ".eps"), plot, width = width, height = height, units = "in", device = grDevices::cairo_ps, limitsize = FALSE),
+    {
+      draw_to_device(function() {
+        grDevices::cairo_ps(paste0(pathroot, ".eps"), width = width, height = height, onefile = FALSE, bg = "white")
+      })
+    },
+    error = function(e) {
+      draw_to_device(function() {
+        grDevices::postscript(
+          paste0(pathroot, ".eps"),
+          width = width,
+          height = height,
+          horizontal = FALSE,
+          onefile = FALSE,
+          paper = "special",
+          family = "Times",
+          bg = "white"
+        )
+      })
+    }
+  )
+}
+
+save_plot_bundle <- function(plot, pathroot, width, height) {
+  if (inherits(plot, "grob") || inherits(plot, "gTree") || inherits(plot, "gtable")) {
+    save_grob_bundle(plot, pathroot, width, height)
+    return(invisible(NULL))
+  }
+
+  tryCatch(
+    ggsave(paste0(pathroot, ".pdf"), plot, width = width, height = height, units = "in", device = grDevices::cairo_pdf, limitsize = FALSE, bg = "white"),
+    error = function(e) {
+      tryCatch(
+        {
+          grDevices::pdf(
+            paste0(pathroot, ".pdf"),
+            width = width,
+            height = height,
+            family = "Times",
+            bg = "white"
+          )
+          on.exit(grDevices::dev.off(), add = TRUE)
+          draw_plot(plot)
+        },
+        error = function(e2) {
+          warning("Could not write PDF for ", pathroot, ": ", conditionMessage(e2), call. = FALSE)
+        }
+      )
+    }
+  )
+  ggsave(paste0(pathroot, ".png"), plot, width = width, height = height, units = "in", dpi = 300, limitsize = FALSE, bg = "white")
+  tryCatch(
+    ggsave(paste0(pathroot, ".eps"), plot, width = width, height = height, units = "in", device = grDevices::cairo_ps, limitsize = FALSE, bg = "white"),
     error = function(e) {
       grDevices::postscript(
         paste0(pathroot, ".eps"),
@@ -98,9 +222,10 @@ save_plot_bundle <- function(plot, pathroot, width, height) {
         horizontal = FALSE,
         onefile = FALSE,
         paper = "special",
-        family = "Times"
+        family = "Times",
+        bg = "white"
       )
-      print(plot)
+      draw_plot(plot)
       grDevices::dev.off()
     }
   )
@@ -229,7 +354,389 @@ rhats <- rhats %>%
 forest_dir <- ensure_dir(file.path(summary_dir, "figures", "forest"))
 rhat_dir <- ensure_dir(file.path(summary_dir, "figures", "rhat"))
 select_dir <- ensure_dir(file.path(summary_dir, "figures", "select"))
+combined_dir <- if (length(combined_layouts) > 0) {
+  ensure_dir(file.path(summary_dir, "figures", "forest_rhat"))
+} else {
+  NULL
+}
 
+combined_shape_values <- c(
+  "coda4microbiome" = 16,
+  "FLORAL" = 17,
+  "prox" = 15,
+  "soft-center" = 3
+)
+combined_shape_breaks <- names(combined_shape_values)
+
+combined_panel_height <- function(n_var, scale) {
+  max(7, 2.5 + 0.17 * n_var * scale / 1.5) * combined_height_scale
+}
+
+combined_method_width <- function(n_method, layout) {
+  if (layout %in% c("aligned", "summary")) {
+    return(max(30, min(36, 12 + 0.75 * n_method)))
+  }
+  max(22, min(28, 7.5 + 0.22 * n_method))
+}
+
+combined_dimensions <- function(combo, layout, scale) {
+  n_method <- length(combo$method_levels)
+  legend_cols <- legend_ncol(n_method, max_cols = 5)
+  legend_height <- legend_extra_height(n_method, legend_cols, scale * combined_legend_text_scale, row_height = 0.34)
+  panel_height <- combined_panel_height(combo$n_var, scale)
+  if (layout == "stacked") {
+    return(list(
+      width = combined_method_width(n_method, layout),
+      height = panel_height + 7.2 * combined_height_scale + legend_height
+    ))
+  }
+  list(
+    width = combined_method_width(n_method, layout),
+    height = panel_height + legend_height
+  )
+}
+
+combined_color_scale <- function(method_levels) {
+  scale_color_hue(
+    limits = method_levels,
+    breaks = method_levels,
+    labels = legend_label,
+    drop = FALSE
+  )
+}
+
+combined_shape_scale <- function() {
+  scale_shape_manual(
+    values = combined_shape_values,
+    limits = combined_shape_breaks,
+    breaks = combined_shape_breaks,
+    drop = FALSE
+  )
+}
+
+combined_guides <- function(n_method) {
+  legend_cols <- legend_ncol(n_method, max_cols = 5)
+  guides(
+    color = guide_legend(ncol = legend_cols, byrow = TRUE, override.aes = list(size = 2.8, alpha = 1)),
+    shape = guide_legend(nrow = 1, byrow = TRUE, override.aes = list(size = 2.8, alpha = 1))
+  )
+}
+
+combined_axis_text_size <- function(n_var, scale) {
+  font_size(ifelse(n_var > 100, 5.5, ifelse(n_var > 80, 6.5, 8.5)), scale) * combined_axis_text_scale
+}
+
+combined_axis_title_size <- function(scale) {
+  font_size(14, scale) * combined_axis_title_scale
+}
+
+combined_legend_text_size <- function(scale) {
+  font_size(9, scale) * combined_legend_text_scale
+}
+
+combined_strip_text_size <- function(scale) {
+  font_size(11, scale) * combined_strip_text_scale
+}
+
+combined_dataset_ids <- function() {
+  available <- intersect(sort(unique(coefs$dataset_id)), sort(unique(rhats$dataset_id)))
+  requested <- combined_datasets
+  if (length(requested) == 0 || any(tolower(requested) == "all")) {
+    return(available)
+  }
+  missing <- setdiff(requested, available)
+  if (length(missing) > 0) {
+    warning("Skipping unknown combined dataset(s): ", paste(missing, collapse = ", "), call. = FALSE)
+  }
+  intersect(requested, available)
+}
+
+prepare_combined_data <- function(dataset) {
+  forest_dat <- coefs %>%
+    filter(dataset_id == dataset) %>%
+    arrange(variable_index, method_family, method)
+  rhat_dat <- rhats %>%
+    filter(dataset_id == dataset, !is.na(rhat)) %>%
+    arrange(variable_index, constraint, prior)
+  if (nrow(forest_dat) == 0 || nrow(rhat_dat) == 0) {
+    return(NULL)
+  }
+
+  var_levels <- forest_dat %>%
+    distinct(variable_index, variable) %>%
+    arrange(variable_index) %>%
+    pull(variable)
+  method_levels <- unique(c(forest_dat$method_label, rhat_dat$method_label))
+  rhat_xmin <- min(0.98, min(rhat_dat$rhat, na.rm = TRUE))
+  rhat_xmax <- max(1.12, stats::quantile(rhat_dat$rhat, 0.99, na.rm = TRUE) * 1.03)
+
+  forest_dat <- forest_dat %>%
+    mutate(
+      variable = factor(variable, levels = rev(var_levels)),
+      method_label = factor(method_label, levels = method_levels),
+      shape_group = factor(method_family_display, levels = combined_shape_breaks)
+    )
+  rhat_dat <- rhat_dat %>%
+    filter(variable_index %in% forest_dat$variable_index) %>%
+    mutate(
+      variable = factor(variable, levels = rev(var_levels)),
+      method_label = factor(method_label, levels = method_levels),
+      shape_group = factor(constraint_display, levels = combined_shape_breaks)
+    )
+
+  list(
+    dataset = dataset,
+    forest = forest_dat,
+    rhat = rhat_dat,
+    var_levels = var_levels,
+    method_levels = method_levels,
+    n_var = length(var_levels),
+    rhat_xmin = rhat_xmin,
+    rhat_xmax = rhat_xmax
+  )
+}
+
+extract_plot_legend <- function(plot) {
+  grob <- ggplotGrob(plot)
+  guide_idx <- grep("^guide-box", grob$layout$name)
+  for (idx in guide_idx) {
+    guide <- grob$grobs[[idx]]
+    if (!inherits(guide, "zeroGrob")) {
+      return(guide)
+    }
+  }
+  NULL
+}
+
+build_combined_forest_plot <- function(combo, show_legend = TRUE, scale = combined_font_scale) {
+  dat <- combo$forest
+  dodge <- position_dodge(width = 0.75)
+  p <- ggplot(dat, aes(x = point_estimate, y = variable, color = method_label, shape = shape_group, group = method_label)) +
+    geom_vline(xintercept = 0, linetype = "dashed", linewidth = 0.35, color = "grey35") +
+    geom_errorbar(
+      data = dat %>% filter(interval_available, !is.na(lower), !is.na(upper)),
+      aes(xmin = lower, xmax = upper),
+      orientation = "y",
+      width = 0,
+      linewidth = 0.25,
+      alpha = 0.42,
+      position = dodge,
+      na.rm = TRUE
+    ) +
+    geom_point(size = 1.25, alpha = 0.9, position = dodge, na.rm = TRUE) +
+    combined_color_scale(combo$method_levels) +
+    combined_shape_scale() +
+    scale_y_discrete(limits = rev(combo$var_levels), drop = FALSE) +
+    labs(x = "Coefficient", y = NULL) +
+    combined_guides(length(combo$method_levels)) +
+    base_theme(scale) +
+    theme(
+      axis.text.y = element_text(size = combined_axis_text_size(combo$n_var, scale)),
+      axis.text.x = element_text(size = font_size(11, scale) * combined_axis_text_scale),
+      axis.title.x = element_text(size = combined_axis_title_size(scale)),
+      legend.text = element_text(size = combined_legend_text_size(scale)),
+      legend.key.height = unit(scale * 0.39, "cm"),
+      legend.key.width = unit(0.42, "cm"),
+      legend.spacing.x = unit(0.12, "cm"),
+      legend.position = if (show_legend) "bottom" else "none"
+    )
+  p
+}
+
+build_combined_rhat_index_plot <- function(combo, show_legend = FALSE, scale = combined_font_scale) {
+  dat <- combo$rhat
+  p <- ggplot(dat, aes(x = variable_index, y = rhat, color = method_label, shape = shape_group)) +
+    geom_hline(yintercept = 1.0, linetype = "dashed", color = "red", linewidth = 0.45) +
+    geom_hline(yintercept = 1.1, linetype = "dashed", color = "red", linewidth = 0.45) +
+    annotate("text", x = Inf, y = 1.0, label = "1.0", hjust = 1.05, vjust = -0.35, color = "red", size = font_size(3.4, scale), family = font_family) +
+    annotate("text", x = Inf, y = 1.1, label = "1.1", hjust = 1.05, vjust = -0.35, color = "red", size = font_size(3.4, scale), family = font_family) +
+    geom_point(size = 1.7, alpha = 0.82) +
+    combined_color_scale(combo$method_levels) +
+    combined_shape_scale() +
+    coord_cartesian(ylim = c(combo$rhat_xmin, combo$rhat_xmax)) +
+    labs(x = "Variable index", y = "Rhat") +
+    combined_guides(length(combo$method_levels)) +
+    base_theme(scale) +
+    theme(
+      axis.text.x = element_text(size = font_size(11, scale) * combined_axis_text_scale),
+      axis.text.y = element_text(size = font_size(11, scale) * combined_axis_text_scale),
+      axis.title.x = element_text(size = combined_axis_title_size(scale)),
+      axis.title.y = element_text(size = combined_axis_title_size(scale)),
+      legend.text = element_text(size = combined_legend_text_size(scale)),
+      legend.key.height = unit(scale * 0.39, "cm"),
+      legend.key.width = unit(0.42, "cm"),
+      legend.spacing.x = unit(0.12, "cm"),
+      legend.position = if (show_legend) "bottom" else "none"
+    )
+  p
+}
+
+build_stacked_combined_plot <- function(combo, scale = combined_font_scale) {
+  legend <- extract_plot_legend(build_combined_forest_plot(combo, show_legend = TRUE, scale = scale))
+  forest_grob <- ggplotGrob(build_combined_forest_plot(combo, show_legend = FALSE, scale = scale))
+  rhat_grob <- ggplotGrob(build_combined_rhat_index_plot(combo, show_legend = FALSE, scale = scale))
+  grobs <- list(forest_grob, rhat_grob)
+  heights <- grid::unit(c(combined_panel_height(combo$n_var, scale), 7.2 * combined_height_scale), "null")
+  if (!is.null(legend)) {
+    grobs <- c(grobs, list(legend))
+    heights <- grid::unit.c(heights, sum(legend$heights) + grid::unit(0.45, "cm"))
+  }
+  gtable::gtable_matrix(
+    "forest_rhat_stacked",
+    grobs = matrix(grobs, ncol = 1),
+    widths = grid::unit(1, "null"),
+    heights = heights
+  )
+}
+
+combined_facet_theme <- function(n_var, scale) {
+  theme(
+    axis.text.y = element_text(size = combined_axis_text_size(n_var, scale)),
+    axis.text.x = element_text(size = font_size(10, scale) * combined_axis_text_scale),
+    axis.title.x = element_text(size = combined_axis_title_size(scale)),
+    axis.title.y = element_text(size = combined_axis_title_size(scale)),
+    legend.text = element_text(size = combined_legend_text_size(scale)),
+    legend.key.height = unit(scale * 0.39, "cm"),
+    legend.key.width = unit(0.42, "cm"),
+    legend.spacing.x = unit(0.12, "cm"),
+    panel.spacing.x = unit(0.45, "cm"),
+    strip.text = element_text(size = combined_strip_text_size(scale), face = "bold")
+  )
+}
+
+build_aligned_combined_plot <- function(combo, scale = combined_font_scale) {
+  panel_levels <- c("Coefficient", "Rhat")
+  forest_dat <- combo$forest %>%
+    mutate(panel = factor("Coefficient", levels = panel_levels))
+  rhat_dat <- combo$rhat %>%
+    mutate(panel = factor("Rhat", levels = panel_levels))
+  rhat_limits <- data.frame(
+    panel = factor("Rhat", levels = panel_levels),
+    x = c(combo$rhat_xmin, combo$rhat_xmax),
+    variable = factor(combo$var_levels[[1]], levels = rev(combo$var_levels))
+  )
+  coef_ref <- data.frame(panel = factor("Coefficient", levels = panel_levels), xintercept = 0)
+  rhat_ref <- data.frame(panel = factor("Rhat", levels = panel_levels), xintercept = c(1.0, 1.1))
+  dodge <- position_dodge(width = 0.75)
+
+  ggplot() +
+    geom_blank(data = rhat_limits, aes(x = x, y = variable), inherit.aes = FALSE) +
+    geom_vline(data = coef_ref, aes(xintercept = xintercept), linetype = "dashed", linewidth = 0.35, color = "grey35") +
+    geom_vline(data = rhat_ref, aes(xintercept = xintercept), linetype = "dashed", linewidth = 0.45, color = "red") +
+    geom_errorbar(
+      data = forest_dat %>% filter(interval_available, !is.na(lower), !is.na(upper)),
+      aes(x = point_estimate, y = variable, xmin = lower, xmax = upper, color = method_label, group = method_label),
+      orientation = "y",
+      width = 0,
+      linewidth = 0.25,
+      alpha = 0.42,
+      position = dodge,
+      na.rm = TRUE
+    ) +
+    geom_point(
+      data = forest_dat,
+      aes(x = point_estimate, y = variable, color = method_label, shape = shape_group, group = method_label),
+      size = 1.2,
+      alpha = 0.9,
+      position = dodge,
+      na.rm = TRUE
+    ) +
+    geom_point(
+      data = rhat_dat,
+      aes(x = rhat, y = variable, color = method_label, shape = shape_group, group = method_label),
+      size = 1.45,
+      alpha = 0.82,
+      position = dodge,
+      na.rm = TRUE
+    ) +
+    facet_grid(. ~ panel, scales = "free_x") +
+    combined_color_scale(combo$method_levels) +
+    combined_shape_scale() +
+    scale_y_discrete(limits = rev(combo$var_levels), drop = FALSE) +
+    labs(x = NULL, y = NULL) +
+    combined_guides(length(combo$method_levels)) +
+    base_theme(scale) +
+    combined_facet_theme(combo$n_var, scale)
+}
+
+build_summary_combined_plot <- function(combo, scale = combined_font_scale) {
+  panel_levels <- c("Coefficient", "max Rhat")
+  forest_dat <- combo$forest %>%
+    mutate(panel = factor("Coefficient", levels = panel_levels))
+  rhat_summary <- combo$rhat %>%
+    group_by(variable_index, variable) %>%
+    summarise(
+      max_rhat = max(rhat, na.rm = TRUE),
+      over_threshold = any(rhat > 1.1, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    mutate(
+      variable = factor(as.character(variable), levels = rev(combo$var_levels)),
+      panel = factor("max Rhat", levels = panel_levels)
+    )
+  rhat_limits <- data.frame(
+    panel = factor("max Rhat", levels = panel_levels),
+    x = c(combo$rhat_xmin, combo$rhat_xmax),
+    variable = factor(combo$var_levels[[1]], levels = rev(combo$var_levels))
+  )
+  coef_ref <- data.frame(panel = factor("Coefficient", levels = panel_levels), xintercept = 0)
+  rhat_ref <- data.frame(panel = factor("max Rhat", levels = panel_levels), xintercept = c(1.0, 1.1))
+  dodge <- position_dodge(width = 0.75)
+
+  ggplot() +
+    geom_blank(data = rhat_limits, aes(x = x, y = variable), inherit.aes = FALSE) +
+    geom_vline(data = coef_ref, aes(xintercept = xintercept), linetype = "dashed", linewidth = 0.35, color = "grey35") +
+    geom_vline(data = rhat_ref, aes(xintercept = xintercept), linetype = "dashed", linewidth = 0.45, color = "red") +
+    geom_errorbar(
+      data = forest_dat %>% filter(interval_available, !is.na(lower), !is.na(upper)),
+      aes(x = point_estimate, y = variable, xmin = lower, xmax = upper, color = method_label, group = method_label),
+      orientation = "y",
+      width = 0,
+      linewidth = 0.25,
+      alpha = 0.42,
+      position = dodge,
+      na.rm = TRUE
+    ) +
+    geom_point(
+      data = forest_dat,
+      aes(x = point_estimate, y = variable, color = method_label, shape = shape_group, group = method_label),
+      size = 1.2,
+      alpha = 0.9,
+      position = dodge,
+      na.rm = TRUE
+    ) +
+    geom_segment(
+      data = rhat_summary,
+      aes(x = 1.0, xend = max_rhat, y = variable, yend = variable),
+      color = "grey78",
+      linewidth = 0.35,
+      inherit.aes = FALSE
+    ) +
+    geom_point(
+      data = rhat_summary,
+      aes(x = max_rhat, y = variable),
+      color = "grey25",
+      size = 1.7,
+      inherit.aes = FALSE
+    ) +
+    geom_point(
+      data = rhat_summary %>% filter(over_threshold),
+      aes(x = max_rhat, y = variable),
+      color = "red",
+      size = 1.9,
+      inherit.aes = FALSE
+    ) +
+    facet_grid(. ~ panel, scales = "free_x") +
+    combined_color_scale(combo$method_levels) +
+    combined_shape_scale() +
+    scale_y_discrete(limits = rev(combo$var_levels), drop = FALSE) +
+    labs(x = NULL, y = NULL) +
+    combined_guides(length(combo$method_levels)) +
+    base_theme(scale) +
+    combined_facet_theme(combo$n_var, scale)
+}
+
+if (!combined_only) {
 for (dataset in sort(unique(coefs$dataset_id))) {
   dat <- coefs %>%
     filter(dataset_id == dataset) %>%
@@ -415,4 +922,37 @@ for (dataset in sort(unique(select_df$dataset_id))) {
     )
 
   save_plot_bundle(p, file.path(select_dir, paste0(safe_name(dataset), "_select")), plot_width, select_height)
+}
+
+}
+
+if (length(combined_layouts) > 0) {
+  for (dataset in combined_dataset_ids()) {
+    combo <- prepare_combined_data(dataset)
+    if (is.null(combo)) {
+      next
+    }
+    for (layout in combined_layouts) {
+      plot <- switch(
+        layout,
+        stacked = build_stacked_combined_plot(combo),
+        aligned = build_aligned_combined_plot(combo),
+        summary = build_summary_combined_plot(combo)
+      )
+      dims <- combined_dimensions(combo, layout, combined_font_scale)
+      save_plot_bundle(
+        plot,
+        file.path(combined_dir, paste0(safe_name(dataset), "_forest_rhat_", layout)),
+        dims$width,
+        dims$height
+      )
+    }
+  }
+}
+
+while (grDevices::dev.cur() > 1) {
+  grDevices::dev.off()
+}
+if (!initial_rplots_exists && file.exists("Rplots.pdf")) {
+  unlink("Rplots.pdf")
 }

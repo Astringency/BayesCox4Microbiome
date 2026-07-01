@@ -414,6 +414,26 @@ safe_parse_beta <- function(x) {
   parse(text = as.character(x))
 }
 
+PLOT_FONT_FAMILY <- "Times New Roman"
+PLOT_TEXT_COLOUR <- "black"
+PLOT_BASE_SIZE <- 12
+PLOT_SMALL_BASE_SIZE <- 8.5
+
+publication_theme <- function(base_size = PLOT_BASE_SIZE) {
+  theme_bw(base_size = base_size, base_family = PLOT_FONT_FAMILY) +
+    theme(
+      text = element_text(family = PLOT_FONT_FAMILY, colour = PLOT_TEXT_COLOUR),
+      axis.title = element_text(colour = PLOT_TEXT_COLOUR),
+      axis.text = element_text(colour = PLOT_TEXT_COLOUR),
+      legend.title = element_text(colour = PLOT_TEXT_COLOUR),
+      legend.text = element_text(colour = PLOT_TEXT_COLOUR),
+      strip.text = element_text(colour = PLOT_TEXT_COLOUR),
+      plot.title = element_text(colour = PLOT_TEXT_COLOUR),
+      plot.subtitle = element_text(colour = PLOT_TEXT_COLOUR),
+      plot.caption = element_text(colour = PLOT_TEXT_COLOUR)
+    )
+}
+
 plot_acf_rhat <- function(diag, acf_data, p_dim) {
   n_above <- sum(diag$rhat > RHAT_THRESHOLD, na.rm = TRUE)
 
@@ -437,11 +457,13 @@ plot_acf_rhat <- function(diag, acf_data, p_dim) {
       hjust = 1.1,
       vjust = 1.5,
       label = sprintf("N = %d | %d above %.1f", p_dim, n_above, RHAT_THRESHOLD),
-      size = 3.5,
-      fontface = "italic"
+      size = 4.0,
+      fontface = "italic",
+      family = PLOT_FONT_FAMILY,
+      colour = PLOT_TEXT_COLOUR
     ) +
     labs(x = "Parameter index", y = expression(hat(R))) +
-    theme_bw(base_size = 10) +
+    publication_theme() +
     theme(legend.position = "bottom")
 
   p_acf <- ggplot(acf_data, aes(x = lag, y = acf, color = factor(chain))) +
@@ -455,11 +477,11 @@ plot_acf_rhat <- function(diag, acf_data, p_dim) {
     ) +
     scale_color_viridis_d(name = "Chain", option = "D") +
     labs(x = "Lag", y = "Autocorrelation") +
-    theme_bw(base_size = 10) +
+    publication_theme() +
     theme(
       legend.position = "bottom",
       legend.key.size = grid::unit(0.4, "cm"),
-      strip.text = element_text(size = 8)
+      strip.text = element_text(size = 9.5, family = PLOT_FONT_FAMILY, colour = PLOT_TEXT_COLOUR)
     )
 
   plot_grid(
@@ -468,7 +490,9 @@ plot_acf_rhat <- function(diag, acf_data, p_dim) {
     ncol = 2,
     rel_widths = c(0.8, 2),
     labels = c("(a)", "(b)"),
-    label_size = 12
+    label_size = 14,
+    label_fontfamily = PLOT_FONT_FAMILY,
+    label_colour = PLOT_TEXT_COLOUR
   )
 }
 
@@ -507,16 +531,19 @@ plot_trace_density <- function(samples, posterior) {
         hjust = -0.05,
         vjust = 1.15,
         label = param_label,
-        size = 2.8,
+        size = 3.2,
         fontface = "bold",
+        family = PLOT_FONT_FAMILY,
+        colour = PLOT_TEXT_COLOUR,
         label.size = 0.15,
         fill = "white",
-        alpha = 0.9
+        alpha = 0.9,
+        parse = TRUE
       ) +
       scale_color_viridis_d(option = "D") +
       labs(x = NULL, y = NULL) +
       coord_cartesian(ylim = x_lim) +
-      theme_bw(base_size = 7) +
+      publication_theme(PLOT_SMALL_BASE_SIZE) +
       theme(
         legend.position = "none",
         axis.text.x = element_blank(),
@@ -532,7 +559,7 @@ plot_trace_density <- function(samples, posterior) {
       geom_vline(xintercept = post_mean, linetype = "dotted", color = "#009E73", linewidth = 0.4) +
       labs(x = NULL, y = "Density") +
       coord_cartesian(xlim = x_lim) +
-      theme_bw(base_size = 7) +
+      publication_theme(PLOT_SMALL_BASE_SIZE) +
       theme(legend.position = "none", panel.grid.minor = element_blank())
 
     plot_list[[i]] <- p_trace / p_dens +
@@ -573,12 +600,14 @@ plot_coef_sum <- function(sum_values) {
           x = x_lim[[2]],
           y = 0.08,
           hjust = 1.1,
-          size = 3.2,
+          size = 3.7,
+          family = PLOT_FONT_FAMILY,
+          colour = PLOT_TEXT_COLOUR,
           label = sprintf("Value = %.3f", unique(df$sum)[[1]])
         ) +
         labs(x = "Sum of coefficient estimates", y = NULL) +
         coord_cartesian(xlim = x_lim, ylim = c(-0.1, 0.12)) +
-        theme_bw(base_size = 10) +
+        publication_theme() +
         theme(panel.grid.minor = element_blank(), axis.text.y = element_blank(), axis.ticks.y = element_blank())
     )
   }
@@ -606,17 +635,20 @@ plot_coef_sum <- function(sum_values) {
       y = max_y * 1.0,
       hjust = 1.1,
       vjust = 1.5,
-      size = 3.2,
+      size = 3.7,
+      family = PLOT_FONT_FAMILY,
+      colour = PLOT_TEXT_COLOUR,
       label = sprintf("Median = %.3f\nIQR = [%.3f, %.3f]", q_vec[[2]], q_vec[[1]], q_vec[[3]])
     ) +
     labs(x = "Sum of coefficient estimates", y = "Density") +
     coord_cartesian(xlim = x_lim, ylim = c(-max_y * 0.15, max_y * 1.15)) +
-    theme_bw(base_size = 10) +
+    publication_theme() +
     theme(panel.grid.minor = element_blank())
 }
 
 save_pdf_png <- function(plot, output_root, width, height, units = "mm", dpi = 300) {
-  ggsave(paste0(output_root, ".pdf"), plot, width = width, height = height, units = units, device = "pdf")
+  pdf_device <- if (capabilities("cairo")) grDevices::cairo_pdf else "pdf"
+  ggsave(paste0(output_root, ".pdf"), plot, width = width, height = height, units = units, device = pdf_device)
   ggsave(paste0(output_root, ".png"), plot, width = width, height = height, units = units, dpi = dpi)
 }
 
