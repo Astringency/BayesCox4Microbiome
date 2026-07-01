@@ -342,21 +342,50 @@ compute_acf <- function(samples, max_lag = ACF_MAX_LAG) {
   rbindlist(acf_list)
 }
 
+beta_row_filter <- function(df) {
+  name_col <- intersect(c("variable", "parameter", "parameters", "term", "name"), names(df))
+  if (length(name_col) == 0) {
+    rep(TRUE, nrow(df))
+  } else {
+    grepl("^beta\\[", as.character(df[[name_col[[1]]]]))
+  }
+}
+
+numeric_vector <- function(x) {
+  if (is.numeric(x)) {
+    return(x)
+  }
+  suppressWarnings(as.numeric(as.character(x)))
+}
+
 sum_from_coef_table <- function(path) {
   if (!file.exists(path)) {
     return(NA_real_)
   }
-  coef_data <- fread(path, select = "mean")
-  sum(coef_data$mean, na.rm = TRUE)
+  coef_data <- fread(path)
+  if (!("mean" %in% names(coef_data))) {
+    return(NA_real_)
+  }
+  coef_data <- coef_data[beta_row_filter(coef_data)]
+  if (nrow(coef_data) == 0) {
+    return(NA_real_)
+  }
+  sum(numeric_vector(coef_data$mean), na.rm = TRUE)
 }
 
 sum_from_posterior <- function(path) {
   if (!file.exists(path)) {
     return(NA_real_)
   }
-  post <- fread(path, select = c("variable", "mean"))
-  post <- post[grepl("^beta\\[", variable)]
-  sum(post$mean, na.rm = TRUE)
+  post <- fread(path)
+  if (!("mean" %in% names(post))) {
+    return(NA_real_)
+  }
+  post <- post[beta_row_filter(post)]
+  if (nrow(post) == 0) {
+    return(NA_real_)
+  }
+  sum(numeric_vector(post$mean), na.rm = TRUE)
 }
 
 load_replicate_sums <- function(data_root, sc_dir, method, baseline, n, p, nz, max_reps = SUM_REPS) {
@@ -402,11 +431,21 @@ parameter_index <- function(x) {
 }
 
 posterior_nonzero <- function(posterior) {
-  if (!("nonzero" %in% names(posterior)) || !("variable" %in% names(posterior))) {
+  if (!("variable" %in% names(posterior))) {
     return(posterior[0])
   }
-  out <- posterior[as_bool(nonzero) & grepl("^beta\\[", variable)]
+  is_beta <- grepl("^beta\\[", posterior$variable)
+  if ("true_beta" %in% names(posterior)) {
+    true_beta <- numeric_vector(posterior$true_beta)
+    keep <- is_beta & is.finite(true_beta) & true_beta != 0
+  } else if ("nonzero" %in% names(posterior)) {
+    keep <- is_beta & as_bool(posterior$nonzero)
+  } else {
+    return(posterior[0])
+  }
+  out <- posterior[keep]
   out[, beta_index := parameter_index(variable)]
+  setorder(out, beta_index)
   out[!is.na(beta_index)]
 }
 
@@ -535,23 +574,45 @@ plot_trace_density <- function(samples, posterior) {
   }
 
   plot_list <- vector("list", n_nz)
+  true_values <- if ("true_beta" %in% names(nonzero_params)) {
+    numeric_vector(nonzero_params$true_beta)
+  } else {
+    rep(NA_real_, n_nz)
+  }
+  post_means <- numeric_vector(nonzero_params$mean)
   for (i in seq_len(n_nz)) {
     param_name <- nonzero_params$variable[[i]]
     param_label <- beta_symbol_label(nonzero_params$beta_index[[i]])
-    true_val <- nonzero_params$true_beta[[i]]
-    post_mean <- nonzero_params$mean[[i]]
-    param_samples <- samples[parameter == param_name]
+    true_val <- true_values[[i]]
+    post_mean <- post_means[[i]]
+    param_samples <- samples[parameter == param_name & is.finite(value)]
+    if (nrow(param_samples) == 0) {
+      warning(sprintf("Skipping %s: no finite samples.", param_name), call. = FALSE)
+      next
+    }
 
     val_range <- range(param_samples$value, na.rm = TRUE)
     x_pad <- diff(val_range) * 0.1
     if (!is.finite(x_pad) || x_pad == 0) {
       x_pad <- 0.1
     }
-    x_lim <- c(min(val_range[[1]], true_val) - x_pad, max(val_range[[2]], true_val) + x_pad)
+    range_values <- c(val_range, true_val, post_mean)
+    range_values <- range_values[is.finite(range_values)]
+    x_lim <- c(min(range_values) - x_pad, max(range_values) + x_pad)
+    true_hline <- if (is.finite(true_val)) {
+      geom_hline(yintercept = true_val, linetype = "dashed", color = "#D55E00", linewidth = 0.4)
+    } else {
+      NULL
+    }
+    true_vline <- if (is.finite(true_val)) {
+      geom_vline(xintercept = true_val, linetype = "dashed", color = "#D55E00", linewidth = 0.4)
+    } else {
+      NULL
+    }
 
     p_trace <- ggplot(param_samples, aes(x = iter, y = value, color = factor(chain))) +
       geom_line(linewidth = 0.15, alpha = 0.5) +
-      geom_hline(yintercept = true_val, linetype = "dashed", color = "#D55E00", linewidth = 0.4) +
+      true_hline +
       geom_hline(yintercept = post_mean, linetype = "dotted", color = "#009E73", linewidth = 0.4) +
       annotate(
         "label",
@@ -583,7 +644,7 @@ plot_trace_density <- function(samples, posterior) {
       geom_density(alpha = 0.35, linewidth = 0.4) +
       scale_color_viridis_d(option = "D") +
       scale_fill_viridis_d(option = "D") +
-      geom_vline(xintercept = true_val, linetype = "dashed", color = "#D55E00", linewidth = 0.4) +
+      true_vline +
       geom_vline(xintercept = post_mean, linetype = "dotted", color = "#009E73", linewidth = 0.4) +
       labs(x = NULL, y = "Density") +
       coord_cartesian(xlim = x_lim) +
@@ -594,6 +655,11 @@ plot_trace_density <- function(samples, posterior) {
       plot_layout(heights = c(1, 0.55))
   }
 
+  plot_list <- Filter(Negate(is.null), plot_list)
+  if (length(plot_list) == 0) {
+    warning("No trace/density panels could be built.", call. = FALSE)
+    return(NULL)
+  }
   wrap_plots(plot_list, ncol = if (n_nz <= 6) 3 else 4)
 }
 
@@ -615,6 +681,7 @@ plot_coef_sum <- function(sum_values) {
       ggplot(df, aes(x = sum, y = 0)) +
         geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", linewidth = 0.5) +
         geom_boxplot(
+          aes(group = 1),
           orientation = "y",
           fill = "#E69F00",
           alpha = 0.7,
@@ -648,7 +715,7 @@ plot_coef_sum <- function(sum_values) {
     geom_density(fill = "#56B4E9", alpha = 0.35, color = "#0072B2", linewidth = 1.0) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "grey40", linewidth = 0.5) +
     geom_boxplot(
-      aes(y = -max_y * 0.075),
+      aes(y = -max_y * 0.075, group = 1),
       orientation = "y",
       fill = "#E69F00",
       alpha = 0.7,
