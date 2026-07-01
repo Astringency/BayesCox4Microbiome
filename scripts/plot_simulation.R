@@ -519,7 +519,7 @@ plot_acf_rhat <- function(diag, acf_data, p_dim) {
       y = Inf,
       hjust = 1.1,
       vjust = 1.5,
-      label = sprintf("N = %d | %d above %.1f", p_dim, n_above, RHAT_THRESHOLD),
+      label = sprintf("p = %d | %d above %.1f", p_dim, n_above, RHAT_THRESHOLD),
       size = 4.0,
       fontface = "italic",
       family = PLOT_FONT_FAMILY,
