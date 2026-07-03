@@ -28,6 +28,17 @@ arg_list <- function(name, default = character()) {
   trimws(strsplit(value, ",", fixed = TRUE)[[1]])
 }
 
+is_all_filter <- function(values) {
+  values <- trimws(values)
+  length(values) == 0 || any(tolower(values) == "all")
+}
+
+normalize_prior_filter <- function(values) {
+  values <- trimws(values)
+  values <- gsub("_", "-", tolower(values), fixed = TRUE)
+  unique(setdiff(values, c("", "all")))
+}
+
 summary_dir <- arg_value("summary-dir", file.path("results", "summary", "realdata", "method_comparison"))
 combined_layouts <- arg_list("combined-layouts", "none")
 combined_layouts <- setdiff(tolower(combined_layouts), c("", "none"))
@@ -41,6 +52,13 @@ combined_only <- arg_flag("combined-only", FALSE)
 if (combined_only && length(combined_layouts) == 0) {
   stop("--combined-only requires --combined-layouts.", call. = FALSE)
 }
+prior_filter_arg <- arg_list("priors", "all")
+baseline_family_filter_arg <- arg_list("baseline-families", "all")
+prior_filter <- if (is_all_filter(prior_filter_arg)) {
+  character()
+} else {
+  normalize_prior_filter(prior_filter_arg)
+}
 
 font_family <- Sys.getenv("REALDATA_PLOT_FONT", "Times New Roman")
 read_scale <- function(env_name, default) {
@@ -50,8 +68,8 @@ read_scale <- function(env_name, default) {
   }
   value
 }
-forest_font_scale <- read_scale("REALDATA_FOREST_FONT_SCALE", 2.5)
-rhat_font_scale <- read_scale("REALDATA_RHAT_FONT_SCALE", 2.5)
+forest_font_scale <- read_scale("REALDATA_FOREST_FONT_SCALE", 2.75)
+rhat_font_scale <- read_scale("REALDATA_RHAT_FONT_SCALE", 2.75)
 select_font_scale <- read_scale("REALDATA_SELECT_FONT_SCALE", 3.0)
 combined_font_scale <- read_scale("REALDATA_COMBINED_FONT_SCALE", forest_font_scale)
 combined_axis_text_scale <- read_scale("REALDATA_COMBINED_AXIS_TEXT_SCALE", 1.12)
@@ -350,6 +368,77 @@ rhats <- rhats %>%
     variable_index = as.integer(variable_index),
     rhat = as.numeric(rhat)
   )
+
+available_priors <- sort(unique(c(
+  as.character(coefs$prior[grepl("^Bayes", as.character(coefs$method_family))]),
+  as.character(select_df$prior[grepl("^Bayes", as.character(select_df$method_family))]),
+  as.character(rhats$prior[grepl("^Bayes", as.character(rhats$method_family))])
+)))
+available_priors <- available_priors[nzchar(available_priors)]
+bad_priors <- setdiff(prior_filter, available_priors)
+if (length(bad_priors) > 0) {
+  stop(
+    "Unknown --priors value(s): ", paste(bad_priors, collapse = ", "),
+    ". Available values: ", paste(available_priors, collapse = ", "),
+    call. = FALSE
+  )
+}
+
+available_baseline_families <- sort(unique(c(
+  as.character(coefs$method_family[!grepl("^Bayes", as.character(coefs$method_family))]),
+  as.character(select_df$method_family[!grepl("^Bayes", as.character(select_df$method_family))])
+)))
+available_baseline_families <- available_baseline_families[nzchar(available_baseline_families)]
+normalize_baseline_family_filter <- function(values, available) {
+  if (is_all_filter(values)) {
+    return(character())
+  }
+  requested <- unique(setdiff(trimws(values), c("", "all")))
+  lookup <- stats::setNames(available, tolower(available))
+  requested_keys <- tolower(requested)
+  bad <- requested[!(requested_keys %in% names(lookup))]
+  if (length(bad) > 0) {
+    stop(
+      "Unknown --baseline-families value(s): ", paste(bad, collapse = ", "),
+      ". Available values: ", paste(available, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  unname(lookup[requested_keys])
+}
+baseline_family_filter <- normalize_baseline_family_filter(
+  baseline_family_filter_arg,
+  available_baseline_families
+)
+
+apply_method_filters <- function(df) {
+  if (nrow(df) == 0) {
+    return(df)
+  }
+  is_bayes <- grepl("^Bayes", as.character(df$method_family))
+  keep <- rep(TRUE, nrow(df))
+  if (length(prior_filter) > 0) {
+    keep[is_bayes] <- as.character(df$prior[is_bayes]) %in% prior_filter
+  }
+  if (length(baseline_family_filter) > 0) {
+    keep[!is_bayes] <- as.character(df$method_family[!is_bayes]) %in% baseline_family_filter
+  }
+  df[keep, , drop = FALSE]
+}
+
+coefs <- apply_method_filters(coefs)
+select_df <- apply_method_filters(select_df)
+rhats <- apply_method_filters(rhats)
+
+if (nrow(coefs) == 0 && nrow(select_df) == 0 && nrow(rhats) == 0) {
+  stop("No plot rows remain after applying method filters.", call. = FALSE)
+}
+if (length(prior_filter) > 0) {
+  message("Plot prior filter: ", paste(prior_filter, collapse = ", "))
+}
+if (length(baseline_family_filter) > 0) {
+  message("Plot baseline family filter: ", paste(baseline_family_filter, collapse = ", "))
+}
 
 forest_dir <- ensure_dir(file.path(summary_dir, "figures", "forest"))
 rhat_dir <- ensure_dir(file.path(summary_dir, "figures", "rhat"))
@@ -862,9 +951,13 @@ for (dataset in sort(unique(select_df$dataset_id))) {
   n_method <- length(method_levels)
   plot_size <- max(8.5, min(30, max(4.8 + 0.12 * n_var, 6.5 + 0.24 * n_method)))
   y_label_width <- max(2.8, min(8.0, 1.0 + 0.055 * select_layout_scale * max(nchar(var_levels))))
-  plot_width <- plot_size + y_label_width
-  select_legend_cols <- legend_ncol_for_width(method_map$method_legend, plot_width, font_size(7.8, select_font_scale), max_cols = 2)
-  select_height <- plot_size + legend_extra_height(n_method, select_legend_cols, select_font_scale, row_height = 0.26, padding = 0.45)
+  select_legend_cols <- ifelse(n_method > 16, 2, 1)
+  select_legend_width <- max(
+    3.5,
+    min(12.0, select_legend_cols * (0.6 + max(nchar(method_map$method_legend)) * font_size(7.8, select_font_scale) * 0.0065))
+  )
+  plot_width <- plot_size + y_label_width + select_legend_width
+  select_height <- plot_size
   legend_seed <- method_map %>%
     mutate(
       method_legend = factor(method_legend, levels = method_map$method_legend),
@@ -915,6 +1008,10 @@ for (dataset in sort(unique(select_df$dataset_id))) {
       panel.grid.major.y = element_line(color = "grey92", linewidth = 0.25),
       axis.text.x = element_text(angle = 0, hjust = 0.5, vjust = 0.5, size = font_size(ifelse(n_method > 24, 7.5, 8.5), select_font_scale)),
       axis.text.y = element_text(size = font_size(ifelse(n_var > 100, 6.0, ifelse(n_var > 60, 7.0, 8.0)), select_font_scale)),
+      legend.position = "right",
+      legend.direction = "vertical",
+      legend.box = "vertical",
+      legend.justification = "center",
       legend.text = element_text(size = font_size(7.8, select_font_scale)),
       legend.title = element_blank(),
       legend.key.height = unit(select_font_scale * 0.28, "cm"),

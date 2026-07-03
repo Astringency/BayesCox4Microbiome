@@ -7,6 +7,7 @@
 #   Figure 1: ACF + R-hat convergence diagnostics for one replicate
 #   Figure 2: Trace + density plots for nonzero coefficients for one replicate
 #   Figure 3: Coefficient-sum distribution across available replicates
+#   Figure 4: Coefficient-sum distribution across posterior samples for one replicate
 #
 # Usage:
 #   Rscript scripts/plot_simulation.R --root results/simulation/prox
@@ -59,8 +60,8 @@ usage <- function() {
     "  --root ROOT              One simulation result root.\n",
     "  --roots ROOT1,ROOT2      Comma-separated simulation result roots.\n",
     "  --output-dir DIR         Override output directory for a single root.\n",
-    "  --rep N                  Replicate used for ACF/trace plots. Default: 1.\n",
-    "  --sum-reps N             Maximum replicate count for coefficient sums. Default: 50.\n",
+    "  --rep N                  Replicate used for ACF/trace/sample-sum plots. Default: 1.\n",
+    "  --sum-reps N             Maximum replicate count for Figure 3 coefficient sums. Default: 50.\n",
     "  --methods m1,m2          Optional method filter.\n",
     "  --scenarios s1,s2        Optional scenario directory/name filter.\n",
     "  --acf-max-lag N          Maximum ACF lag. Default: 50.\n",
@@ -407,6 +408,34 @@ load_replicate_sums <- function(data_root, sc_dir, method, baseline, n, p, nz, m
   }
 
   values[!is.na(values)]
+}
+
+load_sample_sums <- function(data_root, sc_dir, method, baseline, n, p, nz, rep_id = FOCUS_REP) {
+  samples_path <- file.path(
+    run_dir(data_root, sc_dir, method, baseline, n, p, nz, rep_id),
+    "samples_wide.csv"
+  )
+  if (!file.exists(samples_path)) {
+    stop(sprintf("Samples file not found: %s", samples_path))
+  }
+
+  beta_cols <- paste0("beta[", seq_len(p), "]")
+  header <- names(fread(samples_path, nrows = 0))
+  missing_cols <- setdiff(beta_cols, header)
+  if (length(missing_cols) > 0) {
+    stop(
+      sprintf(
+        "Samples file is missing beta columns: %s",
+        paste(missing_cols, collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+
+  samples <- fread(samples_path, select = beta_cols)
+  samples[, (beta_cols) := lapply(.SD, numeric_vector), .SDcols = beta_cols]
+  sum_values <- rowSums(as.matrix(samples[, ..beta_cols]))
+  sum_values[is.finite(sum_values)]
 }
 
 as_bool <- function(x) {
@@ -767,6 +796,7 @@ process_item <- function(data_root, output_dir, item) {
   samples <- load_samples(data_root, sc_dir, method, baseline, n, p, nz, FOCUS_REP, nz_idx)
   acf_data <- compute_acf(samples)
   sum_vals <- load_replicate_sums(data_root, sc_dir, method, baseline, n, p, nz)
+  sample_sum_vals <- load_sample_sums(data_root, sc_dir, method, baseline, n, p, nz, FOCUS_REP)
 
   out_subdir <- file.path(output_dir, sc_label, method)
   dir.create(out_subdir, showWarnings = FALSE, recursive = TRUE)
@@ -790,6 +820,22 @@ process_item <- function(data_root, output_dir, item) {
         sc_label,
         method,
         length(sum_vals)
+      ),
+      call. = FALSE
+    )
+  }
+
+  if (length(sample_sum_vals) >= 2) {
+    fig4 <- plot_coef_sum(sample_sum_vals)
+    save_pdf_png(fig4, file.path(out_subdir, "fig04_coef_sum_samples"), width = 155, height = 105)
+  } else {
+    warning(
+      sprintf(
+        "Skipping posterior-sample coefficient-sum plot for %s/%s rep%d: need at least 2 sample sums, found %d.",
+        sc_label,
+        method,
+        FOCUS_REP,
+        length(sample_sum_vals)
       ),
       call. = FALSE
     )

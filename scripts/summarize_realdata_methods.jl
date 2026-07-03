@@ -639,16 +639,51 @@ function find_rscript()
     return "", false
 end
 
-function run_r_plots(outdir::AbstractString, plot_script::AbstractString)
+function run_r_plots(
+    outdir::AbstractString,
+    plot_script::AbstractString;
+    plot_priors::AbstractString = "",
+    plot_baseline_families::AbstractString = "",
+    combined_layouts::AbstractString = "",
+    combined_datasets::AbstractString = "",
+    combined_only::AbstractString = "",
+)
     isfile(plot_script) || (@warn "R plot script not found." plot_script; return)
     rscript, windows_r = find_rscript()
     isempty(rscript) && (@warn "Rscript not found; plot data were written but figures were not regenerated."; return)
     script_arg = windows_r ? wslpath_to_windows(plot_script) : plot_script
     out_arg = windows_r ? wslpath_to_windows(outdir) : outdir
-    run(`$rscript $script_arg --summary-dir $out_arg`)
+    cmd = `$rscript $script_arg --summary-dir $out_arg`
+    if !isempty(strip(plot_priors)) && lowercase(strip(plot_priors)) != "all"
+        cmd = `$cmd --priors $plot_priors`
+    end
+    if !isempty(strip(plot_baseline_families)) && lowercase(strip(plot_baseline_families)) != "all"
+        cmd = `$cmd --baseline-families $plot_baseline_families`
+    end
+    if !isempty(strip(combined_layouts)) && lowercase(strip(combined_layouts)) != "none"
+        cmd = `$cmd --combined-layouts $combined_layouts`
+    end
+    if !isempty(strip(combined_datasets)) && lowercase(strip(combined_datasets)) != "all"
+        cmd = `$cmd --combined-datasets $combined_datasets`
+    end
+    if lowercase(strip(combined_only)) in ("true", "1", "yes", "y")
+        cmd = `$cmd --combined-only true`
+    end
+    run(cmd)
 end
 
-function write_outputs(outdir::AbstractString, methods::DataFrame, bayes_dir::AbstractString; plot_script::String, make_plots::Bool)
+function write_outputs(
+    outdir::AbstractString,
+    methods::DataFrame,
+    bayes_dir::AbstractString;
+    plot_script::String,
+    make_plots::Bool,
+    plot_priors::String,
+    plot_baseline_families::String,
+    combined_layouts::String,
+    combined_datasets::String,
+    combined_only::String,
+)
     clean_method_comparison_output(outdir)
     sort_methods!(methods)
     raw = coefficient_rows(methods)
@@ -661,7 +696,15 @@ function write_outputs(outdir::AbstractString, methods::DataFrame, bayes_dir::Ab
     write_table(joinpath(outdir, "plot_data", "rhat_long.csv"), rhats)
     write_coefficient_wide_tables(outdir, methods, complete)
 
-    make_plots && run_r_plots(outdir, plot_script)
+    make_plots && run_r_plots(
+        outdir,
+        plot_script;
+        plot_priors = plot_priors,
+        plot_baseline_families = plot_baseline_families,
+        combined_layouts = combined_layouts,
+        combined_datasets = combined_datasets,
+        combined_only = combined_only,
+    )
 end
 
 function main()
@@ -672,13 +715,29 @@ function main()
     outdir = normpath(opt(opts, "outdir", DEFAULT_OUTDIR))
     plot_script = normpath(opt(opts, "plot-script", DEFAULT_PLOT_SCRIPT))
     make_plots = lowercase(opt(opts, "plot", "true")) != "false"
+    plot_priors = opt(opts, "plot-priors", "")
+    plot_baseline_families = opt(opts, "plot-baseline-families", "")
+    combined_layouts = opt(opts, "combined-layouts", "")
+    combined_datasets = opt(opts, "combined-datasets", "")
+    combined_only = opt(opts, "combined-only", "")
 
     rows = NamedTuple[]
     append!(rows, bayes_rows(bayes_dir))
     !isempty(floral_dir) && append!(rows, floral_rows(floral_dir))
     !isempty(coda_dir) && append!(rows, coda_rows(coda_dir))
     methods = DataFrame(rows)
-    write_outputs(outdir, methods, bayes_dir; plot_script = plot_script, make_plots = make_plots)
+    write_outputs(
+        outdir,
+        methods,
+        bayes_dir;
+        plot_script = plot_script,
+        make_plots = make_plots,
+        plot_priors = plot_priors,
+        plot_baseline_families = plot_baseline_families,
+        combined_layouts = combined_layouts,
+        combined_datasets = combined_datasets,
+        combined_only = combined_only,
+    )
     println(outdir)
 end
 
