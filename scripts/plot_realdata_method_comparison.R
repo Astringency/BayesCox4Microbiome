@@ -68,8 +68,12 @@ read_scale <- function(env_name, default) {
   }
   value
 }
-forest_font_scale <- read_scale("REALDATA_FOREST_FONT_SCALE", 2.75)
-rhat_font_scale <- read_scale("REALDATA_RHAT_FONT_SCALE", 2.75)
+forest_font_scale <- read_scale("REALDATA_FOREST_FONT_SCALE", 2.0)
+rhat_font_scale <- read_scale("REALDATA_RHAT_FONT_SCALE", 2.0)
+forest_width_scale <- read_scale("REALDATA_FOREST_WIDTH_SCALE", 0.7)
+forest_height_scale <- read_scale("REALDATA_FOREST_HEIGHT_SCALE", 1.25)
+rhat_width_scale <- read_scale("REALDATA_RHAT_WIDTH_SCALE", 0.7)
+rhat_height_scale <- read_scale("REALDATA_RHAT_HEIGHT_SCALE", 1.25)
 select_font_scale <- read_scale("REALDATA_SELECT_FONT_SCALE", 3.0)
 combined_font_scale <- read_scale("REALDATA_COMBINED_FONT_SCALE", forest_font_scale)
 combined_axis_text_scale <- read_scale("REALDATA_COMBINED_AXIS_TEXT_SCALE", 1.12)
@@ -326,6 +330,20 @@ legend_label <- function(x) {
   gsub(" / ", "\n", as.character(x), fixed = TRUE)
 }
 
+baseline_axis_label <- function(x) {
+  label <- sub("^.*\\(([^()]*)\\)$", "\\1", as.character(x))
+  ifelse(label == as.character(x), as.character(x), label)
+}
+
+coef_sign_label <- function(x) {
+  dplyr::case_when(
+    is.na(x) ~ "",
+    x > 0 ~ "+",
+    x < 0 ~ "-",
+    TRUE ~ "0"
+  )
+}
+
 base_theme <- function(scale) {
   theme_bw(base_family = font_family, base_size = font_size(14, scale)) +
     theme(
@@ -442,6 +460,24 @@ coefs <- apply_method_filters(coefs)
 select_df <- apply_method_filters(select_df)
 rhats <- apply_method_filters(rhats)
 
+select_coef_signs <- coefs %>%
+  distinct(dataset_id, variable_index, method_family, method, prior, constraint, .keep_all = TRUE) %>%
+  dplyr::select(
+    dataset_id,
+    variable_index,
+    method_family,
+    method,
+    prior,
+    constraint,
+    select_point_estimate = point_estimate
+  )
+
+select_df <- select_df %>%
+  left_join(
+    select_coef_signs,
+    by = c("dataset_id", "variable_index", "method_family", "method", "prior", "constraint")
+  )
+
 if (nrow(coefs) == 0 && nrow(select_df) == 0 && nrow(rhats) == 0) {
   stop("No plot rows remain after applying method filters.", call. = FALSE)
 }
@@ -470,6 +506,10 @@ display_color_values <- c(
   "coda4microbiome" = "#000000"
 )
 display_color_breaks <- names(display_color_values)
+display_color_labels <- stats::setNames(display_color_breaks, display_color_breaks)
+select_method_letters <- stats::setNames(LETTERS[seq_along(display_color_breaks)], display_color_breaks)
+select_color_labels <- display_color_labels
+select_color_labels[display_color_breaks] <- paste0("(", select_method_letters, ") ", display_color_breaks)
 
 display_shape_values <- c(
   "prox" = 15,
@@ -486,25 +526,45 @@ fixed_legend_height <- function(scale, text_scale = 1, row_height = 0.34) {
     legend_extra_height(length(display_shape_breaks), shape_cols, scale * text_scale, row_height = row_height, padding = 0.15)
 }
 
-combined_panel_height <- function(n_var, scale) {
-  max(7, 2.5 + 0.17 * n_var * scale / 1.5) * combined_height_scale
+combined_width_scale_for_layout <- function(layout) {
+  if (layout == "stacked") {
+    return(max(forest_width_scale, rhat_width_scale))
+  }
+  mean(c(forest_width_scale, rhat_width_scale))
+}
+
+combined_panel_height <- function(n_var, scale, height_scale = forest_height_scale) {
+  max(7, 2.5 + 0.17 * n_var * scale / 1.5) * combined_height_scale * height_scale
+}
+
+combined_shared_panel_height <- function(n_var, scale) {
+  combined_panel_height(n_var, scale, max(forest_height_scale, rhat_height_scale))
+}
+
+combined_rhat_panel_height <- function() {
+  7.2 * combined_height_scale * rhat_height_scale
 }
 
 combined_method_width <- function(n_method, layout) {
+  width_scale <- combined_width_scale_for_layout(layout)
   if (layout %in% c("aligned", "summary")) {
-    return(max(30, min(36, 12 + 0.75 * n_method)))
+    return(max(30, min(36, 12 + 0.75 * n_method)) * width_scale)
   }
-  max(22, min(28, 7.5 + 0.22 * n_method))
+  max(22, min(28, 7.5 + 0.22 * n_method)) * width_scale
 }
 
 combined_dimensions <- function(combo, layout, scale) {
   n_method <- length(combo$method_levels)
   legend_height <- fixed_legend_height(scale, text_scale = combined_legend_text_scale, row_height = 0.34)
-  panel_height <- combined_panel_height(combo$n_var, scale)
+  panel_height <- if (layout == "stacked") {
+    combined_panel_height(combo$n_var, scale, forest_height_scale)
+  } else {
+    combined_shared_panel_height(combo$n_var, scale)
+  }
   if (layout == "stacked") {
     return(list(
       width = combined_method_width(n_method, layout),
-      height = panel_height + 7.2 * combined_height_scale + legend_height
+      height = panel_height + combined_rhat_panel_height() + legend_height
     ))
   }
   list(
@@ -513,11 +573,12 @@ combined_dimensions <- function(combo, layout, scale) {
   )
 }
 
-combined_color_scale <- function(method_levels = NULL) {
+combined_color_scale <- function(method_levels = NULL, labels = display_color_labels) {
   scale_color_manual(
     values = display_color_values,
     limits = display_color_breaks,
     breaks = display_color_breaks,
+    labels = unname(labels[display_color_breaks]),
     drop = FALSE
   )
 }
@@ -695,7 +756,10 @@ build_stacked_combined_plot <- function(combo, scale = combined_font_scale) {
   forest_grob <- ggplotGrob(build_combined_forest_plot(combo, show_legend = FALSE, scale = scale))
   rhat_grob <- ggplotGrob(build_combined_rhat_index_plot(combo, show_legend = FALSE, scale = scale))
   grobs <- list(forest_grob, rhat_grob)
-  heights <- grid::unit(c(combined_panel_height(combo$n_var, scale), 7.2 * combined_height_scale), "null")
+  heights <- grid::unit(c(
+    combined_panel_height(combo$n_var, scale, forest_height_scale),
+    combined_rhat_panel_height()
+  ), "null")
   if (!is.null(legend)) {
     grobs <- c(grobs, list(legend))
     heights <- grid::unit.c(heights, sum(legend$heights) + grid::unit(0.45, "cm"))
@@ -878,10 +942,12 @@ for (dataset in sort(unique(coefs$dataset_id))) {
 
   n_var <- length(var_levels)
   n_method <- length(method_levels)
-  height <- max(7, 2.5 + 0.17 * n_var * forest_font_scale / 1.5)
-  width <- max(22, min(28, 7.5 + 0.22 * n_method))
+  height <- max(9, 2.5 + 0.25 * n_var * forest_font_scale / 1.5)
+  width <- max(20, min(28, 7.5 + 0.2 * n_method)) * forest_width_scale
   forest_legend_cols <- legend_ncol(length(display_color_breaks), max_cols = 6)
-  forest_height <- height + fixed_legend_height(forest_font_scale, row_height = 0.34)
+  forest_height <- (
+    height + fixed_legend_height(forest_font_scale, row_height = 0.34)
+  ) * forest_height_scale
   dodge <- position_dodge(width = 0.75)
 
   p <- ggplot(dat, aes(x = point_estimate, y = variable, color = color_group, shape = shape_group, group = method_label)) +
@@ -932,9 +998,11 @@ for (dataset in sort(unique(rhats$dataset_id))) {
 
   y_max <- max(1.12, stats::quantile(dat$rhat, 0.99, na.rm = TRUE) * 1.03)
   rhat_n_method <- dplyr::n_distinct(dat$method_label)
-  rhat_width <- max(22, min(28, 7.5 + 0.22 * rhat_n_method))
+  rhat_width <- max(22, min(28, 7.5 + 0.2 * rhat_n_method)) * rhat_width_scale
   rhat_legend_cols <- legend_ncol(length(display_color_breaks), max_cols = 6)
-  rhat_height <- 7.2 + fixed_legend_height(rhat_font_scale, row_height = 0.34)
+  rhat_height <- (
+    7.2 + fixed_legend_height(rhat_font_scale, row_height = 0.34)
+  ) * rhat_height_scale
   p <- ggplot(dat, aes(x = variable_index, y = rhat, color = color_group, shape = shape_group, group = method_label)) +
     geom_hline(yintercept = 1.0, linetype = "dashed", color = "red", linewidth = 0.45) +
     geom_hline(yintercept = 1.1, linetype = "dashed", color = "red", linewidth = 0.45) +
@@ -962,47 +1030,93 @@ for (dataset in sort(unique(rhats$dataset_id))) {
 for (dataset in sort(unique(select_df$dataset_id))) {
   dat <- select_df %>%
     filter(dataset_id == dataset) %>%
-    arrange(variable_index, method_family, method)
+    mutate(sign_label = coef_sign_label(select_point_estimate))
   if (nrow(dat) == 0) next
 
   var_levels <- dat %>%
     distinct(variable_index, variable) %>%
     arrange(variable_index) %>%
     pull(variable)
-  method_levels <- unique(dat$method_label)
   method_map <- dat %>%
-    distinct(method_label, color_group, shape_group) %>%
+    distinct(method_label, method_family, method, color_group, shape_group) %>%
     mutate(
-      method_index = dplyr::row_number(),
-      method_axis_label = legend_label(method_label)
-    )
+      is_bayes = grepl("^Bayes", as.character(method_family)),
+      color_order = match(as.character(color_group), display_color_breaks),
+      shape_order = match(as.character(shape_group), display_shape_breaks),
+      baseline_order = dplyr::case_when(
+        grepl("\\(min\\)$", as.character(method_label)) ~ 1L,
+        grepl("\\(1se\\)$", as.character(method_label)) ~ 2L,
+        TRUE ~ 99L
+      ),
+      within_group_order = ifelse(is_bayes, shape_order, baseline_order)
+    ) %>%
+    arrange(ifelse(is_bayes, 0L, 1L), color_order, within_group_order, method_label) %>%
+    mutate(method_index = dplyr::row_number()) %>%
+    dplyr::select(method_label, color_group, shape_group, method_index, is_bayes)
+
+  method_levels <- method_map$method_label
+  axis_map <- method_map %>%
+    group_by(color_group) %>%
+    summarise(method_axis_x = mean(method_index), .groups = "drop") %>%
+    mutate(method_axis_label = unname(select_method_letters[as.character(color_group)])) %>%
+    filter(!is.na(method_axis_label)) %>%
+    arrange(method_axis_x)
+
+  panel_levels <- c("Selection", "Coefficient sign")
 
   dat <- dat %>%
     left_join(method_map, by = c("method_label", "color_group", "shape_group")) %>%
     mutate(
       method_index = as.integer(method_index),
       color_group = factor(color_group, levels = display_color_breaks),
-      shape_group = factor(shape_group, levels = display_shape_breaks)
+      shape_group = factor(shape_group, levels = display_shape_breaks),
+      panel = factor("Selection", levels = panel_levels)
     )
 
   n_var <- length(var_levels)
   n_method <- length(method_levels)
-  plot_size <- max(8.5, min(30, max(4.8 + 0.12 * n_var, 6.5 + 0.24 * n_method)))
   y_label_width <- max(2.8, min(8.0, 1.0 + 0.055 * select_layout_scale * max(nchar(var_levels))))
   select_legend_cols <- legend_ncol(length(display_color_breaks), max_cols = 6)
-  x_label_width <- min(36, y_label_width + 4.0 + 0.62 * n_method)
-  plot_width <- max(plot_size + y_label_width, x_label_width)
-  select_height <- plot_size + fixed_legend_height(select_font_scale, row_height = 0.28)
+  panel_width <- max(9.5, min(18.0, 5.5 + 0.48 * n_method))
+  plot_width <- min(42.0, y_label_width + 2 * panel_width + 1.2)
+  select_height <- max(8.5, min(34.0, 4.8 + 0.25 * n_var)) +
+    fixed_legend_height(select_font_scale, row_height = 0.28) + 0.8
+  sign_text_size <- font_size(ifelse(n_var > 100, 1.8, ifelse(n_var > 60, 2.1, 2.5)), select_font_scale)
   legend_seed <- method_map %>%
     mutate(
       color_group = factor(color_group, levels = display_color_breaks),
       shape_group = factor(shape_group, levels = display_shape_breaks),
-      variable_index = 1
+      variable_index = 1,
+      panel = factor("Selection", levels = panel_levels)
     )
-  x_axis_angle <- ifelse(n_method > 16, 45, 0)
+  sign_dat <- dat %>%
+    mutate(panel = factor("Coefficient sign", levels = panel_levels))
+  cell_grid <- expand.grid(
+    panel = factor(panel_levels, levels = panel_levels),
+    xintercept = seq(0.5, n_method + 0.5, by = 1),
+    KEEP.OUT.ATTRS = FALSE
+  )
+  row_grid <- expand.grid(
+    panel = factor(panel_levels, levels = panel_levels),
+    yintercept = seq(0.5, n_var + 0.5, by = 1),
+    KEEP.OUT.ATTRS = FALSE
+  )
 
-  p <- ggplot(dat, aes(x = method_index, y = variable_index)) +
-    geom_blank(data = dat, aes(x = method_index, y = variable_index)) +
+  p <- ggplot() +
+    geom_vline(
+      data = cell_grid,
+      aes(xintercept = xintercept),
+      color = "grey92",
+      linewidth = 0.25,
+      inherit.aes = FALSE
+    ) +
+    geom_hline(
+      data = row_grid,
+      aes(yintercept = yintercept),
+      color = "grey92",
+      linewidth = 0.25,
+      inherit.aes = FALSE
+    ) +
     geom_point(
       data = legend_seed,
       aes(x = method_index, y = variable_index, color = color_group, shape = shape_group),
@@ -1013,13 +1127,23 @@ for (dataset in sort(unique(select_df$dataset_id))) {
     ) +
     geom_point(
       data = dat %>% filter(selected),
-      aes(color = color_group, shape = shape_group),
+      aes(x = method_index, y = variable_index, color = color_group, shape = shape_group),
+      inherit.aes = FALSE,
       size = select_point_size,
       alpha = 0.9
     ) +
+    geom_text(
+      data = sign_dat,
+      aes(x = method_index, y = variable_index, label = sign_label),
+      color = "grey20",
+      family = font_family,
+      size = sign_text_size,
+      inherit.aes = FALSE,
+      na.rm = TRUE
+    ) +
     scale_x_continuous(
-      breaks = method_map$method_index,
-      labels = method_map$method_axis_label,
+      breaks = axis_map$method_axis_x,
+      labels = axis_map$method_axis_label,
       limits = c(0.5, n_method + 0.5),
       expand = c(0, 0)
     ) +
@@ -1029,22 +1153,23 @@ for (dataset in sort(unique(select_df$dataset_id))) {
       limits = c(n_var + 0.5, 0.5),
       expand = c(0, 0)
     ) +
-    combined_color_scale(method_levels) +
+    combined_color_scale(method_levels, labels = select_color_labels) +
     combined_shape_scale() +
-    coord_fixed(ratio = n_method / n_var, clip = "off") +
-    labs(x = "Method", y = NULL) +
+    facet_grid(. ~ panel) +
+    coord_cartesian(clip = "off") +
+    labs(x = NULL, y = NULL) +
     guides(
       color = guide_legend(ncol = select_legend_cols, byrow = TRUE, override.aes = list(shape = 16, size = select_legend_point_size, alpha = 1)),
       shape = guide_legend(nrow = 1, byrow = TRUE, override.aes = list(color = "grey25", size = select_legend_point_size, alpha = 1))
     ) +
     base_theme(select_font_scale) +
     theme(
-      panel.grid.major.x = element_line(color = "grey92", linewidth = 0.25),
-      panel.grid.major.y = element_line(color = "grey92", linewidth = 0.25),
+      panel.grid.major.x = element_blank(),
+      panel.grid.major.y = element_blank(),
       axis.text.x = element_text(
-        angle = x_axis_angle,
-        hjust = ifelse(x_axis_angle == 0, 0.5, 1),
-        vjust = ifelse(x_axis_angle == 0, 0.5, 1),
+        angle = 0,
+        hjust = 0.5,
+        vjust = 0.5,
         size = font_size(ifelse(n_method > 24, 7.0, 8.0), select_font_scale)
       ),
       axis.text.y = element_text(size = font_size(ifelse(n_var > 100, 6.0, ifelse(n_var > 60, 7.0, 8.0)), select_font_scale)),
@@ -1052,10 +1177,12 @@ for (dataset in sort(unique(select_df$dataset_id))) {
       legend.direction = "horizontal",
       legend.box = "vertical",
       legend.justification = "center",
-      legend.text = element_text(size = font_size(7.8, select_font_scale)),
+      legend.text = element_text(size = font_size(8.5, select_font_scale)),
       legend.title = element_blank(),
       legend.key.height = unit(select_font_scale * 0.28, "cm"),
-      legend.key.width = unit(select_font_scale * 0.42, "cm")
+      legend.key.width = unit(select_font_scale * 0.42, "cm"),
+      panel.spacing.x = unit(0.55, "cm"),
+      strip.text = element_text(size = font_size(8.8, select_font_scale), face = "bold")
     )
 
   save_plot_bundle(p, file.path(select_dir, paste0(safe_name(dataset), "_select")), plot_width, select_height)
