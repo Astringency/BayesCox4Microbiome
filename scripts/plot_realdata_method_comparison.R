@@ -40,6 +40,7 @@ normalize_prior_filter <- function(values) {
 }
 
 summary_dir <- arg_value("summary-dir", file.path("results", "summary", "realdata", "method_comparison"))
+t1d_metadata_path <- arg_value("t1d-metadata", file.path("data", "T1D_metadata.csv"))
 combined_layouts <- arg_list("combined-layouts", "none")
 combined_layouts <- setdiff(tolower(combined_layouts), c("", "none"))
 valid_combined_layouts <- c("stacked", "aligned", "summary")
@@ -370,6 +371,63 @@ coefs <- readr::read_csv(coefs_path, show_col_types = FALSE)
 rhats <- readr::read_csv(rhat_path, show_col_types = FALSE)
 select_df <- readr::read_csv(select_path, show_col_types = FALSE)
 
+load_t1d_metadata <- function(path) {
+  if (!file.exists(path)) {
+    warning("T1D metadata not found: ", path, call. = FALSE)
+    return(data.frame(variable = character(), variable_label = character()))
+  }
+  meta <- readr::read_csv(path, show_col_types = FALSE)
+  required <- c("feature", "genus")
+  missing_cols <- setdiff(required, names(meta))
+  if (length(missing_cols) > 0) {
+    warning(
+      "T1D metadata is missing required column(s): ",
+      paste(missing_cols, collapse = ", "),
+      call. = FALSE
+    )
+    return(data.frame(variable = character(), variable_label = character()))
+  }
+  meta %>%
+    transmute(
+      variable = as.character(feature),
+      variable_label = as.character(genus)
+    ) %>%
+    filter(!is.na(variable), nzchar(variable), !is.na(variable_label), nzchar(variable_label)) %>%
+    distinct(variable, .keep_all = TRUE)
+}
+
+apply_t1d_variable_labels <- function(df, label_map) {
+  if (nrow(df) == 0 || !("variable" %in% names(df))) {
+    df$variable_label <- character(nrow(df))
+    return(df)
+  }
+  df %>%
+    mutate(variable = as.character(variable)) %>%
+    left_join(label_map, by = "variable") %>%
+    mutate(
+      variable_label = ifelse(
+        as.character(dataset_id) == "T1D" & !is.na(variable_label) & nzchar(variable_label),
+        variable_label,
+        variable
+      )
+    )
+}
+
+variable_level_table <- function(df) {
+  df %>%
+    distinct(variable_index, variable, variable_label) %>%
+    arrange(variable_index)
+}
+
+variable_label_map <- function(var_table) {
+  stats::setNames(as.character(var_table$variable_label), as.character(var_table$variable))
+}
+
+t1d_label_map <- load_t1d_metadata(t1d_metadata_path)
+coefs <- apply_t1d_variable_labels(coefs, t1d_label_map)
+select_df <- apply_t1d_variable_labels(select_df, t1d_label_map)
+rhats <- apply_t1d_variable_labels(rhats, t1d_label_map)
+
 coefs <- coefs %>%
   mutate(
     method_label = method_label(.),
@@ -497,6 +555,13 @@ combined_dir <- if (length(combined_layouts) > 0) {
   NULL
 }
 
+ordered_present <- function(values, preferred_order) {
+  present <- unique(as.character(values))
+  present <- present[!is.na(present) & nzchar(present)]
+  ordered <- preferred_order[preferred_order %in% present]
+  c(ordered, setdiff(sort(present), ordered))
+}
+
 display_color_values <- c(
   "Cox-HS" = "#0072B2",
   "Cox-RHS" = "#D55E00",
@@ -505,19 +570,25 @@ display_color_values <- c(
   "FLORAL" = "#E69F00",
   "coda4microbiome" = "#000000"
 )
-display_color_breaks <- names(display_color_values)
-display_color_labels <- stats::setNames(display_color_breaks, display_color_breaks)
-select_method_letters <- stats::setNames(LETTERS[seq_along(display_color_breaks)], display_color_breaks)
-select_color_labels <- display_color_labels
-select_color_labels[display_color_breaks] <- paste0("(", select_method_letters, ") ", display_color_breaks)
-
 display_shape_values <- c(
   "prox" = 15,
   "soft-center" = 3,
   "FLORAL" = 17,
   "coda4microbiome" = 16
 )
-display_shape_breaks <- names(display_shape_values)
+
+display_color_breaks <- ordered_present(
+  c(coefs$color_group, select_df$color_group, rhats$color_group),
+  names(display_color_values)
+)
+display_shape_breaks <- ordered_present(
+  c(coefs$shape_group, select_df$shape_group, rhats$shape_group),
+  names(display_shape_values)
+)
+display_color_labels <- stats::setNames(display_color_breaks, display_color_breaks)
+select_method_letters <- stats::setNames(LETTERS[seq_along(display_color_breaks)], display_color_breaks)
+select_color_labels <- display_color_labels
+select_color_labels[display_color_breaks] <- paste0("(", select_method_letters, ") ", display_color_breaks)
 
 fixed_legend_height <- function(scale, text_scale = 1, row_height = 0.34) {
   color_cols <- legend_ncol(length(display_color_breaks), max_cols = 6)
@@ -640,10 +711,9 @@ prepare_combined_data <- function(dataset) {
     return(NULL)
   }
 
-  var_levels <- forest_dat %>%
-    distinct(variable_index, variable) %>%
-    arrange(variable_index) %>%
-    pull(variable)
+  var_table <- variable_level_table(forest_dat)
+  var_levels <- var_table$variable
+  var_labels <- variable_label_map(var_table)
   method_levels <- unique(c(forest_dat$method_label, rhat_dat$method_label))
   rhat_xmin <- min(0.98, min(rhat_dat$rhat, na.rm = TRUE))
   rhat_xmax <- max(1.12, stats::quantile(rhat_dat$rhat, 0.99, na.rm = TRUE) * 1.03)
@@ -669,6 +739,7 @@ prepare_combined_data <- function(dataset) {
     forest = forest_dat,
     rhat = rhat_dat,
     var_levels = var_levels,
+    var_labels = var_labels,
     method_levels = method_levels,
     n_var = length(var_levels),
     rhat_xmin = rhat_xmin,
@@ -706,7 +777,7 @@ build_combined_forest_plot <- function(combo, show_legend = TRUE, scale = combin
     geom_point(size = 1.25, alpha = 0.9, position = dodge, na.rm = TRUE) +
     combined_color_scale(combo$method_levels) +
     combined_shape_scale() +
-    scale_y_discrete(limits = rev(combo$var_levels), drop = FALSE) +
+    scale_y_discrete(limits = rev(combo$var_levels), labels = combo$var_labels, drop = FALSE) +
     labs(x = "Coefficient", y = NULL) +
     combined_guides(length(combo$method_levels)) +
     base_theme(scale) +
@@ -835,7 +906,7 @@ build_aligned_combined_plot <- function(combo, scale = combined_font_scale) {
     facet_grid(. ~ panel, scales = "free_x") +
     combined_color_scale(combo$method_levels) +
     combined_shape_scale() +
-    scale_y_discrete(limits = rev(combo$var_levels), drop = FALSE) +
+    scale_y_discrete(limits = rev(combo$var_levels), labels = combo$var_labels, drop = FALSE) +
     labs(x = NULL, y = NULL) +
     combined_guides(length(combo$method_levels)) +
     base_theme(scale) +
@@ -912,7 +983,7 @@ build_summary_combined_plot <- function(combo, scale = combined_font_scale) {
     facet_grid(. ~ panel, scales = "free_x") +
     combined_color_scale(combo$method_levels) +
     combined_shape_scale() +
-    scale_y_discrete(limits = rev(combo$var_levels), drop = FALSE) +
+    scale_y_discrete(limits = rev(combo$var_levels), labels = combo$var_labels, drop = FALSE) +
     labs(x = NULL, y = NULL) +
     combined_guides(length(combo$method_levels)) +
     base_theme(scale) +
@@ -926,10 +997,9 @@ for (dataset in sort(unique(coefs$dataset_id))) {
     arrange(variable_index, method_family, method)
   if (nrow(dat) == 0) next
 
-  var_levels <- dat %>%
-    distinct(variable_index, variable) %>%
-    arrange(variable_index) %>%
-    pull(variable)
+  var_table <- variable_level_table(dat)
+  var_levels <- var_table$variable
+  var_labels <- variable_label_map(var_table)
   method_levels <- unique(dat$method_label)
 
   dat <- dat %>%
@@ -965,6 +1035,7 @@ for (dataset in sort(unique(coefs$dataset_id))) {
     geom_point(size = 1.25, alpha = 0.9, position = dodge, na.rm = TRUE) +
     combined_color_scale(method_levels) +
     combined_shape_scale() +
+    scale_y_discrete(limits = rev(var_levels), labels = var_labels, drop = FALSE) +
     labs(x = "Coefficient", y = NULL) +
     guides(
       color = guide_legend(ncol = forest_legend_cols, byrow = TRUE, override.aes = list(shape = 16, size = 2.4, alpha = 1)),
@@ -1033,10 +1104,9 @@ for (dataset in sort(unique(select_df$dataset_id))) {
     mutate(sign_label = coef_sign_label(select_point_estimate))
   if (nrow(dat) == 0) next
 
-  var_levels <- dat %>%
-    distinct(variable_index, variable) %>%
-    arrange(variable_index) %>%
-    pull(variable)
+  var_table <- variable_level_table(dat)
+  var_levels <- var_table$variable
+  var_labels <- as.character(var_table$variable_label)
   method_map <- dat %>%
     distinct(method_label, method_family, method, color_group, shape_group) %>%
     mutate(
@@ -1075,7 +1145,7 @@ for (dataset in sort(unique(select_df$dataset_id))) {
 
   n_var <- length(var_levels)
   n_method <- length(method_levels)
-  y_label_width <- max(2.8, min(8.0, 1.0 + 0.055 * select_layout_scale * max(nchar(var_levels))))
+  y_label_width <- max(2.8, min(8.0, 1.0 + 0.055 * select_layout_scale * max(nchar(var_labels))))
   select_legend_cols <- legend_ncol(length(display_color_breaks), max_cols = 6)
   panel_width <- max(9.5, min(18.0, 5.5 + 0.48 * n_method))
   plot_width <- min(42.0, y_label_width + 2 * panel_width + 1.2)
@@ -1149,7 +1219,7 @@ for (dataset in sort(unique(select_df$dataset_id))) {
     ) +
     scale_y_reverse(
       breaks = seq_along(var_levels),
-      labels = var_levels,
+      labels = var_labels,
       limits = c(n_var + 0.5, 0.5),
       expand = c(0, 0)
     ) +
