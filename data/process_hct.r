@@ -38,26 +38,26 @@ cat("Successfully generated: HCT.csv (Total columns: ", ncol(HCT_full), ")\n", s
 # ---------------------------------------------------------
 # Task 2: Keep covariates with average abundance > 0.01 (HCT_001.csv)
 # ---------------------------------------------------------
-mean_abundance <- as.vector(colMeans(bac_comp, na.rm = TRUE))
-keep_abund_idx <- mean_abundance > 0.01
-
-bac_001_recomp <- sweep(bac_comp[, keep_abund_idx, drop=FALSE], 1, rowSums(bac_comp[, keep_abund_idx, drop=FALSE]), FUN="/")
-HCT_001 <- cbind(bac_id, bac_001_recomp, gvhd_df)
-
-write.csv(HCT_001, "HCT_001.csv", row.names = FALSE)
-cat("Successfully generated: HCT_001.csv (Retained covariates: ", sum(keep_abund_idx), ")\n", sep="")
+# mean_abundance <- as.vector(colMeans(bac_comp, na.rm = TRUE))
+# keep_abund_idx <- mean_abundance > 0.01
+#
+# bac_001_recomp <- sweep(bac_comp[, keep_abund_idx, drop=FALSE], 1, rowSums(bac_comp[, keep_abund_idx, drop=FALSE]), FUN="/")
+# HCT_001 <- cbind(bac_id, bac_001_recomp, gvhd_df)
+#
+# write.csv(HCT_001, "HCT_001.csv", row.names = FALSE)
+# cat("Successfully generated: HCT_001.csv (Retained covariates: ", sum(keep_abund_idx), ")\n", sep="")
 
 # ---------------------------------------------------------
 # Task 3: Keep covariates with non-zero abundance in >= 5% of samples (HCT_005.csv)
 # ---------------------------------------------------------
-prevalence <- as.vector(colMeans(bac_comp > 0, na.rm = TRUE))
-keep_prev_idx <- prevalence >= 0.05
-
-bac_005_recomp <- sweep(bac_comp[, keep_prev_idx, drop=FALSE], 1, rowSums(bac_comp[, keep_prev_idx, drop=FALSE]), FUN="/")
-HCT_005 <- cbind(bac_id, bac_005_recomp, gvhd_df)
-
-write.csv(HCT_005, "HCT_005.csv", row.names = FALSE)
-cat("Successfully generated: HCT_005.csv (Retained covariates: ", sum(keep_prev_idx), ")\n", sep="")
+# prevalence <- as.vector(colMeans(bac_comp > 0, na.rm = TRUE))
+# keep_prev_idx <- prevalence >= 0.05
+#
+# bac_005_recomp <- sweep(bac_comp[, keep_prev_idx, drop=FALSE], 1, rowSums(bac_comp[, keep_prev_idx, drop=FALSE]), FUN="/")
+# HCT_005 <- cbind(bac_id, bac_005_recomp, gvhd_df)
+#
+# write.csv(HCT_005, "HCT_005.csv", row.names = FALSE)
+# cat("Successfully generated: HCT_005.csv (Retained covariates: ", sum(keep_prev_idx), ")\n", sep="")
 
 # ---------------------------------------------------------
 # Task 4: BCor-SIS filter (HCT_bcorsis.csv)
