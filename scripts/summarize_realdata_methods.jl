@@ -150,6 +150,7 @@ end
 function standard_row(; dataset_id, dataset_group, method_family, method, prior = "", constraint = "",
     row_type = "", fit_success = missing, converged = missing, cv_cindex = missing,
     cv_cindex_se = missing, cv_cindex_sd = missing, n_selected = missing,
+    cindex_metric = "CV-Cindex",
     selected_features = "", rhat_max = missing, rhat_median = missing, p0 = missing,
     n = missing, p = missing, events = missing, lpml = missing, waic_pw1 = missing,
     waic_pw2 = missing, elpd_loo = missing, elpd_loo_se = missing, looic = missing,
@@ -165,7 +166,7 @@ function standard_row(; dataset_id, dataset_group, method_family, method, prior 
         row_type = row_type,
         fit_success = fit_success,
         converged = converged,
-        cindex_metric = "CV-Cindex",
+        cindex_metric = cindex_metric,
         cindex = cv_cindex,
         cindex_se = cv_cindex_se,
         cindex_sd = cv_cindex_sd,
@@ -198,6 +199,7 @@ function bayes_rows(bayes_dir::AbstractString)
     rows = NamedTuple[]
     nrow(df) == 0 && return rows
     for row in eachrow(df)
+        nested = as_string(getval(row, "cv_evaluation", "")) == "nested_cv"
         push!(rows, standard_row(
             dataset_id = as_string(getval(row, "dataset_id", "")),
             dataset_group = as_string(getval(row, "dataset_group", "")),
@@ -208,9 +210,10 @@ function bayes_rows(bayes_dir::AbstractString)
             row_type = "bayes_final",
             fit_success = bool_value(getval(row, "fit_success", true)),
             converged = bool_value(getval(row, "converged", missing)),
-            cv_cindex = maybe_float(getval(row, "cv_cindex", missing)),
-            cv_cindex_se = maybe_float(getval(row, "cv_cindex_se", missing)),
-            cv_cindex_sd = maybe_float(getval(row, "cv_cindex_sd", missing)),
+            cindex_metric = "Nested-CV-Cindex",
+            cv_cindex = nested ? maybe_float(getval(row, "cv_cindex", missing)) : missing,
+            cv_cindex_se = nested ? maybe_float(getval(row, "cv_cindex_se", missing)) : missing,
+            cv_cindex_sd = nested ? maybe_float(getval(row, "cv_cindex_sd", missing)) : missing,
             n_selected = maybe_int(getval(row, "n_selected", missing)),
             rhat_max = maybe_float(getval(row, "rhat_max", missing)),
             rhat_median = maybe_float(getval(row, "rhat_median", missing)),
@@ -741,4 +744,6 @@ function main()
     println(outdir)
 end
 
-main()
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    main()
+end

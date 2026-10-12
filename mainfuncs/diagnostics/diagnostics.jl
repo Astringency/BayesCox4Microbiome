@@ -156,6 +156,8 @@ function _base_metadata(result::CoxSamplerResult; run_id = "run", metadata = Dic
         "created_at" => string(now()),
     )
     merge!(base, _sampler_acceptance_metadata(result))
+    # Preserve all supplied settings even when JLD2 export is disabled.
+    merge!(base, Dict(String(k) => _safe_string(v) for (k, v) in pairs(settings)))
     merge!(base, Dict(String(k) => _safe_string(v) for (k, v) in pairs(metadata)))
     return base
 end
@@ -328,12 +330,16 @@ function save_run_outputs(
 )
     mkpath(output_dir)
     chains = result_to_chains(result)
-    wide = _thin_wide_samples(chains_to_wide_dataframe(chains), sample_thin)
-    _unstandardize_wide_beta!(wide, result.data)
+    wide_full = chains_to_wide_dataframe(chains)
+    _unstandardize_wide_beta!(wide_full, result.data)
+    wide = _thin_wide_samples(wide_full, sample_thin)
     meta = _base_metadata(result; run_id = run_id, metadata = metadata, settings = settings)
     meta["saved_sample_thin"] = sample_thin
     meta["posterior_beta_scale"] = result.data.standardize ? "unstandardized" : "model"
-    diagnostics = sampling_diagnostics_dict(result.diagnostics)
+    diagnostics = Dict{String,Any}(sampling_diagnostics_dict(result.diagnostics))
+    transitions = _result_transitions(result)
+    diagnostics["transition_diagnostics_available"] = !isempty(transitions)
+    diagnostics["transition_diagnostics_definition"] = "numerical error or absolute Hamiltonian energy error > 1000; block samplers use their configured divergence threshold"
     output_chains = result.data.standardize || sample_thin != 1 ? dataframe_to_chains(wide) : chains
     summary_df = posterior_summary === nothing ? _posterior_summary_dataframe(output_chains) : DataFrame(posterior_summary)
 
@@ -342,6 +348,7 @@ function save_run_outputs(
     end
     if save_csv
         _write_csv(joinpath(output_dir, "posterior_summary.csv"), summary_df)
+        save_revision_diagnostics(wide_full, output_dir; transitions = transitions)
     end
     _write_json(joinpath(output_dir, "metadata.json"), meta)
     _write_json(joinpath(output_dir, "diagnostics.json"), merge(copy(diagnostics), _sampler_acceptance_metadata(result)))
@@ -352,6 +359,7 @@ function save_run_outputs(
             "samples" => wide,
             "samples_chain" => output_chains,
             "diagnostics" => diagnostics,
+            "transition_diagnostics" => transitions,
             "metadata" => meta,
             "settings" => Dict(String(k) => _jsonable(v) for (k, v) in pairs(settings)),
             "data_info" => Dict(

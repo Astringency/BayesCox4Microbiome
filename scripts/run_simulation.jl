@@ -156,6 +156,7 @@ function simulation_cli_valid_keys()
         (
             "outdir",
             "reps",
+            "rep-ids",
             "n",
             "p",
             "nonzero",
@@ -168,9 +169,11 @@ function simulation_cli_valid_keys()
             "first-rep-sample-thin",
             "save-wide-csv",
             "save-jld2",
+            "car-graph",
         ),
         COMMON_ANALYSIS_CLI_KEYS,
         BASELINE_PARAMETER_CLI_KEYS,
+        SIMULATION_SCENARIO_CLI_KEYS,
     )
 end
 
@@ -179,6 +182,10 @@ function main()
     require_known_args!(args, simulation_cli_valid_keys())
     outdir = arg(args, "outdir", joinpath("results", "simulation"))
     reps = arg(args, "reps", 1)
+    requested_rep_ids = strip(arg(args, "rep-ids", ""))
+    rep_ids = isempty(requested_rep_ids) ? collect(1:reps) : parse.(Int, split(requested_rep_ids, ','))
+    length(unique(rep_ids)) == length(rep_ids) && all(r -> 1 <= r <= reps, rep_ids) ||
+        throw(ArgumentError("--rep-ids must be distinct integers in 1:reps"))
     ns = split_ints(arg(args, "n", "200"))
     ps = split_ints(arg(args, "p", "50"))
     nonzeros = split_ints(arg(args, "nonzero", "6"))
@@ -188,6 +195,16 @@ function main()
     car_kwargs = car_hyperparameter_kwargs(args)
     model_kwargs = cox_model_cli_options(args; default_pseudocount = 0.0, default_standardize = false)
     diagnostic_kwargs = diagnostic_cli_options(args)
+    scenario_kwargs = simulation_scenario_parameters(args)
+    car_graph = Symbol(arg(args, "car-graph", "abundance"))
+    car_graph in (:abundance, :independent, :correct, :misspecified) ||
+        throw(ArgumentError("car-graph must be abundance, independent, correct, or misspecified"))
+    if car_graph in (:correct, :misspecified)
+        scenario_kwargs.scenario in (:phylo, :phylo_bm) || throw(ArgumentError("planted CAR graphs require --scenario phylo or S4"))
+        car_kwargs.use_car || throw(ArgumentError("correct/misspecified graphs require --use-car true"))
+        all(p -> occursin("hs", lowercase(p)), priors) ||
+            throw(ArgumentError("the existing CAR prior applies only to HS/RHS methods"))
+    end
     tuning_kwargs = tuning_cli_options(args)
     sampler = sampler_kwargs.sampler
     nuts_backend = sampler_kwargs.nuts_backend
@@ -276,7 +293,7 @@ function main()
     all_metrics = DataFrame()
     all_fd = DataFrame()
 
-    for rep in 1:reps, n in ns, p in ps, nonzero in nonzeros, baseline in baselines
+    for rep in rep_ids, n in ns, p in ps, nonzero in nonzeros, baseline in baselines
         sim_seed = seed0 + rep - 1
         baseline_args = baseline_parameter_args(args, baseline)
         sim = generate_simulation_data(
@@ -286,7 +303,37 @@ function main()
             baseline = baseline,
             seed = sim_seed,
             baseline_args...,
+            scenario_kwargs...,
         )
+        test_sim = generate_simulation_test_data(n, p, nonzero;
+            baseline, seed = sim_seed, baseline_args..., scenario_kwargs...)
+        dgp_metadata = scenario_metadata(sim; scenario_kwargs...)
+        dgp_metadata["car_graph"] = string(car_graph)
+        simulation_car_weights = nothing
+        if sim.scenario in (:phylo, :phylo_bm)
+            phylogeny = scenario_phylogeny(p, sim.nonzero_index, sim.scenario)
+            phylogeny_dir = sim.scenario == :phylo_bm ? joinpath(outdir, "phylogeny", "p$(p)_nz$(nonzero)") : joinpath(outdir, "phylogeny")
+            save_planted_phylogeny(phylogeny_dir, phylogeny)
+            simulation_car_weights = car_graph == :correct ? phylogeny.weights :
+                car_graph == :misspecified ? phylogeny.misspecified_weights : nothing
+        end
+        if sim.scenario != :baseline
+            save_scenario_observations(sim, joinpath(outdir, "training_data"), "rep$(rep)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)")
+            save_scenario_observations(test_sim, joinpath(outdir, "test_data"), "rep$(rep)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)_measurement")
+        end
+        test_path = joinpath(outdir, "test_data", "rep$(rep)_$(baseline)_n$(n)_p$(p)_nz$(nonzero).csv")
+        test_table = DataFrame(test_sim.X, Symbol.("x" .* string.(1:p)))
+        test_table.time = test_sim.time
+        test_table.event = test_sim.event
+        write_table(test_path, test_table)
+        test_metadata = Dict{String,Any}(
+            "n_train" => n, "n_test" => 1000, "p" => p, "nonzero" => nonzero,
+            "training_seed" => sim_seed, "test_seed" => test_sim.test_seed,
+            "baseline" => string(baseline), "baseline_rate" => test_sim.baseline_rate,
+            "baseline_shape" => test_sim.baseline_shape, "beta" => test_sim.beta,
+            "censoring_upper" => test_sim.censoring_upper, "scenario" => string(sim.scenario))
+        sim.scenario == :phylo_bm && merge!(test_metadata, scenario_metadata(sim))
+        _write_tuning_json(replace(test_path, r"\.csv$" => ".json"), test_metadata)
 
         if tune_priorparams || tune_algparams
             p0_requested_for_tuning = p0_arg === :truth ? nonzero : p0_arg
@@ -297,7 +344,11 @@ function main()
                 priors = priors,
                 base_sampler_kwargs = sampler_kwargs,
                 base_prior_kwargs = prior_kwargs,
-                base_car_kwargs = car_kwargs,
+                base_car_kwargs = merge(car_kwargs, (
+                    use_car = car_graph == :independent ? false : use_car,
+                    car_weights = simulation_car_weights,
+                    car_distance = simulation_car_weights === nothing ? car_distance : nothing,
+                )),
                 base_model_kwargs = (
                     p0 = p0_requested_for_tuning,
                     p0_alpha = p0_alpha,
@@ -354,7 +405,7 @@ function main()
                 )) :
                 p0_requested
             p0_value = p0_auto === missing ? nothing : p0_auto
-            actual_use_car = use_car && occursin("hs", lowercase(prior))
+            actual_use_car = use_car && occursin("hs", lowercase(prior)) && car_graph != :independent
             actual_sample_car_strength = actual_use_car && sample_car_strength
             label = "rep$(rep)_$(prior)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)"
             run_dir = joinpath(outdir, "runs", label)
@@ -428,9 +479,10 @@ function main()
                 "max_depth" => max_depth,
                 "p0" => p0_value,
                 "constraint" => string(constraint),
+                "prox_sum0_lambda" => prox_sum0_lambda,
                 "noncentered" => noncentered,
                 "use_car" => actual_use_car,
-                "car_distance" => string(car_distance),
+                "car_distance" => simulation_car_weights === nothing ? string(car_distance) : "planted_phylogenetic",
                 "car_weight_quantile" => car_weight_quantile,
                 "car_precision" => car_precision,
                 "sample_car_strength" => actual_sample_car_strength,
@@ -465,6 +517,7 @@ function main()
                 "tie_method" => string(tie_method),
                 "seed" => sim_seed,
             ), prior_metadata)
+            merge!(expected_metadata, dgp_metadata)
             if resume && simulation_run_recoverable(run_dir) && simulation_metadata_matches_typed(run_dir, expected_metadata)
                 try
                     recovered = load_or_recover_simulation_run(
@@ -477,6 +530,7 @@ function main()
                         baseline = baseline,
                         prior = prior,
                         p0 = p0_value,
+                        test_sim = test_sim,
                     )
                     write_table(coef_path, recovered.summary)
                     append!(all_metrics, recovered.metrics; cols = :union)
@@ -508,9 +562,13 @@ function main()
                     println("[SKIP] $label already has reusable outputs.")
                     continue
                 catch err
+                    # S4 saved posteriors must not be silently replaced when
+                    # a recoverable reporting/IO error occurs during resume.
+                    sim.scenario == :phylo_bm && rethrow()
                     @warn "Could not reuse existing outputs for $label; rerunning this loop." exception=(err, catch_backtrace())
                 end
             elseif resume && simulation_run_recoverable(run_dir)
+                sim.scenario == :phylo_bm && error("incompatible saved S4 fit at $run_dir; use a new output directory")
                 @info "Existing run uses a different or old censoring setup; rerunning." label run_dir
             end
             fit = fit_and_evaluate(
@@ -532,6 +590,7 @@ function main()
                 noncentered = noncentered,
                 seed = sim_seed,
                 use_car = actual_use_car,
+                car_weights = simulation_car_weights,
                 car_distance = car_distance,
                 car_weight_quantile = car_weight_quantile,
                 car_precision = car_precision,
@@ -596,6 +655,7 @@ function main()
                 prior = prior,
             )
             add_prior_hyperparameter_columns!(metrics, prior_kwargs_dict)
+            add_simulation_test_metrics!(metrics, summary, sim, test_sim; pseudocount, tie_method)
             fd_table = simulation_false_discovery_table(
                 sim,
                 summary;
@@ -615,6 +675,9 @@ function main()
             saved_sample_thin = should_plot ? first_rep_sample_thin : sample_thin
             metadata = merge(Dict(
                 "simulation_id" => label,
+                "n_test" => 1000,
+                "test_seed" => test_sim.test_seed,
+                "test_data" => test_path,
                 "replicate_id" => rep,
                 "method_name" => prior,
                 "prior" => prior,
@@ -637,7 +700,7 @@ function main()
                 "observed_censoring_rate" => mean(sim.event .== 0),
                 "observed_event_rate" => mean(sim.event .!= 0),
                 "use_car" => actual_use_car,
-                "car_distance" => string(car_distance),
+                "car_distance" => simulation_car_weights === nothing ? string(car_distance) : "planted_phylogenetic",
                 "car_weight_quantile" => car_weight_quantile,
                 "car_precision" => car_precision,
                 "sample_car_strength" => actual_sample_car_strength,
@@ -696,7 +759,7 @@ function main()
                 "prox_block_divergence_threshold" => prox_block_divergence_threshold,
                 "prox_block_metric" => string(prox_block_metric),
                 "use_car" => actual_use_car,
-                "car_distance" => string(car_distance),
+                "car_distance" => simulation_car_weights === nothing ? string(car_distance) : "planted_phylogenetic",
                 "car_weight_quantile" => car_weight_quantile,
                 "car_precision" => car_precision,
                 "sample_car_strength" => actual_sample_car_strength,
@@ -718,8 +781,8 @@ function main()
                 fit.result;
                 output_dir = run_dir,
                 run_id = label,
-                metadata = metadata,
-                settings = settings,
+                metadata = merge(metadata, dgp_metadata),
+                settings = merge(settings, dgp_metadata),
                 posterior_summary = summary,
                 save_wide_csv = save_wide_csv,
                 save_jld2 = save_jld2,
@@ -764,7 +827,7 @@ function main()
     write_table(joinpath(tables_dir, "simulation_false_discovery.csv"), all_fd)
 
     grouped = combine(
-        groupby(all_metrics, [:prior, :n, :p, :nonzero_count, :p0, :baseline, :estimate]),
+        groupby(all_metrics, [:prior, :n, :p, :nonzero_count, :p0, :baseline, :scenario, :estimate]),
         :MSE => mean => :MSE_mean,
         :MSE => std => :MSE_sd,
         :LPML => mean => :LPML_mean,
@@ -782,6 +845,11 @@ function main()
         :ParetoK_max => maximum => :ParetoK_max,
         :Cindex => mean => :Cindex_mean,
         :Cindex => std => :Cindex_sd,
+        :Cindex_train => mean => :Cindex_train_mean,
+        :Cindex_train => std => :Cindex_train_sd,
+        :Cindex_test => mean => :Cindex_test_mean,
+        :Cindex_test => std => :Cindex_test_sd,
+        simulation_coverage_summary_specs(all_metrics)...,
     )
     write_table(joinpath(tables_dir, "simulation_metrics_summary.csv"), grouped)
 

@@ -83,6 +83,8 @@ function realdata_cli_valid_keys()
             "comp-cols",
             "exclude-cols",
             "priors",
+            "loo-mode",
+            "loo-parallel",
         ),
         COMMON_ANALYSIS_CLI_KEYS,
     )
@@ -122,6 +124,13 @@ end
 function main()
     args = parse_cli_args()
     require_known_args!(args, realdata_cli_valid_keys())
+    loo_mode = check_loo_mode(Symbol(arg(args, "loo-mode", "fixed_risk")))
+    loo_parallel = arg(args, "loo-parallel", false)
+    if loo_mode == :subject_refit
+        arg(args, "approx", false) && throw(ArgumentError("subject_refit requires --approx false"))
+        loo_parallel && Threads.nthreads() <= 1 &&
+            throw(ArgumentError("parallel LOO requires julia -t N with N>1"))
+    end
     input = arg(args, "input", joinpath("data", "T1D.csv"))
     outdir = arg(args, "outdir", joinpath("results", "realdata", "T1D"))
     time_col = Symbol(arg(args, "time-col", "time"))
@@ -133,7 +142,7 @@ function main()
     car_kwargs = car_hyperparameter_kwargs(args)
     model_kwargs = cox_model_cli_options(args; default_pseudocount = 1e-6, default_standardize = false)
     diagnostic_kwargs = diagnostic_cli_options(args)
-    tuning_kwargs = tuning_cli_options(args)
+    tuning_kwargs = tuning_cli_options(args; realdata = true)
     prior_kwargs = prior_hyperparameter_kwargs(args)
     prior_config_source = arg(args, "prior-configs", "")
     external_prior_configs = load_prior_config_overrides(prior_config_source)
@@ -242,7 +251,7 @@ function main()
     end
 
 
-    if tune_priorparams || tune_algparams
+    if tune_priorparams || tune_algparams || tuning_kwargs.nested_cv
         tuning_result = tune_hyperparams_cindex(
             X,
             time,
@@ -252,7 +261,7 @@ function main()
             base_prior_kwargs = prior_kwargs,
             base_car_kwargs = car_kwargs,
             base_model_kwargs = (
-                p0 = p0_value,
+                p0 = p0_arg,
                 p0_alpha = p0_alpha,
                 constraint = constraint,
                 prox_sum0_lambda = prox_sum0_lambda,
@@ -266,6 +275,8 @@ function main()
             tune_priorparams = tune_priorparams,
             tune_algparams = tune_algparams,
             cv_folds = cv_folds,
+            outer_folds = tuning_kwargs.outer_cv_folds,
+            nested_cv = tuning_kwargs.nested_cv,
             seed = tune_seed,
             realdata = true,
             simulation_metadata = Dict{String,Any}(
@@ -318,7 +329,8 @@ function main()
 
         # Merge algorithm tuning results into sampler params
         if tune_algparams && @isdefined(tuning_result) && tuning_result !== nothing
-            best_alg = get(tuning_result.best, "best_algorithm_config", nothing)
+            per_prior_alg = get(tuning_result.best, "best_algorithm_configs", Dict())
+            best_alg = get(per_prior_alg, prior, get(tuning_result.best, "best_algorithm_config", nothing))
             if best_alg !== nothing
                 alg_params = _extract_algorithm_params(best_alg)
                 for (k, v) in pairs(alg_params)
@@ -343,10 +355,7 @@ function main()
                 end
             end
         end
-        fit = fit_and_evaluate(
-            X,
-            time,
-            event;
+        fit_kwargs = (;
             prior_name = prior,
             sampler = sampler,
             nuts_backend = nuts_backend,
@@ -409,6 +418,7 @@ function main()
             approx = approx,
             approx_point = approx_point,
         )
+        fit = fit_and_evaluate(X, time, event; fit_kwargs...)
         summary = copy(fit.summary)
         summary.variable = string.(component_cols)
         summary.selected = (summary.lower .* summary.upper) .> 0
@@ -583,10 +593,26 @@ function main()
         )
 
         metrics = copy(fit.metrics)
+        metrics.loo_mode .= "fixed_risk"
+        metrics.score_target .= "event_attribution_fixed_risk"
+        metrics.NLPML = metrics.LPML
         metrics.prior .= prior
         metrics.p0 .= p0_value
         add_prior_hyperparameter_columns!(metrics, prior_kwargs_dict)
         append!(all_metrics, metrics; cols = :union)
+        loo_kwargs = Dict{Symbol,Any}(pairs(fit_kwargs))
+        # Auto p0 screening belongs inside each training fold.
+        p0_arg === nothing && (loo_kwargs[:p0] = nothing)
+        evaluated = evaluate_cox_loo(X, time, event;
+            mode = loo_mode, fit_kwargs = loo_kwargs, full_fit = fit,
+            parallel = loo_parallel,
+            checkpoint_dir = joinpath(run_dir, "loo_subject_refit"))
+        write_table(joinpath(tables_dir, "loo_$(prior)_$(loo_mode).csv"), evaluated.summary)
+        if loo_mode == :subject_refit
+            write_table(joinpath(tables_dir, "loo_$(prior)_pointwise.csv"), evaluated.pointwise)
+            all(==("success"), evaluated.pointwise.status) ||
+                error("Some LOO folds failed; inspect the pointwise output and resume the run")
+        end
     end
 
     metrics_path = joinpath(tables_dir, "model_metrics.csv")
@@ -605,4 +631,6 @@ function main()
     println("Real-data outputs written to $(abspath(outdir))")
 end
 
-main()
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    main()
+end

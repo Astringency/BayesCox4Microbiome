@@ -484,6 +484,13 @@ function sample_bayes_cox(
     effective_nuts_backend in (:turing, :explicit) ||
         throw(ArgumentError("nuts_backend must be :turing or :explicit."))
     _validate_prox_prior_sampler(prior, effective_sampler)
+    if get(kwargs, :constraint, :soft_center) == :exact
+        (effective_sampler == :hmc || (effective_sampler == :nuts && effective_nuts_backend == :explicit)) ||
+            throw(ArgumentError("constraint=:exact requires HMC or the explicit NUTS backend"))
+        (prior isa Union{HorseshoePrior,RegularizedHorseshoePrior} ||
+            (prior isa SpikeSlabLassoPrior && prior.proximal)) ||
+            throw(ArgumentError("constraint=:exact supports HS/RHS and proximal SSLASSO"))
+    end
 
     approx_obj = nothing
     if approx

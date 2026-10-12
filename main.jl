@@ -69,6 +69,8 @@ export DIAG_DEBUG,
     initial_state,
     state_names,
     sample_bayes_cox,
+    sample_clinical_cox,
+    posterior_clinical_draws,
     posterior_beta_draws,
     posterior_logposterior_draws,
     posterior_beta_map,
@@ -112,11 +114,16 @@ include("mainfuncs/samplers/gibbs_sampler.jl")
 include("mainfuncs/samplers/mala_precondition.jl")
 include("mainfuncs/samplers/mala_sampler.jl")
 include("mainfuncs/targets/cox_targets.jl")
+include("mainfuncs/samplers/transition_diagnostics.jl")
 include("mainfuncs/samplers/block_hmc_nuts.jl")
 include("mainfuncs/samplers/nuts_turing_sampler.jl")
 include("mainfuncs/samplers/nuts_explicit_sampler.jl")
+include("mainfuncs/targets/exact_zero_target.jl")
+include("mainfuncs/targets/clinical_target.jl")
 include("mainfuncs/samplers/hmc_sampler.jl")
+include("mainfuncs/samplers/clinical_sampler.jl")
 include("mainfuncs/api.jl")
 include("mainfuncs/diagnostics/diagnostics.jl")
+include("mainfuncs/diagnostics/revision_diagnostics.jl")
 
 end # module

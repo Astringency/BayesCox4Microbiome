@@ -2,6 +2,10 @@ using DataFrames
 using Random
 using Statistics
 
+if !isdefined(@__MODULE__, :_validation_design_matrix)
+    include(joinpath(@__DIR__, "validation_common.jl"))
+end
+
 function _grid_values(value)
     value isa AbstractString && return Any[value]
     value isa AbstractVector && return collect(Any, value)
@@ -279,7 +283,7 @@ _se_or_missing(vals::AbstractVector{<:Real}) = length(vals) <= 1 ? missing : std
 function _dict_rows_dataframe(rows::Vector{Dict{Symbol,Any}})
     table = DataFrame()
     for row in rows
-        push!(table, row; cols = :union)
+        push!(table, Dict(k => v === nothing ? missing : v for (k, v) in row); cols = :union)
     end
     return table
 end
@@ -371,53 +375,8 @@ function _kfold_indices(event::AbstractVector; k::Integer, seed::Integer)
     return sort!.(folds)
 end
 
-function _training_zero_replacement(X_train::AbstractMatrix)
-    positives = Float64[x for x in X_train if x > 0]
-    isempty(positives) && throw(ArgumentError("training X contains no positive values."))
-    return minimum(positives) / 2
-end
-
-function _validation_design_matrix(
-    X_train::AbstractMatrix,
-    X_val::AbstractMatrix,
-    train_data::CoxPreparedData;
-    requested_pseudocount,
-)
-    x = Matrix{Float64}(X_val)
-    all(isfinite, x) || throw(ArgumentError("validation X must be finite."))
-    all(>=(0), x) || throw(ArgumentError("validation X must be nonnegative."))
-
-    z =
-        if train_data.transform == :log
-            pc = requested_pseudocount === nothing ? train_data.pseudocount : Float64(requested_pseudocount)
-            if pc == 0.0
-                if any(iszero, x)
-                    replacement = train_data.pseudocount > 0 ? train_data.pseudocount : _training_zero_replacement(X_train)
-                    x[x .== 0.0] .= replacement
-                end
-            else
-                x .+= pc
-            end
-            if train_data.closure
-                rowsums = vec(sum(x; dims = 2))
-                all(>(0), rowsums) ||
-                    throw(ArgumentError("each validation row sum after zero handling must be positive."))
-                x ./= rowsums
-            end
-            log.(x)
-        elseif train_data.transform == :none
-            x
-        else
-            throw(ArgumentError("unsupported training transform $(train_data.transform)."))
-        end
-
-    if train_data.standardize
-        z = (z .- reshape(train_data.col_mean, 1, :)) ./ reshape(train_data.col_scale, 1, :)
-    end
-    return z
-end
-
-function _validation_cindices(fit, X_train, X_val, time_val, event_val; requested_pseudocount)
+function _validation_cindices(fit, X_train, X_val, time_val, event_val; requested_pseudocount,
+    clinical_X_val = nothing)
     z_val = _validation_design_matrix(
         X_train,
         X_val,
@@ -428,6 +387,17 @@ function _validation_cindices(fit, X_train, X_val, time_val, event_val; requeste
     beta_mean = vec(mean(model_draws; dims = 1))
     beta_median = [median(view(model_draws, :, j)) for j in 1:size(model_draws, 2)]
     beta_map = posterior_beta_map(fit.result)
+    clinical = posterior_clinical_draws(fit.result)
+    if size(clinical, 2) > 0
+        clinical_X_val === nothing && throw(ArgumentError("clinical validation columns are required"))
+        size(clinical_X_val) == (length(time_val), size(clinical, 2)) || throw(DimensionMismatch("clinical validation data"))
+        z_val = hcat(z_val, clinical_X_val)
+        beta_mean = vcat(beta_mean, vec(mean(clinical; dims = 1)))
+        beta_median = vcat(beta_median, [median(view(clinical, :, j)) for j in axes(clinical, 2)])
+        beta_map = vcat(beta_map, clinical[argmax(posterior_logposterior_draws(fit.result)), :])
+    elseif clinical_X_val !== nothing
+        throw(ArgumentError("clinical validation columns supplied to an unadjusted fit"))
+    end
     return Dict(
         "mean" => concordance_index(time_val, event_val, z_val * beta_mean),
         "median" => concordance_index(time_val, event_val, z_val * beta_median),
@@ -1023,8 +993,20 @@ function tune_hyperparams_cindex(
     seed::Integer = 1,
     realdata::Bool = false,
     simulation_metadata = Dict{String,Any}(),
+    nested_cv::Bool = true,
+    outer_folds::Integer = 5,
 )
-    tune_priorparams || tune_algparams || return nothing
+    tune_priorparams || tune_algparams || (realdata && nested_cv) || return nothing
+    nested = realdata && nested_cv ? evaluate_nested_cindex(X, time, event;
+        priors, base_sampler_kwargs, base_prior_kwargs, base_car_kwargs, base_model_kwargs,
+        outdir, dataset_id, outer_folds, inner_folds = cv_folds, seed,
+        tune_priorparams, tune_algparams) : nothing
+    if realdata
+        return _tune_realdata_full_cindex(X, time, event;
+            priors, base_sampler_kwargs, base_prior_kwargs, base_car_kwargs, base_model_kwargs,
+            outdir, dataset_id, cv_folds, seed, tune_priorparams, tune_algparams,
+            simulation_metadata, nested)
+    end
     tuning_dir = ensure_dir(joinpath(outdir, "tuning"))
     prior_result = nothing
     algorithm_result = nothing
@@ -1128,5 +1110,8 @@ function tune_hyperparams_cindex(
         algorithm = algorithm_result,
         best = best,
         best_prior_configs = best_prior_configs,
+        nested = nested,
     )
 end
+
+include(joinpath(@__DIR__, "nested_cindex_evaluation.jl"))

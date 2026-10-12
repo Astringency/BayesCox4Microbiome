@@ -446,16 +446,31 @@ end
 
 function fallback_cv_row(cv_fallback::DataFrame, dataset_id::AbstractString, constraint::AbstractString, prior::AbstractString)
     nrow(cv_fallback) == 0 && return nothing
-    required = ("dataset_id", "constraint", "prior", "CV_Cindex_mean")
+    required = ("dataset_id", "constraint", "prior", "CV_Cindex_mean", "evaluation", "status")
     all(name -> name in names(cv_fallback), required) || return nothing
     sub = cv_fallback[
         (string.(cv_fallback[!, :dataset_id]) .== dataset_id) .&
         (string.(cv_fallback[!, :constraint]) .== constraint) .&
-        (string.(cv_fallback[!, :prior]) .== prior),
+        (string.(cv_fallback[!, :prior]) .== prior) .&
+        (string.(cv_fallback[!, :evaluation]) .== "nested_cv") .&
+        (string.(cv_fallback[!, :status]) .== "success"),
         :,
     ]
     nrow(sub) == 0 && return nothing
     return sub[1, :]
+end
+
+function nested_cv_row(dataset_dir, tuning_root, fallback_root, constraint, dataset_name, prior)
+    for root in unique([dataset_dir, joinpath(tuning_root, constraint, dataset_name),
+                       joinpath(fallback_root, constraint, dataset_name)])
+        path = joinpath(root, "nested_cv", "nested_cv_summary.csv")
+        table = read_table(path)
+        row = fallback_cv_row(table, canonical_dataset(dataset_name), constraint, prior)
+        # Some dataset IDs retain the full input stem (e.g. TCGA_*_CIBERSORT_OS).
+        row === nothing && (row = fallback_cv_row(table, dataset_name, constraint, prior))
+        row === nothing || return row, path
+    end
+    return nothing, ""
 end
 
 function run_summary(;
@@ -492,7 +507,7 @@ function run_summary(;
                     cindex = recover_apparent_cindex(run_dir, metadata)
                 end
                 prior_config_source = as_string(getdict(metadata, "prior_config_source", ""))
-                cvrow, cvsource = best_cv_row(
+                tuningrow, tuningsource = best_cv_row(
                     tuning_root,
                     fallback_tuning_root,
                     constraint,
@@ -500,6 +515,8 @@ function run_summary(;
                     prior;
                     prior_config_source = prior_config_source,
                 )
+                cvrow, cvsource = nested_cv_row(dataset_dir, tuning_root, fallback_tuning_root,
+                    constraint, dataset_name, prior)
                 if cvrow === nothing
                     cvrow = fallback_cv_row(cv_fallback, dataset_id, constraint, prior)
                     cvrow === nothing || (cvsource = cv_fallback_path)
@@ -519,6 +536,9 @@ function run_summary(;
                     prior = prior,
                     row_type = "bayes_final",
                     apparent_cindex = cindex,
+                    cv_evaluation = cvrow === nothing ? "unavailable" : "nested_cv",
+                    tuning_cv_cindex = tuningrow === nothing ? missing : maybe_float(getval(tuningrow, "CV_Cindex_mean", missing)),
+                    tuning_cv_source = tuningsource,
                     cv_cindex = cvrow === nothing ? missing : maybe_float(getval(cvrow, "CV_Cindex_mean", missing)),
                     cv_cindex_se = cvrow === nothing ? missing : maybe_float(getval(cvrow, "CV_Cindex_se", missing)),
                     cv_cindex_sd = cvrow === nothing ? missing : maybe_float(getval(cvrow, "CV_Cindex_sd", missing)),
@@ -826,7 +846,7 @@ function write_readme(outdir::AbstractString, realdata_root::AbstractString, tun
         println(io, "- Fallback tuning root: $fallback_tuning_root")
         println(io, "- Rows: $nrows")
         println(io)
-        println(io, "The apparent C-index is computed on the full fitted dataset. CV-Cindex is read from the matching prior tuning summary when available.")
+        println(io, "The apparent C-index is computed on the full fitted dataset. CV-Cindex uses only completed nested outer-test evaluations. Historical tuning CV scores are retained separately as tuning_cv_cindex; missing nested results are never replaced by tuning scores.")
         println(io, "Rows are not filtered to only the best model; every dataset, constraint, and prior run is retained.")
     end
 end
@@ -850,4 +870,6 @@ function main()
     println(outdir)
 end
 
-main()
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    main()
+end

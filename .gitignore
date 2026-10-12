@@ -2,3 +2,4 @@ docs/
 results/*
 check/
 .claude/
+__pycache__/

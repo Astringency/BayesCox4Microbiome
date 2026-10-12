@@ -102,6 +102,7 @@ function main()
                 "save-data",
             ),
             BASELINE_PARAMETER_CLI_KEYS,
+            SIMULATION_SCENARIO_CLI_KEYS,
         ),
     )
     outdir = arg(args, "outdir", joinpath("results", "simulation_data"))
@@ -112,6 +113,7 @@ function main()
     baselines = split_symbols(arg(args, "baseline", "weibull"))
     seed0 = arg(args, "seed", 1)
     save_data = arg(args, "save-data", false)
+    scenario_kwargs = simulation_scenario_parameters(args)
 
     tables_dir = ensure_dir(joinpath(outdir, "tables"))
     datasets_dir = save_data ? ensure_dir(joinpath(outdir, "datasets")) : nothing
@@ -128,6 +130,7 @@ function main()
             baseline = baseline,
             seed = seed,
             baseline_args...,
+            scenario_kwargs...,
         )
         push!(
             rows,
@@ -144,9 +147,20 @@ function main()
         )
 
         if save_data
+            if sim.scenario in (:phylo, :phylo_bm)
+                save_planted_phylogeny(joinpath(outdir, "phylogeny", "p$(p)_nz$(nonzero)"),
+                    scenario_phylogeny(p, sim.nonzero_index, sim.scenario))
+            end
             label = simulation_label(rep = rep, n = n, p = p, nonzero = nonzero, baseline = baseline, seed = seed)
             write_table(joinpath(datasets_dir, "$label.csv"), simulation_dataset_table(sim))
             write_table(joinpath(beta_dir, "beta_$label.csv"), beta_table(sim))
+            test_sim = generate_simulation_test_data(n, p, nonzero;
+                baseline, seed, baseline_args..., scenario_kwargs...)
+            if sim.scenario != :baseline
+                save_scenario_observations(sim, datasets_dir, label)
+                save_scenario_observations(test_sim, joinpath(outdir, "test_data"), label * "_measurement")
+            end
+            write_table(joinpath(outdir, "test_data", "$label.csv"), simulation_dataset_table(test_sim))
         end
     end
 
@@ -159,4 +173,6 @@ function main()
     end
 end
 
-main()
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    main()
+end

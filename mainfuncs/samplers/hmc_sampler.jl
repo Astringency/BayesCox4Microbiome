@@ -19,6 +19,7 @@ function _sample_explicit_hmc_one(
     0 < target_accept < 1 || throw(ArgumentError("target_accept must be in (0, 1)."))
     hmc_step_size === nothing || _check_positive(hmc_step_size, "hmc_step_size")
 
+    initial = _prepare_explicit_initial(target, initial)
     init = initial === nothing ? initial_state(target) : collect(Float64, initial)
     d = dimension(target)
     length(init) == d || throw(DimensionMismatch("initial length must match target dimension."))
@@ -74,11 +75,16 @@ function _sample_explicit_hmc_one(
         Int(total_iter),
         adaptor,
         Int(warmup);
-        drop_warmup = warmup > 0,
+        drop_warmup = false,
         progress = progress,
         verbose = false,
         pm_next! = progress_next!,
     )
+
+    transitions = _transition_records(stats, warmup)
+    warmup_acceptance = _advancedhmc_acceptance_rate(view(stats, 1:warmup))
+    samples = samples[warmup+1:end]
+    stats = stats[warmup+1:end]
 
     # === DIAGNOSTIC B3: post-sampling summary ===
     if BayesCox4Micro.DIAG_DEBUG[]
@@ -117,8 +123,9 @@ function _sample_explicit_hmc_one(
         lps,
         output_names,
         _advancedhmc_acceptance_rate(stats),
-        NaN,
+        warmup_acceptance,
         fill(NaN, length(output_names)),
+        transitions,
     )
 end
 
@@ -283,6 +290,10 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
     progress::Bool,
     progress_desc::AbstractString = "SSLASSO explicit prox HMC-Gibbs",
     progress_offset::Integer = 0,
+    clinical_X = nothing,
+    clinical_names = String[],
+    clinical_prior_df::Real = 3.0,
+    clinical_prior_scale::Real = 2.5,
 )
     p = size(data.z, 2)
     a_shape, a_scale = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_scale)
@@ -295,15 +306,18 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
     slab_weight = inv(prior.slab_scale)
     total_iter = warmup + n_samples * thin
     names = vcat(["beta[$j]" for j in 1:p], ["eta"], ["gamma[$j]" for j in 1:p], ["theta"])
+    clinical_X !== nothing && append!(names, clinical_names)
     draws = Matrix{Float64}(undef, n_samples, length(names))
     lps = Vector{Float64}(undef, n_samples)
-    u = vcat(zeros(Float64, p), [0.0])
+    u = vcat(zeros(Float64, constraint == :exact ? p - 1 : p), [0.0])
+    clinical_X !== nothing && append!(u, zeros(size(clinical_X, 2)))
     saved = 0
+    transitions = NamedTuple[]
     initial_step = prox_block_step_size === nothing ?
         (hmc_step_size === nothing ? 1e-3 : hmc_step_size) :
         prox_block_step_size
     hmc_state = ProxSSLassoBlockHMCState(
-        p + 1;
+        length(u);
         step_size = initial_step,
         n_leapfrog = hmc_n_leapfrog,
         inv_metric = prox_block_metric,
@@ -321,7 +335,7 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
         prior,
         gamma,
         theta_ref;
-        constraint = constraint,
+        constraint = constraint == :exact ? :none : constraint,
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = a_shape,
@@ -331,14 +345,19 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
         prox_root_maxiter = prox_root_maxiter,
         init = init,
     )
+    constraint == :exact && (target = CoxExactZeroTarget(target))
+    clinical_X !== nothing && (target = CoxClinicalTarget(target, clinical_X;
+        names = clinical_names, prior_df = clinical_prior_df, prior_scale = clinical_prior_scale))
     prog = _progress_meter(progress, total_iter, "SSLASSO explicit prox HMC-Gibbs"; progress_desc = progress_desc, progress_offset = progress_offset)
     for iter in 1:total_iter
         theta_ref[] = theta
         transition = prox_ssl_block_hmc_step!(u, target, hmc_state; rng = rng)
+        push!(transitions, _transition_record(transition, iter, warmup))
         iter == warmup && _prox_ssl_block_freeze!(hmc_state)
 
-        beta = view(u, 1:p)
-        alpha = exp(clamp(u[p + 1], -700.0, 700.0))
+        full_state = sample_state(target, u)
+        beta = view(full_state, 1:p)
+        alpha = exp(clamp(full_state[p + 1], -700.0, 700.0))
         theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
         for j in 1:p
             gamma[j] = false
@@ -359,24 +378,12 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
         if iter > warmup && (iter - warmup) % thin == 0
             saved += 1
             @views draws[saved, 1:p] .= beta
-            draws[saved, p + 1] = u[p + 1]
+            draws[saved, p + 1] = full_state[p + 1]
             @views draws[saved, (p + 2):(2p + 1)] .= Float64.(gamma)
             draws[saved, 2p + 2] = theta
-            lps[saved] = _ssl_prox_logposterior(
-                u,
-                data,
-                prior,
-                gamma,
-                theta;
-                constraint = constraint,
-                prox_sum0_lambda = prox_sum0_lambda,
-                prox_l1_lambda = prox_l1_lambda,
-                alpha_prior_shape = a_shape,
-                alpha_prior_scale = a_scale,
-                alpha_prior_kind = a_kind,
-                prox_root_tol = prox_root_tol,
-                prox_root_maxiter = prox_root_maxiter,
-            )
+            clinical_X !== nothing && (draws[saved, 2p+3:end] .= full_state[p+2:end])
+            theta_ref[] = theta
+            lps[saved] = sample_logdensity(target, full_state, u)
         end
         # phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
         # _progress_next!(
@@ -399,6 +406,7 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
         _prox_ssl_block_sampling_acceptance(hmc_state),
         _prox_ssl_block_warmup_acceptance(hmc_state),
         final_step,
+        transitions,
     )
 end
 
@@ -565,7 +573,9 @@ function _sample_hmc_explicit(
                 _reserve_chain_progress_lines(chains, progress)
                 Threads.@threads for c in 1:chains
                     @info "Running explicit HMC chain $c/$chains"
-                    target = _make_explicit_nuts_target(
+                    # Keep the binding and its mutable gradient workspace local
+                    # to each chain; an outer binding is otherwise boxed/shared.
+                    local target = _make_explicit_nuts_target(
                         data,
                         prior;
                         constraint = resolved_constraint,

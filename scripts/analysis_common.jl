@@ -15,6 +15,10 @@ using PosteriorStats
 using Random
 using Statistics
 
+include(joinpath(@__DIR__, "validation_common.jl"))
+include(joinpath(@__DIR__, "simulation_coverage.jl"))
+include(joinpath(@__DIR__, "simulation_scenarios.jl"))
+
 const DEFAULT_BETA0 = [1.0, -1.0]
 const DEFAULT_BETA6 = [2.08, 1.31, -1.39, -1.86, 2.12, -2.26]
 const DEFAULT_BETA12 = [2.08, -1.41, -1.39, -1.15, 2.12, 2.51, 1.31, -1.95, -1.86, 1.93, -1.34, -0.85]
@@ -163,6 +167,8 @@ const TUNING_CLI_KEYS = (
     "tune_priorsparams",
     "tune_algparams",
     "cv-folds",
+    "outer-cv-folds",
+    "nested-cv",
     "tune-seed",
     "tune-run-best",
     "prior-configs",
@@ -406,11 +412,13 @@ function diagnostic_cli_options(args)
     )
 end
 
-function tuning_cli_options(args)
+function tuning_cli_options(args; realdata::Bool = false)
     return (
-        tune_priorparams = arg(args, "tune_priorsparams", false),
+        tune_priorparams = arg(args, "tune_priorsparams", realdata),
         tune_algparams = arg(args, "tune_algparams", false),
         cv_folds = arg(args, "cv-folds", 5),
+        outer_cv_folds = arg(args, "outer-cv-folds", 5),
+        nested_cv = arg(args, "nested-cv", realdata),
         tune_seed = arg(args, "tune-seed", 1),
     )
 end
@@ -588,16 +596,24 @@ function simulation_event_process(
     baseline_rate = nothing,
     baseline_scale = nothing,
     baseline_shape = nothing,
+    scenario = :baseline,
+    weak_multiplier = 0.35,
+    null_correlation = 0.6,
 )
+    scenario = resolve_simulation_scenario(scenario)
     beta, idx = true_beta(p, nonzero)
-    mu = zeros(Float64, p)
-    mu[idx] .= log(0.5 * p)
-    U = rand(rng, MvNormal(mu, paper_covariance(p, idx)), n)'
+    if scenario == :weak
+        0 < weak_multiplier <= 1 || throw(ArgumentError("weak multiplier must be in (0,1]"))
+        beta .*= weak_multiplier
+    end
+    latent = scenario_latent_parameters(p, idx, scenario; null_correlation)
+    U = rand(rng, MvNormal(latent.mu, latent.covariance), n)'
     X = softmax_rows(U)
     eta = log.(X) * beta
     params = baseline_parameters(baseline; rate = baseline_rate, scale = baseline_scale, shape = baseline_shape)
     event_time = [baseline_event_time(rng, eta[i], baseline; rate = params.rate, shape = params.shape) for i in 1:n]
-    return (X = X, beta = beta, nonzero_index = idx, eta = eta, event_time = Float64.(event_time))
+    return (X = X, beta = beta, nonzero_index = idx, eta = eta, event_time = Float64.(event_time),
+        scenario = scenario, paired_nulls = latent.paired_nulls, latent_covariance = latent.covariance)
 end
 
 function random_censoring_times(
@@ -672,8 +688,14 @@ function generate_simulation_data(
     baseline_rate = nothing,
     baseline_scale = nothing,
     baseline_shape = nothing,
+    rng::AbstractRNG = MersenneTwister(seed),
+    scenario = :baseline,
+    weak_multiplier = 0.35,
+    null_correlation = 0.6,
+    depth_median = 5000.0,
+    depth_log_sd = 0.5,
 )
-    rng = MersenneTwister(seed)
+    scenario = resolve_simulation_scenario(scenario)
     params = baseline_parameters(baseline; rate = baseline_rate, scale = baseline_scale, shape = baseline_shape)
     upper = baseline_censoring_upper(baseline)
     process = simulation_event_process(
@@ -684,11 +706,21 @@ function generate_simulation_data(
         baseline = baseline,
         baseline_rate = params.rate,
         baseline_shape = params.shape,
+        scenario = scenario, weak_multiplier = weak_multiplier, null_correlation = null_correlation,
     )
     censor_time = random_censoring_times(rng, n; upper = upper)
     observed = apply_censoring(process.event_time, censor_time)
+    measurement = scenario == :counts ? sequencing_observations(rng, process.X; depth_median, depth_log_sd) :
+        (X = process.X, sequencing_counts = nothing, sequencing_depths = nothing, observed_zero_fraction = 0.0)
     return (
-        X = process.X,
+        X = measurement.X,
+        latent_X = process.X,
+        sequencing_counts = measurement.sequencing_counts,
+        sequencing_depths = measurement.sequencing_depths,
+        observed_zero_fraction = measurement.observed_zero_fraction,
+        scenario = scenario,
+        paired_nulls = process.paired_nulls,
+        latent_covariance = process.latent_covariance,
         time = observed.time,
         event = observed.event,
         beta = process.beta,
@@ -702,6 +734,35 @@ function generate_simulation_data(
         censoring_distribution = :uniform,
         censoring_upper = upper,
     )
+end
+
+"""Independent n=1000 test cohort, shared by methods within a setting/replicate."""
+function generate_simulation_test_data(n::Integer, p::Integer, nonzero::Integer;
+    seed::Integer = 1, baseline::Symbol = :weibull, kwargs...)
+    baseline_id = findfirst(==(baseline), (:weibull, :exponential, :gompertz))
+    baseline_id === nothing && throw(ArgumentError("unsupported baseline $baseline"))
+    # A separate RNG namespace avoids overlap with any scalar training seed.
+    rng = MersenneTwister(UInt32[0x54455354, mod(seed, 2^32), n, p, nonzero, baseline_id])
+    sim = generate_simulation_data(1000, p, nonzero; baseline, rng, kwargs...)
+    suffix = sim.scenario == :baseline ? "" : ":$(sim.scenario)"
+    return merge(sim, (test_seed = "test-v1:$seed:$n:$p:$nonzero:$baseline$suffix",))
+end
+
+function add_simulation_test_metrics!(metrics, summary, train, test;
+    pseudocount = 0.0, tie_method = :efron)
+    # Saved summaries are already on the unstandardized coefficient scale.
+    # Removing training centering only adds a constant to all risk scores.
+    data = prepare_cox_data(train.X, train.time, train.event;
+        transform = :log, pseudocount, standardize = false, tie_method)
+    z_test = _validation_design_matrix(train.X, test.X, data;
+        requested_pseudocount = pseudocount)
+    metrics.Cindex_train = copy(metrics.Cindex)
+    metrics.Cindex_test = [concordance_index(test.time, test.event,
+        z_test * Float64.(summary[!, est == "MAP" ? :map : Symbol(est)]))
+        for est in string.(metrics.estimate)]
+    metrics.n_test = fill(length(test.time), nrow(metrics))
+    metrics.test_seed = fill(test.test_seed, nrow(metrics))
+    return metrics
 end
 
 function prior_from_name(
@@ -937,7 +998,8 @@ function fit_metrics(
     mean_ll = vec(mean(event_loglik; dims = 2))
     pw1 = 2 * sum([logmeanexp(view(event_loglik, i, :)) for i in axes(event_loglik, 1)] .- mean_ll)
     pw2 = size(event_loglik, 2) > 1 ? sum(var(view(event_loglik, i, :)) for i in axes(event_loglik, 1)) : NaN
-    lpml = sum(log(mean(exp.(-view(event_loglik, i, :)))) for i in axes(event_loglik, 1))
+    # Historical LPML column is negative LPML; keep its sign for compatibility.
+    lpml = sum(logmeanexp(-view(event_loglik, i, :)) for i in axes(event_loglik, 1))
     sample_total = vec(sum(event_loglik; dims = 1))
     pD = mean(-2 .* sample_total .+ 2) - (-2 * point_loglik + 2)
     return (
@@ -996,6 +1058,7 @@ function fit_and_evaluate(
     noncentered::Bool = false,
     seed::Integer = 1,
     use_car::Bool = false,
+    car_weights = nothing,
     car_distance = :bray,
     car_weight_quantile::Real = 0.75,
     car_precision::Real = 1.0,
@@ -1037,6 +1100,10 @@ function fit_and_evaluate(
     prox_block_divergence_threshold::Real = 1000.0,
     prox_block_metric::Symbol = :unit_diag,
     realdata::Bool = false,
+    clinical_X = nothing,
+    clinical_names = clinical_X === nothing ? String[] : ["clinical[$j]" for j in axes(clinical_X, 2)],
+    clinical_prior_df::Real = 3.0,
+    clinical_prior_scale::Real = 2.5,
     pseudocount = nothing,
     standardize::Bool = false,
     tie_method::Symbol = :efron,
@@ -1062,6 +1129,7 @@ function fit_and_evaluate(
     progress::Bool = true,
     approx::Bool = false,
     approx_point::Symbol = :zero,
+    compute_metrics::Bool = true,
 )
     pseudocount_value = pseudocount === nothing ? (realdata ? 1e-6 : 0.0) : Float64(pseudocount)
     prior = prior_from_name(
@@ -1100,7 +1168,21 @@ function fit_and_evaluate(
             prox_block_metric = prox_block_metric,
         ) : NamedTuple()
     result =
-        if sampler in (:nuts, :nuts_turing, :nuts_explicit)
+        if clinical_X !== nothing
+            sampler == :hmc || throw(ArgumentError("joint clinical fitting currently requires HMC"))
+            approx && throw(ArgumentError("joint clinical fitting requires --approx false"))
+            sample_clinical_cox(X, time, event, clinical_X;
+                prior, clinical_names, clinical_prior_df, clinical_prior_scale,
+                n_samples, warmup, thin, chains, multichains, seed, target_accept,
+                hmc_n_leapfrog, hmc_step_size, noncentered, constraint, prox_sum0_lambda,
+                pseudocount = pseudocount_value, standardize, tie_method, use_car,
+                car_weights, car_distance, car_weight_quantile, car_precision, sample_car_strength,
+                car_strength_prior_a, car_strength_prior_b, car_degree_scale, car_kappa_init,
+                prox_l1_lambda, alpha_prior_shape, alpha_prior_scale, alpha_prior_kind,
+                prox_root_tol, prox_root_maxiter, prox_block_step_size, prox_block_min_step_size,
+                prox_block_max_step_size, prox_block_adapt_every, prox_block_divergence_threshold,
+                prox_block_metric, init, progress)
+        elseif sampler in (:nuts, :nuts_turing, :nuts_explicit)
             sample_bayes_cox(
                 X,
                 time,
@@ -1117,7 +1199,8 @@ function fit_and_evaluate(
                 noncentered = noncentered,
                 seed = seed,
                 use_car = use_car,
-                car_distance = car_distance,
+                car_weights = car_weights,
+                car_distance = car_weights === nothing ? car_distance : nothing,
                 car_weight_quantile = car_weight_quantile,
                 car_precision = car_precision,
                 sample_car_strength = sample_car_strength,
@@ -1160,7 +1243,8 @@ function fit_and_evaluate(
                 noncentered = noncentered,
                 seed = seed,
                 use_car = use_car,
-                car_distance = car_distance,
+                car_weights = car_weights,
+                car_distance = car_weights === nothing ? car_distance : nothing,
                 car_weight_quantile = car_weight_quantile,
                 car_precision = car_precision,
                 sample_car_strength = sample_car_strength,
@@ -1207,7 +1291,8 @@ function fit_and_evaluate(
                     target_accept = target_accept,
                     seed = seed,
                     use_car = use_car,
-                    car_distance = car_distance,
+                    car_weights = car_weights,
+                    car_distance = car_weights === nothing ? car_distance : nothing,
                     car_weight_quantile = car_weight_quantile,
                     car_precision = car_precision,
                     sample_car_strength = sample_car_strength,
@@ -1264,7 +1349,8 @@ function fit_and_evaluate(
                     target_accept = target_accept,
                     seed = seed,
                     use_car = use_car,
-                    car_distance = car_distance,
+                    car_weights = car_weights,
+                    car_distance = car_weights === nothing ? car_distance : nothing,
                     car_weight_quantile = car_weight_quantile,
                     car_precision = car_precision,
                     sample_car_strength = sample_car_strength,
@@ -1298,7 +1384,8 @@ function fit_and_evaluate(
                 target_accept = target_accept,
                 seed = seed,
                 use_car = use_car,
-                car_distance = car_distance,
+                car_weights = car_weights,
+                car_distance = car_weights === nothing ? car_distance : nothing,
                 car_weight_quantile = car_weight_quantile,
                 car_precision = car_precision,
                 sample_car_strength = sample_car_strength,
@@ -1326,8 +1413,14 @@ function fit_and_evaluate(
             throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :hmc, :mh, :mala, :ula, or :gibbs."))
     end
     model_draws = posterior_beta_draws(result)
+    if !compute_metrics
+        return (result = result, draws = beta_draws_unstandardized(result.data, model_draws),
+                summary = nothing, metrics = nothing, p0 = prior_p0(prior))
+    end
     layout = posterior_draw_layout(result, size(model_draws, 1))
-    loglik = posterior_event_loglik(result.data, model_draws)
+    eval_data = clinical_X === nothing ? result.data : BayesCox4Micro.joint_cox_data(result.data, clinical_X)
+    eval_draws = clinical_X === nothing ? model_draws : hcat(model_draws, posterior_clinical_draws(result))
+    loglik = posterior_event_loglik(eval_data, eval_draws)
     event_rows = findall(!=(0), result.data.event)
     ll_event = loglik[event_rows, :]
     loo = psis_loo_metrics(ll_event, layout.chains, layout.draws)
@@ -1336,11 +1429,12 @@ function fit_and_evaluate(
     draws = beta_draws_unstandardized(result.data, model_draws)
     beta_map = beta_vector_unstandardized(result.data, beta_map_model)
     summary = posterior_summary(draws; names = names, map = beta_map)
-    beta_mean_model = vec(mean(model_draws; dims = 1))
-    beta_median_model = [median(view(model_draws, :, j)) for j in 1:size(model_draws, 2)]
-    metrics_mean = fit_metrics(result.data, model_draws, beta_mean_model; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
-    metrics_median = fit_metrics(result.data, model_draws, beta_median_model; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
-    metrics_map = fit_metrics(result.data, model_draws, beta_map_model; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
+    beta_mean_model = vec(mean(eval_draws; dims = 1))
+    beta_median_model = [median(view(eval_draws, :, j)) for j in 1:size(eval_draws, 2)]
+    eval_map = vec(eval_draws[argmax(posterior_logposterior_draws(result)), :])
+    metrics_mean = fit_metrics(eval_data, eval_draws, beta_mean_model; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
+    metrics_median = fit_metrics(eval_data, eval_draws, beta_median_model; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
+    metrics_map = fit_metrics(eval_data, eval_draws, eval_map; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
     diagnostics = sampler_diagnostics(result)
     metrics = DataFrame(
         estimate = ["mean", "median", "MAP"],
@@ -1559,10 +1653,11 @@ function _metric_panel_plot(rows::DataFrame, metric::Symbol; title::AbstractStri
         end
     end
     y_candidates = vcat(vals, [0.0], all_label_y)
-    ymin = metric == :Cindex ? 0.0 : minimum(y_candidates)
-    ymax = metric == :Cindex ? max(1.0, maximum(y_candidates)) : maximum(y_candidates)
+    is_cindex = startswith(string(metric), "Cindex")
+    ymin = is_cindex ? 0.0 : minimum(y_candidates)
+    ymax = is_cindex ? max(1.0, maximum(y_candidates)) : maximum(y_candidates)
     span = max(ymax - ymin, 1e-6)
-    ymin -= metric == :Cindex ? 0.0 : 0.12 * span
+    ymin -= is_cindex ? 0.0 : 0.12 * span
     ymax += 0.18 * span
     labels = [length(string(prior)) > 10 ? string(prior)[1:10] : string(prior) for prior in priors]
     Plots.plot!(
@@ -1591,11 +1686,14 @@ function metrics_plot(metrics::DataFrame, path::AbstractString; title = "Model m
         _metric_panel_plot(plot_rows, :WAIC_pw1; title = "WAIC"),
         _metric_panel_plot(plot_rows, :LOOIC; title = "LOOIC"),
         _metric_panel_plot(plot_rows, :LPML; title = "LPML"),
-        _metric_panel_plot(plot_rows, :Cindex; title = "C-index"),
+        _metric_panel_plot(plot_rows, :Cindex; title = "Training C-index"),
     )
+    has_test = :Cindex_test in propertynames(plot_rows)
+    has_test && (panels = (panels...,
+        _metric_panel_plot(plot_rows, :Cindex_test; title = "Test C-index (n=1000)")))
     p = Plots.plot(
         panels...;
-        layout = (2, 2),
+        layout = has_test ? (3, 2) : (2, 2),
         plot_title = title,
         size = (1200, 850),
         plot_titlefontsize = 13,
@@ -1640,7 +1738,9 @@ function read_run_metadata(run_dir::AbstractString)
     path = joinpath(run_dir, "metadata.json")
     file_complete(path) || return Dict{String,Any}()
     try
-        return Dict{String,Any}(JSON.parsefile(path))
+        # Metadata is small and may be updated on resume. Avoid a memory-mapped
+        # file handle, which can prevent rewriting the file on Windows.
+        return Dict{String,Any}(JSON.parse(read(path, String)))
     catch err
         @warn "Could not read metadata.json from $run_dir." exception=(err, catch_backtrace())
         return Dict{String,Any}()
@@ -1787,6 +1887,20 @@ end
 function simulation_metadata_matches_typed(run_dir::AbstractString, expected::AbstractDict)
     saved = read_run_metadata(run_dir)
     isempty(saved) && return false
+    # Legacy runs are baseline only; never reuse them for a new DGP merely
+    # because old metadata did not know about the new scenario keys.
+    get(saved, "scenario", "baseline") == get(expected, "scenario", "baseline") || return false
+    get(saved, "car_graph", "abundance") == get(expected, "car_graph", "abundance") || return false
+    if get(expected, "scenario", "baseline") == "phylo_bm"
+        for key in BROWNIAN_DGP_METADATA_KEYS
+            haskey(expected, key) && haskey(saved, key) &&
+                metadata_value_matches(saved[key], expected[key]) || return false
+        end
+    end
+    for key in ("weak_multiplier", "null_correlation", "correlated_null_indices", "depth_median", "depth_log_sd")
+        haskey(expected, key) || continue
+        haskey(saved, key) && metadata_value_matches(saved[key], expected[key]) || return false
+    end
 
     # Only compare keys present in BOTH saved and expected
     function _match(key)
@@ -1994,7 +2108,9 @@ function annotate_simulation_metrics(metrics::DataFrame, sim, summary::DataFrame
     out[!, :nonzero_count] = fill(nonzero, nrow(out))
     out[!, :p0] = fill(p0, nrow(out))
     out[!, :baseline] = fill(string(baseline), nrow(out))
+    out[!, :scenario] = fill(string(get(sim, :scenario, :baseline)), nrow(out))
     out[!, :MSE] = [get(mse, string(e), NaN) for e in out.estimate]
+    add_simulation_coverage!(out, summary; beta = sim.beta)
     return out
 end
 
@@ -2007,6 +2123,7 @@ function simulation_false_discovery_table(sim, summary::DataFrame; rep, n, p, no
         nonzero_count = [nonzero],
         p0 = [p0],
         baseline = [string(baseline)],
+        scenario = [string(get(sim, :scenario, :baseline))],
         prior = [prior],
         FP = [fd.FP],
         FN = [fd.FN],
@@ -2026,6 +2143,7 @@ function load_or_recover_simulation_run(
     baseline,
     prior,
     p0,
+    test_sim = nothing,
 )
     summary = ensure_simulation_summary(CSV.read(joinpath(run_dir, "posterior_summary.csv"), DataFrame), sim.beta)
     saved_p0 = _metadata_number(run_dir, "p0", p0)
@@ -2043,10 +2161,15 @@ function load_or_recover_simulation_run(
         else
             recovered = metrics_from_saved_samples(run_dir, sim, summary)
             annotated = annotate_simulation_metrics(recovered, sim, summary; rep = rep, n = n, p = p, nonzero = nonzero, p0 = saved_p0, baseline = baseline, prior = prior)
-            write_table(metrics_path, annotated)
             annotated
         end
 
+    if test_sim !== nothing
+        add_simulation_test_metrics!(metrics, summary, sim, test_sim;
+            pseudocount = Float64(_metadata_number(run_dir, "pseudocount", 0.0)),
+            tie_method = Symbol(_metadata_string(run_dir, "tie_method", "efron")))
+    end
+    write_table(metrics_path, metrics)
     fd_path = joinpath(run_dir, "false_discovery.csv")
     p0_value = :p0 in propertynames(metrics) && nrow(metrics) > 0 ? metrics.p0[1] : saved_p0
     fd = simulation_false_discovery_table(sim, summary; rep = rep, n = n, p = p, nonzero = nonzero, p0 = p0_value, baseline = baseline, prior = prior)
@@ -2056,3 +2179,5 @@ function load_or_recover_simulation_run(
     mark_simulation_run_complete(run_dir)
     return (summary = summary, metrics = metrics, false_discovery = fd)
 end
+
+include(joinpath(@__DIR__, "loo_evaluation.jl"))

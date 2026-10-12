@@ -6,6 +6,8 @@ using Dates
 using JSON
 using Statistics
 
+include(joinpath(@__DIR__, "simulation_coverage.jl"))
+
 const DEFAULT_ROOT = joinpath("results", "simulation")
 
 function parse_cli_args(args = ARGS)
@@ -152,6 +154,14 @@ function run_context(root::AbstractString, run_dir::AbstractString)
         "nonzero_count" => nonzero_value,
         "p0" => get_any(meta, "p0"; default = missing),
         "baseline" => baseline_value,
+        "scenario" => get_any(meta, "scenario"; default = "baseline"),
+        "car_graph" => get_any(meta, "car_graph"; default = "abundance"),
+        "constraint" => get_any(meta, "constraint"; default = missing),
+        "prox_sum0_lambda" => get_any(meta, "prox_sum0_lambda"; default = missing),
+        "weak_multiplier" => get_any(meta, "weak_multiplier"; default = missing),
+        "null_correlation" => get_any(meta, "null_correlation"; default = missing),
+        "depth_median" => get_any(meta, "depth_median"; default = missing),
+        "depth_log_sd" => get_any(meta, "depth_log_sd"; default = missing),
         "baseline_rate" => get_any(meta, "baseline_rate"; default = missing),
         "baseline_scale" => get_any(meta, "baseline_scale"; default = missing),
         "baseline_shape" => get_any(meta, "baseline_shape"; default = missing),
@@ -187,6 +197,7 @@ end
 function add_context_columns!(df::DataFrame, ctx::AbstractDict)
     for key in ("root", "setting_dir", "run_dir", "run_id", "rep", "prior", "sampler",
         "nuts_backend", "n", "p", "nonzero_count", "p0", "baseline",
+        "scenario", "car_graph", "constraint", "prox_sum0_lambda", "weak_multiplier", "null_correlation", "depth_median", "depth_log_sd",
         "baseline_rate", "baseline_scale", "baseline_shape", "censoring_distribution", "censoring_upper",
         "observed_censoring_rate")
         sym = Symbol(key)
@@ -227,6 +238,11 @@ function collect_model_metrics(root::AbstractString, run_dirs::Vector{String})
         metrics = safe_read_csv(joinpath(run_dir, "metrics.csv"))
         isempty(metrics) && continue
         add_context_columns!(metrics, ctx)
+
+        # Recompute from the saved intervals and truth, including historical runs.
+        # No posterior sampling or test cohort is needed for parameter coverage.
+        posterior = safe_read_csv(joinpath(run_dir, "posterior_summary.csv"))
+        add_simulation_coverage!(metrics, posterior)
 
         fd = safe_read_csv(joinpath(run_dir, "false_discovery.csv"))
         if nrow(fd) == 1
@@ -321,6 +337,7 @@ function add_elpd_diffs!(metrics::DataFrame)
         :p,
         :nonzero_count,
         :baseline,
+        :scenario, :car_graph, :constraint, :prox_sum0_lambda, :weak_multiplier, :null_correlation, :depth_median, :depth_log_sd,
         :baseline_rate,
         :baseline_scale,
         :baseline_shape,
@@ -342,7 +359,7 @@ end
 
 function summarize_sampling(rows::DataFrame)
     isempty(rows) && return DataFrame()
-    group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler] if c in propertynames(rows)]
+    group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :scenario, :car_graph, :constraint, :prox_sum0_lambda, :weak_multiplier, :null_correlation, :depth_median, :depth_log_sd, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler] if c in propertynames(rows)]
     specs = Any[:run_dir => count_unique_nonmissing => :run_count]
     :is_complete in propertynames(rows) && push!(specs, :is_complete => (x -> count(==(true), skipmissing(x))) => :complete_run_count)
     for col in (:warmup_seconds, :sample_seconds, :total_seconds, :allocated_mb, :gc_seconds, :gc_percent,
@@ -358,17 +375,18 @@ end
 
 function summarize_model_metrics(rows::DataFrame)
     isempty(rows) && return DataFrame()
-    group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler, :estimate] if c in propertynames(rows)]
+    group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :scenario, :car_graph, :constraint, :prox_sum0_lambda, :weak_multiplier, :null_correlation, :depth_median, :depth_log_sd, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler, :estimate] if c in propertynames(rows)]
     specs = Any[:run_dir => count_unique_nonmissing => :run_count]
     mean_sd_cols = (:MSE, :loglik, :LPML, :AIC, :BIC, :WAIC_pw1, :WAIC_pw2, :DIC,
         :ELPD_LOO, :ELPD_LOO_SE, :ELPD_Diff, :PLOO, :PLOO_SE, :LOOIC, :LOOIC_SE,
-        :PSIS_LOO, :Cindex, :FDR, :FP, :FN, :TP, :TN, :warmup_seconds,
+        :PSIS_LOO, :Cindex, :Cindex_train, :Cindex_test, :FDR, :FP, :FN, :TP, :TN, :warmup_seconds,
         :sample_seconds, :total_seconds, :allocated_mb, :gc_seconds, :gc_percent)
     for col in mean_sd_cols
         col in propertynames(rows) || continue
         push!(specs, col => finite_mean => Symbol(col, "_mean"))
         push!(specs, col => finite_std => Symbol(col, "_sd"))
     end
+    append!(specs, simulation_coverage_summary_specs(rows))
     for col in (:ParetoK_max, :ParetoK_bad)
         col in propertynames(rows) || continue
         push!(specs, col => finite_mean => Symbol(col, "_mean"))
@@ -379,7 +397,7 @@ end
 
 function summarize_parameter_diagnostics(rows::DataFrame)
     isempty(rows) && return DataFrame()
-    group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler, :parameter_group] if c in propertynames(rows)]
+    group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :scenario, :car_graph, :constraint, :prox_sum0_lambda, :weak_multiplier, :null_correlation, :depth_median, :depth_log_sd, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler, :parameter_group] if c in propertynames(rows)]
     # threshold =
     #     :rhat_threshold in propertynames(rows) && any(!ismissing, rows.rhat_threshold) ?
     #     finite_mean(rows.rhat_threshold) : 1.01
@@ -429,7 +447,7 @@ end
 
 function build_overview(model_summary::DataFrame, sampling_summary::DataFrame, parameter_summary::DataFrame)
     isempty(model_summary) && return DataFrame()
-    join_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler] if c in propertynames(model_summary)]
+    join_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :scenario, :car_graph, :constraint, :prox_sum0_lambda, :weak_multiplier, :null_correlation, :depth_median, :depth_log_sd, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler] if c in propertynames(model_summary)]
     overview = copy(model_summary)
 
     if !isempty(sampling_summary)

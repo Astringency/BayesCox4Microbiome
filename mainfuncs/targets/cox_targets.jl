@@ -47,10 +47,10 @@ function CoxProxLassoTarget(
     )
 end
 
-struct CoxProxSSLassoTarget <: AbstractCoxTarget
+struct CoxProxSSLassoTarget{G<:AbstractVector{Bool}} <: AbstractCoxTarget
     data::CoxPreparedData
     prior::SpikeSlabLassoPrior
-    gamma::Vector{Bool}
+    gamma::G
     theta::Base.RefValue{Float64}
     constraint::Symbol
     prox_sum0_lambda::Float64
@@ -145,7 +145,9 @@ function CoxProxSSLassoTarget(
     init::Symbol = :zero,
     approx = nothing,
 )
-    gamma_ref = gamma isa Vector{Bool} ? gamma : collect(Bool, gamma)
+    # Gibbs updates and continuous transitions must share the same indicators.
+    # `trues(p)` is a BitVector; copying it disconnects the two conditional steps.
+    gamma_ref = gamma
     return CoxProxSSLassoTarget(
         data,
         prior,

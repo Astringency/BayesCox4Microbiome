@@ -33,7 +33,12 @@ struct MHSamples
     acceptance_rate::Float64
     warmup_acceptance_rate::Float64
     final_step::Vector{Float64}
+    transitions::Vector{NamedTuple}
 end
+
+# Backward-compatible constructor for samplers without HMC transition records.
+MHSamples(draws, logposterior, names, acceptance_rate, warmup_acceptance_rate, final_step) =
+    MHSamples(draws, logposterior, names, acceptance_rate, warmup_acceptance_rate, final_step, NamedTuple[])
 
 struct MultiMHSamples
     chains::Vector{MHSamples}

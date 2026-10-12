@@ -6,8 +6,8 @@ end
 _default_soft_center_scale(p::Integer) = 0.001 * p
 
 function _resolve_constraint(constraint::Symbol)
-    constraint in (:soft_center, :prox, :none) ||
-        throw(ArgumentError("constraint must be :soft_center, :prox, or :none."))
+    constraint in (:soft_center, :prox, :none, :exact) ||
+        throw(ArgumentError("constraint must be :soft_center, :prox, :none, or :exact."))
     return constraint
 end
 

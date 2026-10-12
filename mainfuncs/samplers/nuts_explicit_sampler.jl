@@ -26,6 +26,7 @@ function _sample_explicit_nuts_one(
     max_depth > 0 || throw(ArgumentError("max_depth must be positive."))
     0 < target_accept < 1 || throw(ArgumentError("target_accept must be in (0, 1)."))
 
+    initial = _prepare_explicit_initial(target, initial)
     init = initial === nothing ? initial_state(target, rng) : collect(Float64, initial)
     d = dimension(target)
     length(init) == d || throw(DimensionMismatch("initial length must match target dimension."))
@@ -78,11 +79,16 @@ function _sample_explicit_nuts_one(
         Int(total_iter),
         adaptor,
         Int(warmup);
-        drop_warmup = warmup > 0,
+        drop_warmup = false,
         progress = progress,
         verbose = false,
         pm_next! = progress_next!,
     )
+
+    transitions = _transition_records(stats, warmup)
+    warmup_acceptance = _advancedhmc_acceptance_rate(view(stats, 1:warmup))
+    samples = samples[warmup+1:end]
+    stats = stats[warmup+1:end]
 
     # === DIAGNOSTIC A3: post-sampling summary ===
     if BayesCox4Micro.DIAG_DEBUG[]
@@ -121,8 +127,9 @@ function _sample_explicit_nuts_one(
         lps,
         output_names,
         _advancedhmc_acceptance_rate(stats),
-        NaN,
+        warmup_acceptance,
         fill(NaN, length(output_names)),
+        transitions,
     )
 end
 
@@ -472,6 +479,15 @@ function _make_explicit_nuts_target(
     car_kappa_init::Real = 0.5,
     kwargs...,
 )
+    if constraint == :exact
+        base = _make_explicit_nuts_target(data, prior;
+            constraint = :none, prox_sum0_lambda = prox_sum0_lambda,
+            noncentered = noncentered, car_weights = car_weights, use_car = use_car,
+            car_precision = car_precision, sample_car_strength = sample_car_strength,
+            car_strength_prior_a = car_strength_prior_a, car_strength_prior_b = car_strength_prior_b,
+            car_degree_scale = car_degree_scale, car_kappa_init = car_kappa_init, kwargs...)
+        return CoxExactZeroTarget(base)
+    end
     approx_val = get(kwargs, :approx, nothing)
     if noncentered
         return CoxNoncenteredPosteriorTarget(
@@ -714,10 +730,11 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
     names = vcat(["beta[$j]" for j in 1:p], ["eta"], ["gamma[$j]" for j in 1:p], ["theta"])
     draws = Matrix{Float64}(undef, n_samples, length(names))
     lps = Vector{Float64}(undef, n_samples)
-    u = vcat(zeros(Float64, p), [0.0])
+    u = vcat(zeros(Float64, constraint == :exact ? p - 1 : p), [0.0])
     saved = 0
+    transitions = NamedTuple[]
     nuts_state = ProxSSLassoBlockNUTSState(
-        p + 1;
+        length(u);
         step_size = prox_block_step_size === nothing ? 1e-3 : prox_block_step_size,
         max_depth = max_depth,
         inv_metric = prox_block_metric,
@@ -735,7 +752,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
         prior,
         gamma,
         theta_ref;
-        constraint = constraint,
+        constraint = constraint == :exact ? :none : constraint,
         prox_sum0_lambda = prox_sum0_lambda,
         prox_l1_lambda = prox_l1_lambda,
         alpha_prior_shape = a_shape,
@@ -744,14 +761,17 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
         prox_root_tol = prox_root_tol,
         prox_root_maxiter = prox_root_maxiter,
     )
+    constraint == :exact && (target = CoxExactZeroTarget(target))
     prog = _progress_meter(progress, total_iter, "SSLASSO explicit prox NUTS-Gibbs"; progress_desc = progress_desc, progress_offset = progress_offset)
     for iter in 1:total_iter
         theta_ref[] = theta
         transition = prox_ssl_block_nuts_step!(u, target, nuts_state; rng = rng)
+        push!(transitions, _transition_record(transition, iter, warmup))
         iter == warmup && _prox_ssl_block_freeze!(nuts_state)
 
-        beta = view(u, 1:p)
-        alpha = exp(clamp(u[p + 1], -700.0, 700.0))
+        full_state = sample_state(target, u)
+        beta = view(full_state, 1:p)
+        alpha = exp(clamp(full_state[p + 1], -700.0, 700.0))
         theta_clamped = clamp(theta, eps(Float64), 1 - eps(Float64))
         for j in 1:p
             gamma[j] = false
@@ -771,24 +791,11 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
         if iter > warmup && (iter - warmup) % thin == 0
             saved += 1
             @views draws[saved, 1:p] .= beta
-            draws[saved, p + 1] = u[p + 1]
+            draws[saved, p + 1] = full_state[p + 1]
             @views draws[saved, (p + 2):(2p + 1)] .= Float64.(gamma)
             draws[saved, 2p + 2] = theta
-            lps[saved] = _ssl_prox_logposterior(
-                u,
-                data,
-                prior,
-                gamma,
-                theta;
-                constraint = constraint,
-                prox_sum0_lambda = prox_sum0_lambda,
-                prox_l1_lambda = prox_l1_lambda,
-                alpha_prior_shape = a_shape,
-                alpha_prior_scale = a_scale,
-                alpha_prior_kind = a_kind,
-                prox_root_tol = prox_root_tol,
-                prox_root_maxiter = prox_root_maxiter,
-            )
+            theta_ref[] = theta
+            lps[saved] = sample_logdensity(target, full_state, u)
         end
         # phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
         # _progress_next!(
@@ -812,6 +819,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
         _prox_ssl_block_sampling_acceptance(nuts_state),
         _prox_ssl_block_warmup_acceptance(nuts_state),
         final_step,
+        transitions,
     )
 end
 
@@ -964,7 +972,8 @@ function _sample_nuts_explicit(
                 _reserve_chain_progress_lines(chains, progress)
                 Threads.@threads for c in 1:chains
                     @info "Running explicit NUTS chain $c/$chains"
-                    target = _make_explicit_nuts_target(
+                    # Each chain must own its target and gradient workspace.
+                    local target = _make_explicit_nuts_target(
                         data,
                         prior;
                         constraint = resolved_constraint,
