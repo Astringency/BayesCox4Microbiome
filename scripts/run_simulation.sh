@@ -18,7 +18,7 @@ current_time=$(date "+%Y%m%d_%H%M%S")
 # n_vals=(200 400)
 n_vals=(200)
 # p_vals=(50 150)
-p_vals=(50)
+p_vals=(150)
 # non_vals=(6 12)
 non_vals=(12)
 # baseline_vals=("weibull" "exponential" "gompertz")
@@ -40,10 +40,10 @@ for sampler in "${sampler_vals[@]}"; do
                         --p "$p" \
                         --nonzero "$nonzero" \
                         --baseline "$baseline" \
-                        --priors prox-lasso \
+                        --priors prox-sslasso \
                         --sampler "$sampler" \
                         --nuts-backend explicit \
-                        --hmc-n-leapfrog 5 \
+                        --hmc-n-leapfrog 100 \
                         --samples 5000 \
                         --warmup 2000 \
                         --thin 1 \
@@ -66,8 +66,8 @@ for sampler in "${sampler_vals[@]}"; do
                         --p0 truth \
                         --p0-alpha 0.05 \
                         --constraint prox \
-                        --prox-sum0-lambda 1e-6 \
-                        --prox-l1-lambda 1e-4 \
+                        --prox-sum0-lambda 1e-3 \
+                        --prox-l1-lambda 1e-6 \
                         --prox-root-tol 1e-10 \
                         --prox-root-maxiter 100 \
                         --mala-step-size 10 \

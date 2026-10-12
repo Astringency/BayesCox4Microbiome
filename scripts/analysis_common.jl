@@ -1887,6 +1887,12 @@ end
 function simulation_metadata_matches_typed(run_dir::AbstractString, expected::AbstractDict)
     saved = read_run_metadata(run_dir)
     isempty(saved) && return false
+    # Old runs did not record init and the matrix API silently dropped it.
+    # Do not reuse those draws after fixing initialization, or reuse a run
+    # produced from a different requested starting strategy.
+    if haskey(expected, "init")
+        haskey(saved, "init") && metadata_value_matches(saved["init"], expected["init"]) || return false
+    end
     # Legacy runs are baseline only; never reuse them for a new DGP merely
     # because old metadata did not know about the new scenario keys.
     get(saved, "scenario", "baseline") == get(expected, "scenario", "baseline") || return false

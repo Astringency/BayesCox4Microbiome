@@ -2,6 +2,12 @@
 
 BayesCox4Micro is a Julia package for Bayesian Cox proportional hazards models with compositional microbiome, immune-cell, or other nonnegative abundance covariates. It provides compositional preprocessing, Efron tied-event handling, sparse priors, MCMC sampling, posterior diagnostics, and complete simulation and real-data workflows.
 
+The [consolidated review results](results/review_20261012/RESULTS.md) include the
+Prox-SSLASSO initialization reruns. The [historical investigations](results/review_20261012/provenance/additional_history/README.md)
+retain the earlier convergence probes and completed alternative LOO evaluation.
+Their simulation conclusions predate the initialization fix; use the consolidated
+report for current results.
+
 This README focuses on two methods:
 
 - **Cox-RHS** (CLI name `cox-rhs`): a regularized horseshoe prior with a Cox-specific global scale.
@@ -138,6 +144,17 @@ results/realdata/T1D/
 
 Sampling sizes, prior hyperparameters, compositional constraints, and diagnostics can all be changed through CLI options. See `scripts/analysis_common.jl` for the authoritative option definitions.
 
+Prox-SSLASSO's explicit HMC/NUTS samplers honor `--init zero` and `--init rand`
+for single, serial, and parallel chains. The default `zero` starts at beta=0,
+alpha=1, gamma=1, and theta=0.5. With `rand`, each chain draws beta from
+Uniform(-2, 2), projects it onto the configured zero-sum hyperplane when
+applicable, and sets alpha to `max(1, 1.1 * sum(weights .* abs.(beta)))` so the
+initial state lies inside the weighted L1 epigraph; gamma=1 and theta=0.5.
+This initialization needs no preliminary SSLASSO fit. Earlier versions dropped
+`init` at the matrix API and in the proximal sampler dispatch, so an old run
+requested with `--init rand` may actually have used the fixed zero start.
+Simulation metadata now records `init`, and resume checks include it.
+
 ## Nested C-index evaluation
 
 Real-data analysis now defaults to **5 outer folds and 5 inner folds**, with prior
@@ -190,35 +207,36 @@ julia +1.11.7 --startup-file=no --project=. test/cindex_evaluation_tests.jl
 
 ## Leave-one-out evaluation
 
-The existing event-factor PSIS calculation is available as `--loo-mode fixed_risk`
-(default). `scripts/analyze_real_data.jl --loo-mode subject_refit` instead deletes
-each subject, rebuilds training risk sets and refits the model. Its evaluation
-target is a cross-validated partial-likelihood ratio, including censored subjects'
-effects on other event denominators. It is not a full survival-time density;
-fixed-risk WAIC is reported separately.
+All LOO entry points default to `fixed_risk`: event-factor PSIS uses the full-data
+risk sets without rebuilding them or refitting the model for each deleted subject.
+The T1D runner fits the full data once per method to obtain these diagnostics.
 
 To rerun T1D for Cox-RHS (`soft_center`) and Prox-SSLASSO (`prox`) using the saved
-configurations, with four parallel leave-one-subject-out fits:
+configurations and fixed risk sets:
 
 ```bash
-julia +1.11.7 --startup-file=no -t 4 --project=. scripts/rerun_t1d_loo.jl --loo-mode both --parallel true
+julia +1.11.7 --startup-file=no -t 4 --project=. scripts/rerun_t1d_loo.jl
 ```
 
-On Windows, `scripts/run_t1d_loo.ps1` runs the same command. Completed folds are
-checkpointed for resumption. See [LOO evaluation](LOO_EVALUATION.md) for
-formulas, output meanings, configuration overrides and pilot runs.
+On Windows, `scripts/run_t1d_loo.ps1` uses the same `fixed_risk` default.
+Explicit `--loo-mode subject_refit` (or `both` in the T1D runner) enables subject
+deletion, training risk-set reconstruction and checkpointed refits. That alternative
+scores partial-likelihood ratios, including censored subjects' effects on other
+event denominators, rather than full survival-time densities. Its scores and
+fixed-risk PSIS scores have different evaluation targets.
 
 ## Revision experiment runners
 
-`REVISION_EXPERIMENTS.md` records the experiment matrix, scientific definitions,
-source versions, completed results and reproducible commands.
-
-The 2026-10-12 revision is complete: all 31 simulation cells have 50 repetitions
-(1500 distinct fits), all four T1D method/adjustment arms are complete, and 3800
-historical runs have saved-result metric/diagnostic replays. The
-[final report archive](results/revision_20261011/reports_final_all_simulations.zip)
-contains 50 hash-verified files. See the final tables and convergence/PH
-limitations in [the execution record](REVISION_EXPERIMENTS.md).
+The [consolidated review results](results/review_20261012/RESULTS.md) contain
+1650 distinct simulation fits (the original 1500 plus 150 S4 fits), all four
+T1D method/adjustment arms, and the provenance of the historical replays.
+The 391 predeclared Prox-SSLASSO initialization reruns replace their original
+fits, including the 22 reruns still failing the beta screen; they are not added
+as extra repetitions. The remaining 259 SSL fits retain their original starts.
+The merged beta screen passes 1573/1650 fits (628/650 SSL and 945/1000 RHS).
+Gamma and clinical sampling/PH limitations remain visible. Earlier local
+delivery folders and duplicate archives have been consolidated into this one
+directory; the server's original posterior files remain available.
 
 `scripts/verify_revision_saved_outputs.py --revision-root REVISION_ROOT
 --outdir AUDIT_DIR --require-complete` checks the requested settings, distinct
@@ -258,9 +276,10 @@ DGP, where `METHOD=prox-sslasso` remains available as a legacy reference.
 S4 results use a separate `S4/car/` subtree; old `phylo` results remain unchanged.
 The S4 extension is complete at 50 repetitions per graph (150 fits), with all
 150 fits passing the coefficient convergence screen and zero sampling divergences.
-The [S1–S4 complete summary](results/simulation_S1_S4_20261012/RESULTS.md) contains
+The [S1–S4 complete summary](results/review_20261012/scenarios/RESULTS.md) contains
 all nine cells, 450 distinct fits, mean/median/MAP metrics, coverage/FDP,
-convergence summaries and S4 paired contrasts. S1–S3 posteriors were reused.
+convergence summaries and S4 paired contrasts. The 124 initialization reruns
+within S1–S3 have replaced their old fits; unchanged fits remain reused.
 Only summary files and figures are stored locally; large draws remain on the server.
 At posterior means, S4 test C-indices are 0.876288 (Independent), 0.875766
 (Correct CAR) and 0.872673 (Misspecified CAR): the correct graph does not improve

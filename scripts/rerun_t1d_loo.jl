@@ -16,24 +16,25 @@ function t1d_loo_main(args = ARGS)
     if haskey(opts, "help")
         println("""
         T1D Cox-RHS / Prox-SSLASSO LOO (Julia +1.11.7)
-          --loo-mode subject_refit|fixed_risk|both    default: subject_refit
+          --loo-mode fixed_risk|subject_refit|both    default: fixed_risk
           --methods cox-rhs,prox-sslasso             default: both methods
           --cox-rhs-constraint soft_center|prox      default: soft_center
           --prox-sslasso-constraint prox|soft_center default: prox
           --parallel true|false                     default: false (parallel folds; julia -t N)
-          --folds all|1,2,3                         default: all 173 subjects
+          --folds all|1,2,3                         subject_refit only; default: all subjects
           --samples N --warmup N --chains N --seed N overrides saved settings
           --p0-policy training|fixed                default: training
           --resume true|false                       default: true
           --source-root DIR                         default: results/realdata
           --outdir DIR                              default: results/loo/T1D
         Output is separate from historical results. Missing aggregate scores mean incomplete LOO.
+        fixed_risk uses event-factor PSIS with the full-data risk sets; no subject refits.
         subject_refit scores partial-likelihood ratios, not survival-time densities.
         WAIC remains a fixed-risk full-fit diagnostic in fixed_risk_metrics.csv.
         """)
         return nothing
     end
-    mode_text = get(opts, "loo-mode", "subject_refit")
+    mode_text = get(opts, "loo-mode", "fixed_risk")
     mode_text in ("subject_refit", "fixed_risk", "both") ||
         throw(ArgumentError("invalid --loo-mode"))
     methods = split(get(opts, "methods", "cox-rhs,prox-sslasso"), ',')
@@ -41,7 +42,7 @@ function t1d_loo_main(args = ARGS)
         throw(ArgumentError("--methods must select cox-rhs and/or prox-sslasso"))
     p0_policy = get(opts, "p0-policy", "training")
     p0_policy in ("training", "fixed") || throw(ArgumentError("invalid --p0-policy"))
-    parallel = parse(Bool, get(opts, "parallel", "false"))
+    parallel = parse(Bool, get(opts, "parallel", "false")) && mode_text != "fixed_risk"
     resume = parse(Bool, get(opts, "resume", "true"))
     parallel && Threads.nthreads() <= 1 && throw(ArgumentError("use julia -t N for parallel folds"))
     BLAS.set_num_threads(1)
@@ -88,7 +89,8 @@ function t1d_loo_main(args = ARGS)
             "fit_kwargs" => Dict(string(k) => v for (k, v) in kwargs),
             "julia_version" => string(VERSION), "n" => length(time), "events" => sum(event),
             "hyperparameter_policy" => "saved tuning settings; no nested retuning",
-            "score_target" => "subject_deletion_partial_likelihood_ratio for refits; fixed-risk diagnostics separately")
+            "score_target" => (mode_text == "fixed_risk" ? "event_attribution_fixed_risk" :
+                "subject_deletion_partial_likelihood_ratio for refits; fixed-risk diagnostics separately"))
         _loo_atomic_json(joinpath(model_dir, "settings.json"), config)
         @info "Fitting full T1D data for fixed-risk reference diagnostics" method constraint
         fit = fit_and_evaluate(X, time, event; kwargs...)

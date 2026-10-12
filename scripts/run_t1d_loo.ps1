@@ -1,6 +1,6 @@
 param(
     [ValidateSet('subject_refit', 'fixed_risk', 'both')]
-    [string]$LooMode = 'both',
+    [string]$LooMode = 'fixed_risk',
     [ValidateSet('soft_center', 'prox')]
     [string]$CoxRhsConstraint = 'soft_center',
     [ValidateSet('soft_center', 'prox')]
@@ -25,7 +25,7 @@ $juliaArgs = @(
     '--loo-mode', $LooMode,
     '--cox-rhs-constraint', $CoxRhsConstraint,
     '--prox-sslasso-constraint', $ProxSslassoConstraint,
-    '--parallel', ($Threads -gt 1).ToString().ToLowerInvariant(),
+    '--parallel', (($Threads -gt 1) -and ($LooMode -ne 'fixed_risk')).ToString().ToLowerInvariant(),
     '--folds', $Folds, '--outdir', $OutDir, '--resume', 'true'
 )
 if ($Samples -gt 0) { $juliaArgs += @('--samples', "$Samples") }

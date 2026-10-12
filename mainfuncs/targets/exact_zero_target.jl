@@ -96,6 +96,11 @@ function initial_state(target::CoxExactZeroTarget, rng::AbstractRNG = Random.def
     return _exact_internal_state(target, full)
 end
 
+function initial_state(target::CoxExactZeroTarget{<:CoxProxSSLassoTarget}, rng::AbstractRNG = Random.default_rng())
+    full = _ssl_prox_initial_state(target.base, rng; constraint = :exact)
+    return _exact_internal_state(target, full)
+end
+
 _prepare_explicit_initial(target::AbstractCoxTarget, initial) = initial
 function _prepare_explicit_initial(target::CoxExactZeroTarget, initial)
     initial === nothing && return nothing

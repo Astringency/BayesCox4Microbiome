@@ -170,7 +170,7 @@ end
 dimension(target::AbstractCoxTarget) = length(state_names(target))
 dimension(target::CoxNoncenteredPosteriorTarget) = length(target.names)
 
-function initial_state(target::Union{CoxProxLassoTarget,CoxProxSSLassoTarget}, rng::AbstractRNG = Random.default_rng())
+function initial_state(target::CoxProxLassoTarget, rng::AbstractRNG = Random.default_rng())
     p = size(target.data.z, 2)
     if target.init == :rand
         return vcat(_default_unconstrained_init(rng, p), [0.0])  # η=0 → α=1 avoids gradient explosion with small prox_l1_lambda
@@ -178,6 +178,30 @@ function initial_state(target::Union{CoxProxLassoTarget,CoxProxSSLassoTarget}, r
         return vcat(zeros(Float64, p), [log(2)])
     end
 end
+
+function _ssl_prox_initial_state(
+    target::CoxProxSSLassoTarget,
+    rng::AbstractRNG;
+    constraint::Symbol = target.constraint,
+)
+    target.init in (:zero, :rand) || throw(ArgumentError("Prox-SSLASSO init must be :zero or :rand."))
+    p = size(target.data.z, 2)
+    # Preserve the historical zero start, including alpha=1, for reproducibility.
+    target.init == :zero && return zeros(Float64, p + 1)
+    beta = _default_unconstrained_init(rng, p)
+    if constraint != :none
+        a = constraint == :exact ? 1.0 ./ target.data.col_scale : ones(p)
+        beta .-= a .* (dot(a, beta) / dot(a, a))
+    end
+    # Random beta with alpha=1 is far outside the weighted L1 epigraph in high
+    # dimensions. Initialize the radius from beta, not independently of it.
+    weights = _ssl_weights(target.prior, target.gamma)
+    alpha = max(1.0, 1.1 * dot(weights, abs.(beta)))
+    return vcat(beta, log(alpha))
+end
+
+initial_state(target::CoxProxSSLassoTarget, rng::AbstractRNG = Random.default_rng()) =
+    _ssl_prox_initial_state(target, rng)
 
 function initial_state(target::CoxNoncenteredPosteriorTarget, rng::AbstractRNG = Random.default_rng())
     p = size(target.data.z, 2)

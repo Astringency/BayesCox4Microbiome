@@ -468,6 +468,7 @@ function main()
                 "censoring_upper" => sim.censoring_upper,
                 "prior" => prior,
                 "prior_name" => prior,
+                "init" => string(init),
                 "sampler" => string(sampler),
                 "nuts_backend" => string(nuts_backend),
                 "samples" => n_samples,
@@ -682,6 +683,7 @@ function main()
                 "method_name" => prior,
                 "prior" => prior,
                 "prior_name" => prior,
+                "init" => string(init),
                 "sampler" => string(sampler),
                 "nuts_backend" => string(nuts_backend),
                 "baseline" => string(baseline),
@@ -713,6 +715,7 @@ function main()
                 "max_depth" => max_depth,
             ), prior_metadata)
             settings = merge(Dict(
+                "init" => string(init),
                 "samples" => n_samples,
                 "n_samples" => n_samples,
                 "warmup" => warmup,

@@ -117,8 +117,12 @@ end
     data = prepare_cox_data(X, t, e; transform = :none)
     draws = hcat(sin.(1:40) .* 0.1, cos.(1:40) .* 0.1)
     old = fit_metrics(data, draws, vec(mean(draws; dims = 1)))
-    fixed = evaluate_cox_loo(X, t, e; mode = :fixed_risk,
+    # The default must reuse full-data metrics without any subject refit.
+    fixed = evaluate_cox_loo(X, t, e;
         full_fit = (metrics = DataFrame([old]),), fit_function = (args...; kwargs...) -> error("unexpected refit"))
+    @test only(fixed.summary.mode) == "fixed_risk"
+    @test only(fixed.summary.target) == "event_attribution_fixed_risk"
+    @test isempty(fixed.pointwise)
     @test only(fixed.summary.LOOIC) == old.LOOIC
     @test only(fixed.summary.NLPML) == old.LPML
     @test only(fixed.summary.WAIC_pw2) == old.WAIC_pw2

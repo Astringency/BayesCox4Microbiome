@@ -645,6 +645,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
                         alpha_prior_kind = alpha_prior_kind,
                         prox_root_tol = prox_root_tol,
                         prox_root_maxiter = prox_root_maxiter,
+                        init = init,
                         progress = progress,
                         progress_desc = _chain_progress_desc("SSLASSO explicit prox NUTS-Gibbs", c, chains),
                         progress_offset = _chain_progress_offset(c, chains),
@@ -676,6 +677,7 @@ function _sample_ssl_prox_explicit_nuts_gibbs(
                         alpha_prior_kind = alpha_prior_kind,
                         prox_root_tol = prox_root_tol,
                         prox_root_maxiter = prox_root_maxiter,
+                        init = init,
                         progress = progress,
                     )
                 end
@@ -730,9 +732,25 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
     names = vcat(["beta[$j]" for j in 1:p], ["eta"], ["gamma[$j]" for j in 1:p], ["theta"])
     draws = Matrix{Float64}(undef, n_samples, length(names))
     lps = Vector{Float64}(undef, n_samples)
-    u = vcat(zeros(Float64, constraint == :exact ? p - 1 : p), [0.0])
     saved = 0
     transitions = NamedTuple[]
+    target = CoxProxSSLassoTarget(
+        data,
+        prior,
+        gamma,
+        theta_ref;
+        constraint = constraint == :exact ? :none : constraint,
+        prox_sum0_lambda = prox_sum0_lambda,
+        prox_l1_lambda = prox_l1_lambda,
+        alpha_prior_shape = a_shape,
+        alpha_prior_scale = a_scale,
+        alpha_prior_kind = a_kind,
+        prox_root_tol = prox_root_tol,
+        prox_root_maxiter = prox_root_maxiter,
+        init = init,
+    )
+    constraint == :exact && (target = CoxExactZeroTarget(target))
+    u = initial_state(target, rng)
     nuts_state = ProxSSLassoBlockNUTSState(
         length(u);
         step_size = prox_block_step_size === nothing ? 1e-3 : prox_block_step_size,
@@ -747,21 +765,6 @@ function _sample_ssl_prox_explicit_nuts_gibbs_one(
         n_adapts = warmup,
         auto_step_size = prox_block_step_size === nothing,
     )
-    target = CoxProxSSLassoTarget(
-        data,
-        prior,
-        gamma,
-        theta_ref;
-        constraint = constraint == :exact ? :none : constraint,
-        prox_sum0_lambda = prox_sum0_lambda,
-        prox_l1_lambda = prox_l1_lambda,
-        alpha_prior_shape = a_shape,
-        alpha_prior_scale = a_scale,
-        alpha_prior_kind = a_kind,
-        prox_root_tol = prox_root_tol,
-        prox_root_maxiter = prox_root_maxiter,
-    )
-    constraint == :exact && (target = CoxExactZeroTarget(target))
     prog = _progress_meter(progress, total_iter, "SSLASSO explicit prox NUTS-Gibbs"; progress_desc = progress_desc, progress_offset = progress_offset)
     for iter in 1:total_iter
         theta_ref[] = theta
@@ -917,6 +920,7 @@ function _sample_nuts_explicit(
                 alpha_prior_kind = a_kind,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
+                init = init,
                 progress = progress,
                 parallel_chains = run_parallel,
             )

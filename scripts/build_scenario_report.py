@@ -33,17 +33,27 @@ def mean_sd(row, metric):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--legacy-reports', type=Path, required=True)
+    parser.add_argument('--legacy-reports', type=Path)
+    parser.add_argument('--unified-results', type=Path, help='Current merged simulation tables')
+    parser.add_argument('--numerical-audits-root', type=Path)
     parser.add_argument('--s4-reports', type=Path, required=True)
     parser.add_argument('--outdir', type=Path, required=True)
     args = parser.parse_args()
-    old, new, out = args.legacy_reports.resolve(), args.s4_reports.resolve(), args.outdir.resolve()
+    assert args.legacy_reports is not None or args.unified_results is not None
+    new, out = args.s4_reports.resolve(), args.outdir.resolve()
+    if args.unified_results:
+        metrics_path = args.unified_results.resolve()/'performance_by_run.csv'
+        diagnostics_path = args.unified_results.resolve()/'diagnostics_by_run.csv'
+    else:
+        old = args.legacy_reports.resolve()
+        metrics_path = old/'performance_aggregates/metrics_by_run.csv'
+        diagnostics_path = old/'diagnostic_aggregates_v2/diagnostics_by_run.csv'
     out.mkdir(parents=True, exist_ok=True)
     audit = json.loads((new/'saved_results_audit.json').read_text())
     assert audit['complete'] and audit['completed_fits'] == 150 and audit['all_available_checks_passed']
     numerical=[]
     for label,count in (('S1_S3',300),('S4',150)):
-        path=new.parent/'audits'/label/'numerical_audit.json'
+        path=(args.numerical_audits_root or new.parent/'audits')/label/'numerical_audit.json'
         checked=json.loads(path.read_text())
         assert checked['all_metrics_match'] and checked['verified_runs']==count
         numerical.append(checked)
@@ -51,13 +61,19 @@ def main():
         target.mkdir(parents=True,exist_ok=True)
         for name in ('numerical_audit.json','numerical_audit_by_run.csv'):
             (target/name).write_bytes((path.parent/name).read_bytes())
-    metrics = [enrich(r) for r in read_csv(old/'performance_aggregates/metrics_by_run.csv')
+    metrics = [enrich(r) for r in read_csv(metrics_path)
                if r['scenario'] in ('weak','correlated_null','counts') and truth(r['primary_eligible'])]
     metrics += [enrich(r) for r in read_csv(new/'performance/metrics_by_run.csv') if truth(r['primary_eligible'])]
-    diagnostics = [enrich(r) for r in read_csv(old/'diagnostic_aggregates_v2/diagnostics_by_run.csv')
+    diagnostics = [enrich(r) for r in read_csv(diagnostics_path)
                    if r['scenario'] in ('weak','correlated_null','counts') and truth(r['primary_eligible'])]
     diagnostics += [enrich(r) for r in read_csv(new/'diagnostics/diagnostics_by_run.csv') if truth(r['primary_eligible'])]
     assert len(diagnostics) == 450 and len(metrics) == 1350
+    checked_sources = set()
+    for label in ('S1_S3', 'S4'):
+        audit_root = args.numerical_audits_root or new.parent/'audits'
+        checked_sources.update(r['source'] for r in read_csv(audit_root/label/'numerical_audit_by_run.csv'))
+    assert checked_sources == {r['source'] for r in diagnostics}, 'Numerical audits cover different fits'
+    replacements = sum(r.get('result_version') == 'initfix_random' for r in diagnostics)
     assert len({r['source'] for r in diagnostics}) == 450
     assert {(r['source'], r['estimate']) for r in metrics} == {
         (r['source'], e) for r in diagnostics for e in ('mean','median','MAP')}
@@ -114,7 +130,7 @@ def main():
     limits='；'.join(f"{r['setting']} {r['comparison']} 仅 {r['n_convergence_screen_pass']}/50 通过系数收敛筛查" for r in fail_cells)
     lines=[
         '# S1–S4 模拟实验完整汇总', '',
-        '全部 9 个比较单元均完成 50 次重复，共 450 次拟合。S1–S3 复用已完成的正式实验（300 次）；S4 新增 Cox-RHS 的三组 CAR 比较（150 次）。本地仅保存汇总与诊断摘要，大规模后验抽样及中间文件保留在服务器。', '',
+        f'全部 9 个比较单元均完成 50 次重复，共 450 次拟合。S1–S3 共 300 次，其中 {replacements} 次采用初始化修复后的 Prox-SSLASSO 重跑结果，其余保留原正式结果；S4 为 Cox-RHS 的三组 CAR 比较（150 次）。本地保存汇总与诊断摘要，大规模后验抽样及中间文件保留在服务器。', '',
         '## 实验设置', '',
         '- 训练集 n=200，p=50，6 个真实非零系数；Weibull 基线。每次重复独立生成 n=1000 测试样本。',
         '- 每次拟合 4 条链，每链 2000 次 warm-up 和 5000 次保留抽样；共 20000 个后验抽样。',
@@ -122,7 +138,8 @@ def main():
         '- S3：组成比例经多项分布产生测序计数，测序深度中位数 5000；零替换使用训练集最小正值的一半，再做闭合归一化。测试数据沿用训练得到的预处理。',
         '- S4：固定平衡系统发育树，50 个叶节点，正分支长度，树高 H=6。潜在高斯丰度的协方差为 Σᵢⱼ=根到最近共同祖先的共享路径长度/H，故对角线为 1。根状态固定为 0；softmax 转成组成数据。6 个信号预先置于相邻支系。',
         '- S4 中无 CAR、正确图 CAR、错误图 CAR 共享每次重复的训练集、测试集和系数真值。正确图来自生成树；错误图固定置换叶标签（seed=9017），仅改变拟合图，不改变数据。图边权 exp(−d/2)，只保留 d≤4 的非对角边。',
-        '- S4 只运行 Cox-RHS：p0=6，prox 零和参数 0.001；CAR 强度使用现有自适应机制。S1–S3 沿用原已完成方法设置，不重新调参或采样。CAR 平滑局部对数收缩强度，并不是直接对丰度协方差或系数符号进行平滑。', '',
+        '- S4 只运行 Cox-RHS：p0=6，prox 零和参数 0.001；CAR 强度使用现有自适应机制。S1–S3 保留原数据种子、超参数和采样预算；选定的 Prox-SSLASSO 重跑采用独立可行随机初始化、HMC、λL1=1e-4。CAR 平滑局部对数收缩强度，并不是直接对丰度协方差或系数符号进行平滑。', '',
+        '- 初始化重跑仅针对之前未通过 β 筛查的重复，其余旧结果没有重跑；这是按重复替换后的合并结果，不代表全部重复都采用了新初始化。β 筛查不包含 γ；部分 γ 的 ESS 不足或不可计算，详见统一汇总的逐次诊断。', '',
         '## 指标定义与汇总口径', '',
         '主表使用后验均值估计系数，显示 50 次重复的均值 ± 重复间标准差（SD）。CSV 同时包含 posterior mean、median、MAP，以及 SD、Monte Carlo 标准误（MCSE）和实际重复数。', '',
         '95% credible-interval coverage 使用各系数边际后验 2.5%–97.5% 分位区间，判断真实系数是否落入区间，再分别在全部、6 个信号和 44 个零系数中平均。区间不含 0 则选中该变量；每次重复 empirical FDP=FP/max(TP+FP,1)，汇报其跨重复平均。Coverage/FDP 来自同一组后验区间，不依赖 mean/median/MAP 的点估计选择。', '',
@@ -162,13 +179,13 @@ def main():
         '- S1/、S2/、S3/、S4/ 子目录按设置保存完整汇总。',
         '- [S1–S4 性能图](figures/scenarios_performance.pdf) 与 [S4 配对效应图](figures/S4_paired_effects.pdf)；同时提供 PNG。',
         '- 服务器新实验：`/large_storage/zhangxf/BayesCox/s4_20261012/results/S4`；冻结代码：`/large_storage/zhangxf/BayesCox/s4_20261012/code_v3`。',
-        '- S1–S3 服务器来源：`/large_storage/zhangxf/BayesCox/revision_20261011/results`，具体拟合路径见逐重复 CSV 的 source 列。',
+        '- S1–S3 原服务器来源：`/large_storage/zhangxf/BayesCox/revision_20261011/results`；初始化重跑来源：`/large_storage/zhangxf/BayesCox/revision_initfix_20261012/fits`。逐重复 CSV 的 source/original_source 列标明替换关系。',
         '- 本次运行：`python3 scripts/run_s4_pool.py --root S4_ROOT --julia JULIA_1_11_7 --partitions 6 --workers 18`；恢复时保持 partitions=6。只重算汇总：`bash scripts/refresh_s4_reports.sh S4_ROOT`。',
-        '- 本地汇总：`python scripts/build_scenario_report.py --legacy-reports LEGACY_REPORTS --s4-reports S4_REPORTS --outdir OUTPUT`；作图：`Rscript scripts/plot_scenario_report.R OUTPUT`。',
+        '- 统一汇总可由 `python3 scripts/consolidate_review_results.py build --root results/review_20261012` 重建；作图：`Rscript scripts/plot_scenario_report.R results/review_20261012/scenarios`。',
         '- 汇总脚本不包含后验采样。已有兼容结果继续复用；大型后验 CSV 和中间数据不下载到本地。', '']
     (out/'RESULTS.md').write_text('\n'.join(lines),encoding='utf-8')
     sources=[]
-    for path in (old/'performance_aggregates/metrics_by_run.csv',old/'diagnostic_aggregates_v2/diagnostics_by_run.csv',
+    for path in (metrics_path, diagnostics_path,
                  new/'performance/metrics_by_run.csv',new/'diagnostics/diagnostics_by_run.csv',
                  new/'performance/paired_contrasts.csv',new/'saved_results_audit.json'):
         sources.append(dict(path=str(path),sha256=hashlib.sha256(path.read_bytes()).hexdigest()))

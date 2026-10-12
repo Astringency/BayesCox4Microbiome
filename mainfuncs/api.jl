@@ -412,6 +412,7 @@ function sample_bayes_cox(
         car_degree_scale = car_degree_scale,
         car_kappa_init = car_kappa_init,
         noncentered = noncentered,
+        init = init,
         approx = approx,
         approx_point = approx_point,
         cox_estimate_l2_cost = cox_estimate_l2_cost,

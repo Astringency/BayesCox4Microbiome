@@ -184,6 +184,7 @@ function _sample_ssl_prox_explicit_hmc_gibbs(
                 alpha_prior_kind = alpha_prior_kind,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
+                init = init,
                 progress = progress,
                 progress_desc = "SSLASSO explicit prox HMC-Gibbs",
                 progress_offset = 0,
@@ -218,6 +219,7 @@ function _sample_ssl_prox_explicit_hmc_gibbs(
                         alpha_prior_kind = alpha_prior_kind,
                         prox_root_tol = prox_root_tol,
                         prox_root_maxiter = prox_root_maxiter,
+                        init = init,
                         progress = progress,
                         progress_desc = _chain_progress_desc("SSLASSO explicit prox HMC-Gibbs", c, chains),
                         progress_offset = _chain_progress_offset(c, chains),
@@ -250,6 +252,7 @@ function _sample_ssl_prox_explicit_hmc_gibbs(
                         alpha_prior_kind = alpha_prior_kind,
                         prox_root_tol = prox_root_tol,
                         prox_root_maxiter = prox_root_maxiter,
+                        init = init,
                         progress = progress,
                     )
                 end
@@ -309,27 +312,8 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
     clinical_X !== nothing && append!(names, clinical_names)
     draws = Matrix{Float64}(undef, n_samples, length(names))
     lps = Vector{Float64}(undef, n_samples)
-    u = vcat(zeros(Float64, constraint == :exact ? p - 1 : p), [0.0])
-    clinical_X !== nothing && append!(u, zeros(size(clinical_X, 2)))
     saved = 0
     transitions = NamedTuple[]
-    initial_step = prox_block_step_size === nothing ?
-        (hmc_step_size === nothing ? 1e-3 : hmc_step_size) :
-        prox_block_step_size
-    hmc_state = ProxSSLassoBlockHMCState(
-        length(u);
-        step_size = initial_step,
-        n_leapfrog = hmc_n_leapfrog,
-        inv_metric = prox_block_metric,
-        target_accept = target_accept,
-        adapt_every = prox_block_adapt_every,
-        min_step_size = prox_block_min_step_size,
-        max_step_size = prox_block_max_step_size,
-        divergence_threshold = prox_block_divergence_threshold,
-        frozen = warmup == 0,
-        n_adapts = warmup,
-        auto_step_size = prox_block_step_size === nothing && hmc_step_size === nothing,
-    )
     target = CoxProxSSLassoTarget(
         data,
         prior,
@@ -348,6 +332,24 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
     constraint == :exact && (target = CoxExactZeroTarget(target))
     clinical_X !== nothing && (target = CoxClinicalTarget(target, clinical_X;
         names = clinical_names, prior_df = clinical_prior_df, prior_scale = clinical_prior_scale))
+    u = initial_state(target, rng)
+    initial_step = prox_block_step_size === nothing ?
+        (hmc_step_size === nothing ? 1e-3 : hmc_step_size) :
+        prox_block_step_size
+    hmc_state = ProxSSLassoBlockHMCState(
+        length(u);
+        step_size = initial_step,
+        n_leapfrog = hmc_n_leapfrog,
+        inv_metric = prox_block_metric,
+        target_accept = target_accept,
+        adapt_every = prox_block_adapt_every,
+        min_step_size = prox_block_min_step_size,
+        max_step_size = prox_block_max_step_size,
+        divergence_threshold = prox_block_divergence_threshold,
+        frozen = warmup == 0,
+        n_adapts = warmup,
+        auto_step_size = prox_block_step_size === nothing && hmc_step_size === nothing,
+    )
     prog = _progress_meter(progress, total_iter, "SSLASSO explicit prox HMC-Gibbs"; progress_desc = progress_desc, progress_offset = progress_offset)
     for iter in 1:total_iter
         theta_ref[] = theta
@@ -527,6 +529,7 @@ function _sample_hmc_explicit(
                 alpha_prior_kind = a_kind,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
+                init = init,
                 progress = progress,
                 parallel_chains = run_parallel,
             )
