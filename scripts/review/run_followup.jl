@@ -25,7 +25,7 @@ function followup_command(project, out, job)
         "car-weight-quantile" => .99, "car-precision" => 1,
         "car-strength-prior-a" => 1, "car-strength-prior-b" => 1, "car-distance" => "bray",
         "p0" => "truth", "constraint" => job["constraint"], "prox-sum0-lambda" => job["sum_lambda"],
-        "prox-l1-lambda" => get(job,"l1_lambda",car ? .001 : .0001),
+        "prox-l1-lambda" => get(job,"l1_lambda",1e-6),
         "alpha-prior-kind" => "invgamma", "alpha-prior-shape" => 1, "alpha-prior-scale" => job["p"],
         "sslasso-spike-scale" => .04, "sslasso-slab-scale" => .5,
         "sslasso-theta-a" => 1, "sslasso-theta-b" => 1,

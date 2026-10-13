@@ -1,23 +1,32 @@
 #!/usr/bin/env bash
-# New exact fits only by default. Existing soft_center/prox/none fits are
-# reevaluated with run_revision_diagnostics.sh and audited before primary reuse.
-# To fill a missing or kernel-invalid cell, set PRIORS and CONSTRAINTS and use
-# a separate output root. Preserve historical files.
+
 set -euo pipefail
+
 cd "$(dirname "$0")/../.."
 source scripts/lib/simulation_progress.sh
 simulation_setup
+
 SIM_EXTRA=("$@")
+# /large_storage/zhangxf/BayesCox/
 REVISION_OUT="${REVISION_OUT:-./results/review_runs}"
 OUT_ROOT="${OUT_ROOT:-$REVISION_OUT/zero_sum}"
-REPS="${REPS:-50}"; CHAINS="${CHAINS:-4}"; SAMPLES="${SAMPLES:-5000}"; WARMUP="${WARMUP:-2000}"
-N="${N:-400}"; P="${P:-150}"; NONZERO="${NONZERO:-12}"
+REPS="${REPS:-50}"
+CHAINS="${CHAINS:-4}"
+SAMPLES="${SAMPLES:-5000}"
+WARMUP="${WARMUP:-2000}"
+N="${N:-400}"
+P="${P:-150}"
+NONZERO="${NONZERO:-12}"
+
+# cox-rhs,prox-sslasso
 IFS=',' read -ra revision_priors <<< "${PRIORS:-cox-rhs,prox-sslasso}"
+# exact,none,soft_center,prox
 IFS=',' read -ra revision_constraints <<< "${CONSTRAINTS:-exact}"
+
 for method in "${revision_priors[@]}"; do
     case "$method" in
-        cox-rhs) use_car=true; l1_lambda=0.001 ;;
-        prox-sslasso) use_car=false; l1_lambda=0.0001 ;;
+        cox-rhs) use_car=true; l1_lambda=1e-6 ;; # Unused by Cox-RHS.
+        prox-sslasso) use_car=false; l1_lambda=1e-6 ;;
         *) echo "Unsupported method: $method" >&2; exit 2 ;;
     esac
     for constraint in "${revision_constraints[@]}"; do

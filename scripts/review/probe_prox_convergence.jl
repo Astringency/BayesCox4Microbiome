@@ -15,6 +15,7 @@ function run_probes(source, out, cases)
         "control" => (;),
         "sum0_1e3" => (; prox_sum0_lambda=1e-3),
         "l1_1e3" => (; prox_l1_lambda=1e-3),
+        "l1_1e4" => (; prox_l1_lambda=1e-4),
         "l1_1e6" => (; prox_l1_lambda=1e-6),
         "alpha_250" => (; alpha_prior_scale=250.0),
         "spike_010" => (; spike_scale=0.1),
@@ -26,7 +27,7 @@ function run_probes(source, out, cases)
         isfile(joinpath(dest,"summary.json")) && continue
         mkpath(dest)
         cfg = merge((; spike_scale=0.04, slab_scale=0.5, alpha_prior_scale=50.0,
-            prox_sum0_lambda=1e-6, prox_l1_lambda=1e-4, sampler=:hmc,
+            prox_sum0_lambda=1e-6, prox_l1_lambda=1e-6, sampler=:hmc,
             hmc_n_leapfrog=100), configs[name])
         println("START ",name); flush(stdout)
         timed = @timed sample_bayes_cox(X, df.time, df.event;

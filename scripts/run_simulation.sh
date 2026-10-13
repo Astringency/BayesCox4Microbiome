@@ -24,7 +24,7 @@ for constraint in "${constraint_vals[@]}"; do
     simulation_job "$label" "$outdir" \
         --n "$n" --p "$p" --nonzero "$nonzero" --baseline "$baseline" \
         --reps "$reps" --priors "$priors" --constraint "$constraint" \
-        --sampler "${SAMPLER:-hmc}" --nuts-backend explicit --hmc-n-leapfrog "${HMC_N_LEAPFROG:-150}" \
+        --sampler "${SAMPLER:-hmc}" --nuts-backend explicit --hmc-n-leapfrog "${HMC_N_LEAPFROG:-300}" \
         --samples "${SAMPLES:-5000}" --warmup "${WARMUP:-2000}" --thin 1 --chains "${CHAINS:-4}" \
         --multichains true --init "${INIT:-$init}" --target-accept "${TARGET_ACCEPT:-0.8}" --noncentered true --seed "${SEED:-1}" \
         --approx false --approx-point PMLE --use-car "${USE_CAR:-true}" --progress true \

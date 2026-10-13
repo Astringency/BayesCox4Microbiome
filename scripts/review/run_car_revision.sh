@@ -22,7 +22,7 @@ graph_values="${GRAPHS:-independent,correct,misspecified}"
 IFS=',' read -ra revision_graphs <<< "$graph_values"
 for graph in "${revision_graphs[@]}"; do
     use_car=true; [[ "$graph" != independent ]] || use_car=false
-    sum_lambda=1e-3; l1_lambda=0.001
+    sum_lambda=1e-3; l1_lambda=1e-6 # L1 smoothing is unused by Cox-RHS.
     simulation_job "${METHOD}_${graph}" "$car_out/$METHOD/$graph" \
         --reps "$REPS" "${rep_args[@]}" --n 200 --p 50 --nonzero 6 --baseline weibull --scenario "$SCENARIO" --car-graph "$graph" \
         --priors "$METHOD" --sampler "${SAMPLER:-hmc}" --nuts-backend explicit --hmc-n-leapfrog "${HMC_N_LEAPFROG:-100}" \
