@@ -1,6 +1,6 @@
 module T1DPartitionTests
 using Test
-include(joinpath(@__DIR__,"..","scripts","run_t1d_cv_partition.jl"))
+include(joinpath(@__DIR__,"..","scripts","lib","realdata","t1d_review.jl"))
 
 @testset "T1D partitioned folds match serial nested CV" begin
     input=joinpath(@__DIR__,"..","data","T1D.csv")

@@ -155,6 +155,7 @@ function simulation_cli_valid_keys()
     return vcat(
         (
             "outdir",
+            "progress-file",
             "reps",
             "rep-ids",
             "n",
@@ -177,6 +178,18 @@ function simulation_cli_valid_keys()
     )
 end
 
+function write_simulation_progress(path, completed, total)
+    isempty(path) && return
+    try
+        mkpath(dirname(abspath(path)))
+        temporary = tempname(dirname(abspath(path)))
+        write(temporary, "$(completed)\t$(total)\n")
+        mv(temporary, path; force=true)
+    catch err
+        @warn "Could not update launcher progress" path exception=(err, catch_backtrace())
+    end
+end
+
 function main()
     args = parse_cli_args()
     require_known_args!(args, simulation_cli_valid_keys())
@@ -197,11 +210,11 @@ function main()
     diagnostic_kwargs = diagnostic_cli_options(args)
     scenario_kwargs = simulation_scenario_parameters(args)
     car_graph = Symbol(arg(args, "car-graph", "abundance"))
-    car_graph in (:abundance, :independent, :correct, :misspecified) ||
-        throw(ArgumentError("car-graph must be abundance, independent, correct, or misspecified"))
-    if car_graph in (:correct, :misspecified)
-        scenario_kwargs.scenario in (:phylo, :phylo_bm) || throw(ArgumentError("planted CAR graphs require --scenario phylo or S4"))
-        car_kwargs.use_car || throw(ArgumentError("correct/misspecified graphs require --use-car true"))
+    car_graph in (:abundance, :independent, :correct, :misspecified, :signal_separated) ||
+        throw(ArgumentError("car-graph must be abundance, independent, correct, misspecified, or signal_separated"))
+    if car_graph in (:correct, :misspecified, :signal_separated)
+        scenario_kwargs.scenario == :phylo_bm || throw(ArgumentError("planted CAR graphs require --scenario S4"))
+        car_kwargs.use_car || throw(ArgumentError("planted graphs require --use-car true"))
         all(p -> occursin("hs", lowercase(p)), priors) ||
             throw(ArgumentError("the existing CAR prior applies only to HS/RHS methods"))
     end
@@ -292,6 +305,10 @@ function main()
     figs_dir = ensure_dir(joinpath(outdir, "figures"))
     all_metrics = DataFrame()
     all_fd = DataFrame()
+    progress_file = arg(args, "progress-file", "")
+    completed_fits = 0
+    total_fits = length(rep_ids) * length(ns) * length(ps) * length(nonzeros) * length(baselines) * length(priors)
+    write_simulation_progress(progress_file, completed_fits, total_fits)
 
     for rep in rep_ids, n in ns, p in ps, nonzero in nonzeros, baseline in baselines
         sim_seed = seed0 + rep - 1
@@ -310,15 +327,29 @@ function main()
         dgp_metadata = scenario_metadata(sim; scenario_kwargs...)
         dgp_metadata["car_graph"] = string(car_graph)
         simulation_car_weights = nothing
-        if sim.scenario in (:phylo, :phylo_bm)
+        if sim.scenario == :phylo_bm
             phylogeny = scenario_phylogeny(p, sim.nonzero_index, sim.scenario)
-            phylogeny_dir = sim.scenario == :phylo_bm ? joinpath(outdir, "phylogeny", "p$(p)_nz$(nonzero)") : joinpath(outdir, "phylogeny")
+            phylogeny_dir = joinpath(outdir, "phylogeny", "p$(p)_nz$(nonzero)")
             save_planted_phylogeny(phylogeny_dir, phylogeny)
             simulation_car_weights = car_graph == :correct ? phylogeny.weights :
-                car_graph == :misspecified ? phylogeny.misspecified_weights : nothing
+                car_graph == :misspecified ? phylogeny.misspecified_weights :
+                car_graph == :signal_separated ? phylogeny.weights : nothing
+            if car_graph in (:correct, :misspecified, :signal_separated)
+                dgp_metadata["car_graph_uses_simulation_truth"] = true
+                dgp_metadata["car_graph_cross_signal_edges"] = count(
+                    simulation_car_weights[i,j] > 0 && iszero(sim.beta[i]) != iszero(sim.beta[j])
+                    for j in 2:p for i in 1:(j-1))
+                dgp_metadata["car_removed_cross_signal_edges"] = count(
+                    phylogeny.raw_tree_weights[i,j] > 0 && phylogeny.weights[i,j] == 0
+                    for j in 2:p for i in 1:(j-1))
+            end
+            if car_graph == :signal_separated
+                CSV.write(joinpath(phylogeny_dir, "signal_separated_weights.csv"),
+                    DataFrame(simulation_car_weights, :auto))
+            end
         end
+        save_scenario_observations(sim, joinpath(outdir, "training_data"), "rep$(rep)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)")
         if sim.scenario != :baseline
-            save_scenario_observations(sim, joinpath(outdir, "training_data"), "rep$(rep)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)")
             save_scenario_observations(test_sim, joinpath(outdir, "test_data"), "rep$(rep)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)_measurement")
         end
         test_path = joinpath(outdir, "test_data", "rep$(rep)_$(baseline)_n$(n)_p$(p)_nz$(nonzero).csv")
@@ -475,6 +506,7 @@ function main()
                 "n_samples" => n_samples,
                 "warmup" => warmup,
                 "chains" => chains,
+                "target_accept" => target_accept,
                 "hmc_n_leapfrog" => hmc_n_leapfrog,
                 "hmc_step_size" => hmc_step_size,
                 "max_depth" => max_depth,
@@ -561,6 +593,8 @@ function main()
                         )
                     end
                     println("[SKIP] $label already has reusable outputs.")
+                    completed_fits += 1
+                    write_simulation_progress(progress_file, completed_fits, total_fits)
                     continue
                 catch err
                     # S4 saved posteriors must not be silently replaced when
@@ -819,6 +853,8 @@ function main()
             end
             append!(all_metrics, metrics; cols = :union)
             append!(all_fd, fd_table; cols = :union)
+            completed_fits += 1
+            write_simulation_progress(progress_file, completed_fits, total_fits)
         end
     end
 

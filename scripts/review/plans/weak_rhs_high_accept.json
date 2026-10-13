@@ -1,0 +1,51 @@
+{
+  "jobs": [
+    {
+      "tag": "high_accept/cox-rhs/rep01",
+      "method": "cox-rhs",
+      "constraint": "prox",
+      "n": 200,
+      "p": 50,
+      "nonzero": 6,
+      "baseline": "weibull",
+      "reps": [
+        1
+      ],
+      "scenario": "weak",
+      "arm": "high_accept",
+      "samples": 20000,
+      "warmup": 10000,
+      "leapfrog": 300,
+      "target_accept": 0.99,
+      "sum_lambda": 0.001,
+      "init": "rand",
+      "sampler": "hmc",
+      "l1_lambda": 0.001
+    },
+    {
+      "tag": "high_accept/cox-rhs/rep28",
+      "method": "cox-rhs",
+      "constraint": "prox",
+      "n": 200,
+      "p": 50,
+      "nonzero": 6,
+      "baseline": "weibull",
+      "reps": [
+        28
+      ],
+      "scenario": "weak",
+      "arm": "high_accept",
+      "samples": 20000,
+      "warmup": 10000,
+      "leapfrog": 300,
+      "target_accept": 0.99,
+      "sum_lambda": 0.001,
+      "init": "rand",
+      "sampler": "hmc",
+      "l1_lambda": 0.001
+    }
+  ],
+  "reason": "Long and trajectory pilots improve Rhat/ESS but leave RHS sampling divergences. Test higher target acceptance, same model and seeds; all attempts retained.",
+  "expected_fits": 2,
+  "runner_sha256": "70a46a7963d56d9ad1c7e1b6c33d47bbb326e95af7493390e5689132c74f0bd8"
+}

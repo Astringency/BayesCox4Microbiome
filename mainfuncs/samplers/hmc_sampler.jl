@@ -20,7 +20,7 @@ function _sample_explicit_hmc_one(
     hmc_step_size === nothing || _check_positive(hmc_step_size, "hmc_step_size")
 
     initial = _prepare_explicit_initial(target, initial)
-    init = initial === nothing ? initial_state(target) : collect(Float64, initial)
+    init = initial === nothing ? initial_state(target, rng) : collect(Float64, initial)
     d = dimension(target)
     length(init) == d || throw(DimensionMismatch("initial length must match target dimension."))
     isfinite(logdensity(target, init)) ||
@@ -483,6 +483,7 @@ function _sample_hmc_explicit(
             prior,
             data,
             initial;
+            rng = rng,
             noncentered = noncentered,
             init = init,
             car_weights = effective_car_weights,
@@ -495,6 +496,7 @@ function _sample_hmc_explicit(
             prior,
             data,
             initial;
+            rng = rng,
             init = init,
             car_weights = effective_car_weights,
             sample_car_strength = false,

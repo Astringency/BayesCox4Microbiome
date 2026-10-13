@@ -5,9 +5,9 @@ function resolve_simulation_scenario(value)
     s = lowercase(string(value))
     aliases = Dict("baseline" => :baseline, "s1" => :weak, "weak" => :weak,
         "s2" => :correlated_null, "correlated_null" => :correlated_null,
-        "s3" => :counts, "counts" => :counts, "phylo" => :phylo,
+        "s3" => :counts, "counts" => :counts, "phylo" => :phylo_bm,
         "s4" => :phylo_bm, "phylo_bm" => :phylo_bm)
-    haskey(aliases, s) || throw(ArgumentError("scenario must be baseline, S1/weak, S2/correlated_null, S3/counts, S4/phylo_bm, or legacy phylo"))
+    haskey(aliases, s) || throw(ArgumentError("scenario must be baseline, S1/weak, S2/correlated_null, S3/counts, or S4 (aliases: phylo, phylo_bm)"))
     return aliases[s]
 end
 
@@ -45,7 +45,7 @@ function scenario_latent_parameters(p, idx, scenario; null_correlation = 0.6)
         # Signal taxa have moderate abundance; this is not the weak-signal case.
         mu .= collect(range(-7.5, 0.0; length = p))
         mu[idx] .= 0.0
-    elseif scenario in (:phylo, :phylo_bm)
+    elseif scenario == :phylo_bm
         covariance = scenario_phylogeny(p, idx, scenario).covariance
     end
     return (mu = mu, covariance = covariance, paired_nulls = paired_nulls)
@@ -79,11 +79,6 @@ function scenario_metadata(sim; weak_multiplier = 0.35, null_correlation = 0.6,
         result["latent_mean_profile"] = "linear -7.5 to 0; signal means 0"
         result["measurement_model"] = "Multinomial(depth, latent softmax abundance)"
         result["zero_replacement"] = "half training minimum positive abundance, then closure"
-    elseif sim.scenario == :phylo
-        result["phylogenetic_covariance_range"] = 4.0
-        result["phylogenetic_graph_range"] = 2.0
-        result["phylogenetic_max_distance"] = 4
-        result["phylogenetic_misspec_seed"] = 9017
     elseif sim.scenario == :phylo_bm
         phylo = scenario_phylogeny(length(sim.beta), sim.nonzero_index, sim.scenario)
         merge!(result, brownian_phylogeny_metadata(phylo))
@@ -93,11 +88,13 @@ end
 
 """Planted balanced phylogeny, with signal taxa in neighboring leaves.
 
-The graph is known from the generating tree, not estimated from observed
-abundances. A fixed leaf-label permutation preserves the graph's spectrum,
-degrees and edge weights while changing which taxa are neighbors.
+Brownian abundances use the full generating tree. The S4 correct prior graph
+retains tree-neighborhood edges only within the planted signal/null classes.
+This support-compatible graph is a simulation assumption, not an estimate from
+observed outcomes. A fixed leaf-label permutation creates the wrong graph while
+preserving the spectrum, degree distribution and edge weights.
 """
-function planted_phylogeny(p::Integer, signal_indices; covariance_model::Symbol = :exponential)
+function planted_phylogeny(p::Integer, signal_indices; covariance_model::Symbol = :brownian)
     p >= 2 || throw(ArgumentError("phylogeny needs at least two taxa"))
     covariance_model in (:exponential, :brownian) || throw(ArgumentError("unsupported phylogenetic covariance"))
     order = vcat(collect(Int, signal_indices), setdiff(1:p, signal_indices))
@@ -128,7 +125,9 @@ function planted_phylogeny(p::Integer, signal_indices; covariance_model::Symbol 
     branch_lengths = ones(length(children))
     shared_path = incidence * Diagonal(branch_lengths) * incidence'
     covariance = covariance_model == :brownian ? Symmetric(shared_path / height) : Symmetric(exp.(-D / 4.0))
-    W = [i != j && D[i,j] <= 4 ? exp(-D[i,j]/2.0) : 0.0 for i in 1:p, j in 1:p]
+    raw_weights = [i != j && D[i,j] <= 4 ? exp(-D[i,j]/2.0) : 0.0 for i in 1:p, j in 1:p]
+    support = [i in signal_indices for i in 1:p]
+    W = signal_separated_car_weights(raw_weights, support)
     permutation = randperm(MersenneTwister(9017), p)
     W_wrong = W[permutation, permutation]
     # Collapse unary nodes when exporting Newick, preserving total branch length.
@@ -141,19 +140,43 @@ function planted_phylogeny(p::Integer, signal_indices; covariance_model::Symbol 
     end
     newick = subtree(1)[1] * ";"
     return (leaf_order = order, distance = D, covariance = covariance, weights = W,
+        raw_tree_weights = raw_weights,
         misspecified_weights = W_wrong, permutation = permutation,
         covariance_model = covariance_model, height = height, edge_parent = children .÷ 2,
         edge_child = children, branch_lengths = branch_lengths, incidence = incidence,
         shared_path = shared_path, newick = newick)
 end
 
-scenario_phylogeny(p, indices, scenario) = planted_phylogeny(p, indices;
-    covariance_model = resolve_simulation_scenario(scenario) == :phylo_bm ? :brownian : :exponential)
+function scenario_phylogeny(p, indices, scenario)
+    resolve_simulation_scenario(scenario) == :phylo_bm ||
+        throw(ArgumentError("planted simulation phylogeny requires S4"))
+    return planted_phylogeny(p, indices; covariance_model = :brownian)
+end
+
+"""Construct a support-compatible simulation graph using known beta/support.
+
+The retained weights are unchanged. Adaptive CAR recomputes its degree scale
+and graph rank from this graph, following the ordinary fitting implementation.
+"""
+function signal_separated_car_weights(weights::AbstractMatrix, beta::AbstractVector)
+    p = length(beta)
+    size(weights) == (p, p) || throw(DimensionMismatch("weights and beta dimensions differ"))
+    all(isfinite, weights) && all(isfinite, beta) || throw(ArgumentError("weights and beta must be finite"))
+    issymmetric(weights) && all(>=(0), weights) || throw(ArgumentError("weights must be symmetric and nonnegative"))
+    result = Matrix{Float64}(weights)
+    for j in 2:p, i in 1:(j-1)
+        if iszero(beta[i]) != iszero(beta[j])
+            result[i,j] = result[j,i] = 0.0
+        end
+    end
+    return result
+end
 
 const BROWNIAN_DGP_METADATA_KEYS = ("dgp_version", "phylogenetic_covariance_model",
     "phylogenetic_root_state", "phylogenetic_tree_height", "phylogenetic_diffusion_rate",
     "phylogenetic_tree_sha256", "phylogenetic_covariance_sha256", "phylogenetic_graph_sha256",
-    "phylogenetic_graph_range", "phylogenetic_max_distance", "phylogenetic_misspec_seed")
+    "phylogenetic_graph_range", "phylogenetic_max_distance", "phylogenetic_misspec_seed",
+    "phylogenetic_graph_version", "phylogenetic_graph_support_compatible")
 
 function brownian_phylogeny_metadata(phylo)
     phylo.covariance_model == :brownian || error("expected Brownian phylogeny")
@@ -163,6 +186,8 @@ function brownian_phylogeny_metadata(phylo)
         "phylogenetic_diffusion_rate" => 1.0 / phylo.height,
         "phylogenetic_tree_sha256" => bytes2hex(sha256(phylo.newick)),
         "phylogenetic_covariance_sha256" => digest(phylo.covariance),
+        "phylogenetic_graph_version" => "support_compatible_v2",
+        "phylogenetic_graph_support_compatible" => true,
         "phylogenetic_graph_sha256" => digest(vcat(vec(phylo.weights), vec(phylo.misspecified_weights))),
         "phylogenetic_graph_range" => 2.0, "phylogenetic_max_distance" => 4,
         "phylogenetic_misspec_seed" => 9017)
@@ -177,7 +202,8 @@ function save_planted_phylogeny(directory, phylo)
             JSON.parsefile(path) == manifest || error("incompatible saved phylogeny; use a new output directory")
             if all(isfile(joinpath(directory, name)) for name in ("tree.newick", "edges.csv",
                 "patristic_distance.csv", "correct_weights.csv", "misspecified_weights.csv",
-                "latent_covariance.csv", "leaf_order.csv", "misspecification_permutation.csv"))
+                "latent_covariance.csv", "leaf_order.csv", "misspecification_permutation.csv",
+                "raw_tree_weights.csv"))
                 return nothing
             end
         elseif isfile(joinpath(directory, "latent_covariance.csv"))
@@ -185,6 +211,7 @@ function save_planted_phylogeny(directory, phylo)
         end
     end
     for (name, matrix) in (("patristic_distance", phylo.distance), ("correct_weights", phylo.weights),
+        ("raw_tree_weights", phylo.raw_tree_weights),
         ("misspecified_weights", phylo.misspecified_weights), ("latent_covariance", phylo.covariance))
         CSV.write(joinpath(directory, name * ".csv"), DataFrame(matrix, Symbol.("x" .* string.(1:size(matrix,2)))))
     end

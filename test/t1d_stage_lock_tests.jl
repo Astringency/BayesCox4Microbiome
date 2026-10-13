@@ -1,6 +1,6 @@
 # Linux concurrency test only; no posterior is sampled.
 using Test
-include(isempty(ARGS) ? joinpath(@__DIR__, "..", "scripts", "run_t1d_cv_partition.jl") : ARGS[1])
+include(isempty(ARGS) ? joinpath(@__DIR__, "..", "scripts", "lib", "realdata", "t1d_review.jl") : ARGS[1])
 
 @testset "T1D stage ownership lock" begin
     @test Sys.islinux()

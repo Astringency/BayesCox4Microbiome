@@ -89,6 +89,7 @@ function _noncentered_initial_state(
         prior,
         p,
         n_events;
+        rng = rng,
         n_obs = n_obs,
         beta0 = zeros(Float64, p),
         car_weights = car_weights,

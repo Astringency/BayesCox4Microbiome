@@ -3,3 +3,6 @@ results/*
 check/
 .claude/
 __pycache__/
+
+# Local audit tools, execution history and script backups
+/audit/

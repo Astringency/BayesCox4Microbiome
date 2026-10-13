@@ -631,6 +631,28 @@ function main()
     println("Real-data outputs written to $(abspath(outdir))")
 end
 
-if abspath(PROGRAM_FILE) == abspath(@__FILE__)
-    main()
+function analyze_real_data_main()
+    workflow="standard"
+    index=findfirst(==("--workflow"),ARGS)
+    if index !== nothing
+        index < length(ARGS) || error("--workflow needs a value")
+        workflow=ARGS[index+1]
+        deleteat!(ARGS,index:index+1)
+    end
+    if workflow=="standard"
+        main()
+    elseif workflow=="t1d-review"
+        include(joinpath(@__DIR__,"lib","realdata","t1d_review.jl"))
+        Base.invokelatest(t1d_review_main)
+    elseif workflow=="loo"
+        include(joinpath(@__DIR__,"lib","realdata","loo.jl"))
+        Base.invokelatest(t1d_loo_main)
+    elseif workflow=="cv-replay"
+        include(joinpath(@__DIR__,"lib","realdata","cv_replay.jl"))
+        Base.invokelatest(realdata_cv_replay_main)
+    else
+        error("Unknown workflow: $workflow")
+    end
 end
+
+abspath(PROGRAM_FILE) == abspath(@__FILE__) && analyze_real_data_main()

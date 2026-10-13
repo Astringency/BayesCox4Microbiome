@@ -147,7 +147,7 @@ function main()
         )
 
         if save_data
-            if sim.scenario in (:phylo, :phylo_bm)
+            if sim.scenario == :phylo_bm
                 save_planted_phylogeny(joinpath(outdir, "phylogeny", "p$(p)_nz$(nonzero)"),
                     scenario_phylogeny(p, sim.nonzero_index, sim.scenario))
             end

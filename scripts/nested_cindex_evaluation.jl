@@ -23,7 +23,8 @@ end
 
 function _select_inner_cindex(X, time, event; prior, configs, base_sampler_kwargs,
     base_prior_kwargs, base_car_kwargs, base_model_kwargs, cv_folds, seed,
-    fit_function, score_function, clinical_X = nothing, checkpoint_dir = nothing)
+    fit_function, score_function, clinical_X = nothing, checkpoint_dir = nothing,
+    config_indices = eachindex(configs))
     folds = _kfold_indices(event; k = cv_folds, seed)
     checkpoint_dir === nothing || _loo_checkpoint_manifest(
         clinical_X === nothing ? X : hcat(X, clinical_X), time, event,
@@ -33,6 +34,7 @@ function _select_inner_cindex(X, time, event; prior, configs, base_sampler_kwarg
     rows = Dict{Symbol,Any}[]
     scores = fill(-Inf, length(configs))
     for (config_index, config) in enumerate(configs)
+        config_index in config_indices || continue
         values = Float64[]
         for (fold, val_idx) in enumerate(folds)
             train_idx = setdiff(eachindex(time), val_idx)

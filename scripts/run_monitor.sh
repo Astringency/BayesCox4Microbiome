@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
-cd "$(dirname "$0")/.."
-
-unset LD_LIBRARY_PATH
-unset LIBRARY_PATH
-unset CPATH
-unset C_INCLUDE_PATH
-unset CPLUS_INCLUDE_PATH
-unset PKG_CONFIG_PATH
-
-export GKSwstype=100
-
-echo ">>> SIMULATION MONITOR prox"
-julia +1.11.7 --project=. ./scripts/monitor_simulation.jl --root /large_storage/zhangxf/BayesCox/results/simulation/prox/
-
-echo ">>> SIMULATION MONITOR soft centers"
-julia +1.11.7 --project=. ./scripts/monitor_simulation.jl --root /large_storage/zhangxf/BayesCox/results/simulation/soft_center/
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+source scripts/lib/common.sh
+if [[ "${1:-}" == --help ]]; then
+    echo 'Usage: bash scripts/run_monitor.sh [--root DIR] [Julia options]; ROOTS=path1,path2 for multiple roots'
+    exit 0
+fi
+for value in "$@"; do
+    if [[ "$value" == --root ]]; then run_julia scripts/monitor_simulation.jl "$@"; exit; fi
+done
+IFS=',' read -ra roots <<< "${ROOTS:-results/simulation/prox,results/simulation/soft_center}"
+for root in "${roots[@]}"; do
+    run_julia scripts/monitor_simulation.jl --root "$root" "$@"
+done

@@ -11,6 +11,7 @@ end
     @test Matrix(small.covariance)[order, order] == expected
     @test small.newick == "((x3:1,x1:1):1,(x2:1,x4:1):1);"
     @test resolve_simulation_scenario("S4") == :phylo_bm
+    @test resolve_simulation_scenario("phylo") == :phylo_bm
     beta, idx = true_beta(50, 6)
     phylo = scenario_phylogeny(50, idx, :S4)
     @test phylo.height == 6
@@ -20,7 +21,7 @@ end
     @test phylo.covariance == phylo.incidence * Diagonal(phylo.branch_lengths) * phylo.incidence' / phylo.height
     @test all(>(0), phylo.branch_lengths)
     @test vec(sum(phylo.incidence; dims=2)) == fill(phylo.height, 50)
-    @test phylo.covariance != planted_phylogeny(50, idx).covariance
+    @test phylo.covariance != planted_phylogeny(50, idx; covariance_model=:exponential).covariance
     @test phylo.weights == planted_phylogeny(50, idx).weights
     @test phylo.weights != phylo.misspecified_weights
     @test eigvals(Symmetric(phylo.weights)) ≈ eigvals(Symmetric(phylo.misspecified_weights)) atol=1e-13
@@ -44,7 +45,9 @@ end
     @test size(test_sim.X) == (1000, 50)
     @test test_sim.X[1:200, :] != sim.X
     @test occursin("phylo_bm", test_sim.test_seed)
-    @test test_sim.test_seed != generate_simulation_test_data(200, 50, 6; scenario=:phylo, seed=17).test_seed
+    alias_sim = generate_simulation_data(200, 50, 6; scenario=:phylo, seed=17)
+    @test alias_sim.X == sim.X && alias_sim.time == sim.time && alias_sim.event == sim.event
+    @test test_sim.test_seed == generate_simulation_test_data(200, 50, 6; scenario=:phylo, seed=17).test_seed
     meta = scenario_metadata(sim)
     @test meta == scenario_metadata(test_sim)
     mktempdir() do dir
@@ -65,7 +68,33 @@ end
         write(joinpath(dir, "metadata.json"), JSON.json(merge(meta, Dict("dgp_version" => "other"))))
         @test !simulation_metadata_matches_typed(dir, meta)
         @test_throws ErrorException save_planted_phylogeny(dir, scenario_phylogeny(50, reverse(idx), :S4))
+        # Renaming the CLI alias must not make old exponential results reusable.
+        write(joinpath(dir,"metadata.json"),JSON.json(merge(meta,Dict("scenario"=>"phylo"))))
+        @test !simulation_metadata_matches_typed(dir,meta)
     end
+end
+
+@testset "S4 correct graph has no signal-null edges" begin
+    beta, idx = true_beta(50,6)
+    phylo = scenario_phylogeny(50,idx,:S4)
+    w = phylo.raw_tree_weights
+    before = copy(w)
+    cut = signal_separated_car_weights(w,beta)
+    removed = [(i,j) for j in 2:50 for i in 1:(j-1) if w[i,j]>0 && cut[i,j]==0]
+    @test Set(removed) == Set([(1,26),(2,26),(1,28),(2,28)])
+    @test w == before
+    @test cut == phylo.weights
+    @test count(>(0),triu(cut,1)) == 69
+    @test all(iszero(cut[i,j]) for i in 1:50 for j in 1:50 if iszero(beta[i])!=iszero(beta[j]))
+    @test any(phylo.misspecified_weights[i,j]>0 for i in 1:50 for j in 1:50 if iszero(beta[i])!=iszero(beta[j]))
+    @test sort(vec(cut)) == sort(vec(phylo.misspecified_weights))
+    @test BayesCox4Micro._car_rank(BayesCox4Micro._prepare_car_weights(phylo.misspecified_weights,50)) == 36
+    @test signal_separated_car_weights(cut,beta) == cut
+    @test issymmetric(cut) && all(iszero,diag(cut))
+    @test all(cut[i,j]==w[i,j] for i in 1:50 for j in 1:50 if iszero(beta[i])==iszero(beta[j]))
+    @test BayesCox4Micro._car_rank(BayesCox4Micro._prepare_car_weights(w,50)) == 37
+    @test BayesCox4Micro._car_rank(BayesCox4Micro._prepare_car_weights(cut,50)) == 36
+    @test_throws DimensionMismatch signal_separated_car_weights(w,beta[1:4])
 end
 
 @testset "Planted phylogeny and misspecified graph" begin

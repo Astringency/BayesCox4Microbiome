@@ -1,0 +1,134 @@
+{
+  "suite": "highdim_l1_sensitivity_v1",
+  "jobs": [
+    {
+      "tag": "l1_1e6/gompertz_n200_p150_nz6/rep08",
+      "arm": "l1_1e6",
+      "method": "prox-sslasso",
+      "constraint": "prox",
+      "n": 200,
+      "p": 150,
+      "nonzero": 6,
+      "baseline": "gompertz",
+      "reps": [
+        8
+      ],
+      "scenario": "baseline",
+      "sampler": "hmc",
+      "init": "rand",
+      "samples": 5000,
+      "warmup": 2000,
+      "leapfrog": 100,
+      "target_accept": 0.8,
+      "sum_lambda": 0.001,
+      "l1_lambda": 1e-06
+    },
+    {
+      "tag": "l1_1e6/gompertz_n200_p150_nz12/rep26",
+      "arm": "l1_1e6",
+      "method": "prox-sslasso",
+      "constraint": "prox",
+      "n": 200,
+      "p": 150,
+      "nonzero": 12,
+      "baseline": "gompertz",
+      "reps": [
+        26
+      ],
+      "scenario": "baseline",
+      "sampler": "hmc",
+      "init": "rand",
+      "samples": 5000,
+      "warmup": 2000,
+      "leapfrog": 100,
+      "target_accept": 0.8,
+      "sum_lambda": 0.001,
+      "l1_lambda": 1e-06
+    },
+    {
+      "tag": "l1_1e6/gompertz_n400_p150_nz6/rep15",
+      "arm": "l1_1e6",
+      "method": "prox-sslasso",
+      "constraint": "prox",
+      "n": 400,
+      "p": 150,
+      "nonzero": 6,
+      "baseline": "gompertz",
+      "reps": [
+        15
+      ],
+      "scenario": "baseline",
+      "sampler": "hmc",
+      "init": "rand",
+      "samples": 5000,
+      "warmup": 2000,
+      "leapfrog": 100,
+      "target_accept": 0.8,
+      "sum_lambda": 0.001,
+      "l1_lambda": 1e-06
+    },
+    {
+      "tag": "l1_1e4/weibull_n200_p150_nz6/rep01",
+      "arm": "l1_1e4",
+      "method": "prox-sslasso",
+      "constraint": "prox",
+      "n": 200,
+      "p": 150,
+      "nonzero": 6,
+      "baseline": "weibull",
+      "reps": [
+        1
+      ],
+      "scenario": "baseline",
+      "sampler": "hmc",
+      "init": "rand",
+      "samples": 5000,
+      "warmup": 2000,
+      "leapfrog": 100,
+      "target_accept": 0.8,
+      "sum_lambda": 0.001,
+      "l1_lambda": 0.0001
+    },
+    {
+      "tag": "l1_1e6/weibull_n200_p150_nz6/rep01",
+      "arm": "l1_1e6",
+      "method": "prox-sslasso",
+      "constraint": "prox",
+      "n": 200,
+      "p": 150,
+      "nonzero": 6,
+      "baseline": "weibull",
+      "reps": [
+        1
+      ],
+      "scenario": "baseline",
+      "sampler": "hmc",
+      "init": "rand",
+      "samples": 5000,
+      "warmup": 2000,
+      "leapfrog": 100,
+      "target_accept": 0.8,
+      "sum_lambda": 0.001,
+      "l1_lambda": 1e-06
+    }
+  ],
+  "user_request": "试一下 --prox-sum0-lambda 1e-3 和 --prox-l1-lambda 1e-6 这组设置是否能够缓解收敛性",
+  "purpose": "Test one requested smoothing change before any bulk grid restart.",
+  "selection": "Three largest beta-Rhat seeds in completed Gompertz high-dimensional cells, plus a prespecified Weibull seed 1. No performance-based selection.",
+  "comparison": "Reuse immutable corrected-grid Gompertz HMC/rand outputs at lambda_L1=1e-4. Run both lambda_L1 values for the new Weibull case. Verify actual training/test arrays and truth match.",
+  "controlled_settings": "Only lambda_L1 changes. Fixed lambda_sum=1e-3, HMC L=100, target=0.8, warmup=2000, retained=5000 per chain, four random-start chains, no thinning, same DGP/seeds/priors.",
+  "fixed_prior": "SSL spike=0.04, slab=0.5, theta Beta(1,1), alpha IG(1,p); no CAR.",
+  "caveats": [
+    "lambda_L1 changes the Moreau-smoothed target, so this is a smoothing sensitivity experiment, not a purely numerical sampler change.",
+    "Four cases cannot establish convergence across the full grid. All runs and failures retained.",
+    "Reuse only corrected-kernel random-start comparisons, not historical fits with the gamma-copy and zero-start defects.",
+    "No NUTS, RHS or Exponential runs. Suspended grid and cancelled NUTS plans remain inactive."
+  ],
+  "diagnostic_gates": {
+    "continuous": "Every beta/eta/theta: finite rank Rhat<=1.01 and bulk/tail ESS>=400.",
+    "gamma": "Strict all-parameter screening unchanged. Separately report gamma Rhat/bulk ESS, chain occupancy/switches, PIP MCSE and unavailable tail ESS.",
+    "integration": "Sampling divergences, acceptance probability and step sizes reported separately.",
+    "decision": "Report whether the requested setting improves or worsens convergence; do not resume the bulk grid automatically."
+  },
+  "planner_sha256": "0b23bbb3343d5407afcf29f6320f83bc7aceed56a192dad90c7db840a8f9006c"
+}
