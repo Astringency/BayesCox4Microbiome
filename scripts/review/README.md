@@ -72,3 +72,16 @@ Cox-RHS 的 prox 基线仍使用文件锁，避免同时写入同一结果目录
 
 BCCox 已移到 `BayesCox4micro_baseline` R 项目，并自带 50 组配对 S4 数据、
 图和作者原始代码；从其 `simulation_bccox_survival_analysis.R` 运行。
+
+
+2026-10-13 双服务器重跑使用 `run_review_rerun.py` 调度现有 Shell 入口。
+固定协议为 2,400 次 Weibull/Gompertz 主实验与 900 次变更后的补充实验。
+`plan` 生成清单，`validate` 检查每个入口的实际命令，`work --host 193|197`
+执行共享队列。193 先完成补充再领取剩余主实验；已领取的批次不会因超时自动重启。
+每个批次退出后核对种子、实际 metadata 与汇总/诊断文件；收敛未通过仍保留。
+部署时必须冻结完整项目和依赖，并给出对应服务器的 `--root` 与 Julia 1.11.7
+绝对路径。现有部署及 PID 见 `results/review_20261012/rerun_20261013/deployment.json`。
+
+审计、结果汇总、表格生成和同步工具已移到 [audit/review](../../audit/review/README.md)。
+运行调度器 `run_review_rerun.py` 直接执行实验，仍保留在本目录。
+2026-10-14 已完成本轮 3300 次新拟合；本次仅整理工具和报告，不启动采样。

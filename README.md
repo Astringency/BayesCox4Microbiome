@@ -3,9 +3,10 @@
 BayesCox4Micro is a Julia package for Bayesian Cox proportional hazards models with compositional microbiome, immune-cell, or other nonnegative abundance covariates. It provides compositional preprocessing, Efron tied-event handling, sparse priors, MCMC sampling, posterior diagnostics, and complete simulation and real-data workflows.
 
 The [consolidated review results](results/review_20261012/RESULTS.md) include the
-initialization repairs, canonical S4 graph ablation, official BCCox PH comparison,
-and T1D results. The [24-scenario independent-test reevaluation](results/review_20261012/baseline24/RESULTS.md)
-is also available locally, with historical sampler exclusions kept explicit.
+completed 2,400-fit Weibull/Gompertz main experiment, 1,800 supplementary fits,
+canonical S4 graph ablation, official BCCox PH comparison, and T1D results.
+Historical reevaluations and their sampler exclusions are retained in the same
+report, with current and historical evidence identified separately.
 
 This README focuses on two methods:
 
@@ -243,8 +244,10 @@ The BCCox R runners and their 50 paired S4 cohorts are maintained in the sibling
 `BayesCox4micro_baseline` R project. Its `simulation_bccox_survival_analysis.R`
 runs from local `datasets/S4`, `testdata/S4`, `beta/S4` and `bccox` inputs.
 
-The local `audit/` directory is ignored by Git. It contains the former Python
-orchestration/reporting tools and one-off repair scripts, together with the
-pre-cleanup source archive. Published experiment entries do not depend on it.
-Historical result directories and their evidence remain in place; the current
-review is indexed by `results/review_20261012/RESULTS.md`.
+The local `audit/` directory is ignored by Git. Current review verification,
+aggregation, reporting, and synchronization tools live in `audit/review/`;
+the experiment scheduler remains in `scripts/review/run_review_rerun.py`.
+Earlier tools and the pre-cleanup source archive remain under `audit/`.
+The review directory now has one Markdown report, `results/review_20261012/RESULTS.md`.
+Its consolidation manifest maps every original Markdown source to the merged
+report and the byte-preserving archive. Numerical results remain in place.

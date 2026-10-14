@@ -100,6 +100,9 @@ bash scripts/run_monitor.sh --root results/simulation/YOUR_RUN
 bash scripts/plot_simulation.sh results/simulation/YOUR_RUN
 ```
 
-Python 调度、诊断、历史修复和 review 报告工具保存在本地
-`audit/script_cleanup_20261013/`，已被 `.gitignore` 排除。
-这些归档保留原始部署记录；部分包含服务器旧路径，不是当前实验入口。
+当前 review 的只读核验、结果汇总、报告生成和同步工具位于
+[audit/review](../audit/review/README.md)。直接运行实验的
+`review/run_review_rerun.py` 调度器保留在 `scripts`。
+旧诊断、历史修复及已被替代的调度工具保存在本地
+`audit/script_cleanup_20261013/`；部分包含服务器旧路径，不是当前实验入口。
+`audit/` 按现有 `.gitignore` 约定仅作本地工具和记录。
