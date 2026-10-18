@@ -24,8 +24,8 @@ IFS=',' read -ra revision_constraints <<< "${CONSTRAINTS:-exact,none,soft_center
 
 for method in "${revision_priors[@]}"; do
     case "$method" in
-        cox-rhs) use_car=true; l1_lambda=1e-6 ;; # Unused by Cox-RHS.
-        prox-sslasso) use_car=false; l1_lambda=1e-6 ;;
+        cox-rhs) use_car=true; l1_lambda=1e-6; init=zero ;; # L1 is unused by Cox-RHS.
+        prox-sslasso) use_car=false; l1_lambda=1e-6; init=rand ;;
         *) echo "Unsupported method: $method" >&2; exit 2 ;;
     esac
     for constraint in "${revision_constraints[@]}"; do
@@ -40,7 +40,7 @@ for method in "${revision_priors[@]}"; do
             --reps "$REPS" --rep-ids "${REP_IDS:-}" --n "$N" --p "$P" --nonzero "$NONZERO" --baseline gompertz \
             --priors "$method" --sampler "${SAMPLER:-hmc}" --nuts-backend explicit --hmc-n-leapfrog "${HMC_N_LEAPFROG:-100}" \
             --samples "$SAMPLES" --warmup "$WARMUP" --thin 1 --chains "$CHAINS" --multichains true \
-            --noncentered true --seed 1 --use-car "$use_car" --sample-car-strength "$use_car" \
+            --noncentered true --init "${INIT:-$init}" --seed 1 --use-car "$use_car" --sample-car-strength "$use_car" \
             --car-weight-quantile 0.99 --car-precision 1 --car-strength-prior-a 1 --car-strength-prior-b 1 \
             --car-distance bray --p0 truth --constraint "$constraint" --prox-sum0-lambda "${sum_lambda}" \
             --prox-l1-lambda "$l1_lambda" --alpha-prior-kind invgamma --alpha-prior-shape 1 --alpha-prior-scale "$P" \

@@ -11,6 +11,8 @@ function _sample_explicit_hmc_one(
     progress_desc::AbstractString = "HMC sampling",
     progress_offset::Integer = 0,
     initial = nothing,
+    phase_clock = nothing,
+    chain_id::Integer = 1,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -73,7 +75,7 @@ function _sample_explicit_hmc_one(
         kernel,
         init,
         Int(total_iter),
-        adaptor,
+        _timing_adaptor(adaptor, phase_clock, chain_id),
         Int(warmup);
         drop_warmup = false,
         progress = progress,
@@ -118,7 +120,7 @@ function _sample_explicit_hmc_one(
         draws[i, :] .= sample_state(target, state)
         lps[i] = sample_logdensity(target, view(draws, i, :), state)
     end
-    return MHSamples(
+    result = MHSamples(
         draws,
         lps,
         output_names,
@@ -127,6 +129,8 @@ function _sample_explicit_hmc_one(
         fill(NaN, length(output_names)),
         transitions,
     )
+    _finish_sampling_chain!(phase_clock, chain_id)
+    return result
 end
 
 function _sample_ssl_prox_explicit_hmc_gibbs(
@@ -158,7 +162,9 @@ function _sample_ssl_prox_explicit_hmc_gibbs(
     progress::Bool,
     parallel_chains::Bool,
 )
+    phase_clock = _SamplingPhaseClock(chains)
     timed = @timed begin
+        _start_sampling_clock!(phase_clock)
         if chains == 1
             _sample_ssl_prox_explicit_hmc_gibbs_one(
                 data,
@@ -188,6 +194,8 @@ function _sample_ssl_prox_explicit_hmc_gibbs(
                 progress = progress,
                 progress_desc = "SSLASSO explicit prox HMC-Gibbs",
                 progress_offset = 0,
+                phase_clock = phase_clock,
+                chain_id = 1,
             )
         else
             samples = Vector{MHSamples}(undef, chains)
@@ -223,6 +231,8 @@ function _sample_ssl_prox_explicit_hmc_gibbs(
                         progress = progress,
                         progress_desc = _chain_progress_desc("SSLASSO explicit prox HMC-Gibbs", c, chains),
                         progress_offset = _chain_progress_offset(c, chains),
+                        phase_clock = phase_clock,
+                        chain_id = c,
                     )
                 end
             else
@@ -254,14 +264,15 @@ function _sample_ssl_prox_explicit_hmc_gibbs(
                         prox_root_maxiter = prox_root_maxiter,
                         init = init,
                         progress = progress,
+                        phase_clock = phase_clock,
+                        chain_id = c,
                     )
                 end
             end
             MultiMHSamples(samples)
         end
     end
-    gc_percent = timed.time > 0 ? 100 * timed.gctime / timed.time : NaN
-    diagnostics = SamplingDiagnostics(missing, missing, timed.time, Int64(timed.bytes), timed.gctime, gc_percent)
+    diagnostics = _phase_diagnostics(timed, phase_clock, warmup, parallel_chains)
     return (samples = timed.value, diagnostics = diagnostics)
 end
 
@@ -297,6 +308,8 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
     clinical_names = String[],
     clinical_prior_df::Real = 3.0,
     clinical_prior_scale::Real = 2.5,
+    phase_clock = nothing,
+    chain_id::Integer = 1,
 )
     p = size(data.z, 2)
     a_shape, a_scale = _prox_alpha_hyperparameters(prior, alpha_prior_shape, alpha_prior_scale)
@@ -398,10 +411,11 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
         #     ],
         # )
         _progress_next!(prog)
+        iter == warmup && _finish_warmup!(phase_clock, chain_id)
     end
     _progress_finish!(prog)
     final_step = fill(hmc_state.step_size, length(names))
-    return MHSamples(
+    result = MHSamples(
         draws,
         lps,
         names,
@@ -410,6 +424,8 @@ function _sample_ssl_prox_explicit_hmc_gibbs_one(
         final_step,
         transitions,
     )
+    _finish_sampling_chain!(phase_clock, chain_id)
+    return result
 end
 
 function _sample_hmc_explicit(
@@ -499,10 +515,12 @@ function _sample_hmc_explicit(
             car_weights = effective_car_weights,
             sample_car_strength = false,
         )
-    run_parallel = chains > 1 && something(parallel_chains, multichains)
+    run_parallel = chains > 1 && Threads.nthreads() > 1 && something(parallel_chains, multichains)
     use_proximal_prior = _is_proximal_l1_prior(prior)
 
+    phase_clock = _SamplingPhaseClock(chains)
     timed = @timed begin
+        _start_sampling_clock!(phase_clock)
         if prior isa SpikeSlabLassoPrior && use_proximal_prior
             return _sample_ssl_prox_explicit_hmc_gibbs(
                 data,
@@ -567,6 +585,8 @@ function _sample_hmc_explicit(
                 hmc_step_size = hmc_step_size,
                 progress = progress,
                 initial = prior isa BayesianLassoPrior && use_proximal_prior ? initial : generic_initial,
+                phase_clock = phase_clock,
+                chain_id = 1,
             )
         else
             samples = Vector{MHSamples}(undef, chains)
@@ -611,6 +631,8 @@ function _sample_hmc_explicit(
                         progress_desc = _chain_progress_desc("AdvancedHMC HMC sampling", c, chains),
                         progress_offset = _chain_progress_offset(c, chains),
                         initial = prior isa BayesianLassoPrior && use_proximal_prior ? initial : generic_initial,
+                        phase_clock = phase_clock,
+                        chain_id = c,
                     )
                 end
             else
@@ -648,13 +670,14 @@ function _sample_hmc_explicit(
                         hmc_step_size = hmc_step_size,
                         progress = progress,
                         initial = prior isa BayesianLassoPrior && use_proximal_prior ? initial : generic_initial,
+                        phase_clock = phase_clock,
+                        chain_id = c,
                     )
                 end
             end
             MultiMHSamples(samples)
         end
     end
-    gc_percent = timed.time > 0 ? 100 * timed.gctime / timed.time : NaN
-    diagnostics = SamplingDiagnostics(missing, missing, timed.time, Int64(timed.bytes), timed.gctime, gc_percent)
+    diagnostics = _phase_diagnostics(timed, phase_clock, warmup, run_parallel)
     return (samples = timed.value, diagnostics = diagnostics)
 end

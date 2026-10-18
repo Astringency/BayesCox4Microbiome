@@ -72,6 +72,25 @@ Constant parameters have missing R-hat/ESS; single-chain R-hat is withheld.
 Zero-sum diagnostics use the original coefficient scale, before output thinning.
 The sum of marginal medians need not vanish even when every joint draw sums to zero.
 
+For `sampler=:hmc` (including Prox-SSLASSO and `sample_clinical_cox`), runtime
+rows record `warmup_seconds`, `sample_seconds` (retained sampling), and
+`total_seconds`. The same values are stored in the JLD2 diagnostics and model
+metrics; simulation summaries report their means and sample standard deviations.
+These are wall-clock times inside the sampler, including initialization and
+draw conversion within that timed region, but excluding file output and
+subsequent convergence diagnostics. Compilation and garbage collection may be
+included. The two phase times add up to `total_seconds`.
+
+With parallel chains, the warm-up window runs from the sampler timer's start
+until the **last chain completes warm-up**. Retained sampling is the remaining
+wall time. Faster chains can already be retaining draws during this warm-up
+window; these are elapsed-time windows, not sums of chain CPU times or isolated
+phase costs. No synchronization barrier is added. With serial chains, warm-up
+windows are summed across chains, and the remaining timed work is assigned to
+retained sampling. If `warmup=0`, warm-up time is zero and retained sampling
+equals total time. Historical runs with missing phase timings cannot be split
+retroactively. Other sampler backends retain their existing timing behavior.
+
 `transition_diagnostics.csv` retains individual warmup and sampling transitions,
 including acceptance, energy errors and divergences. These records cannot be
 reconstructed from posterior draws. The default divergence threshold is 1000;

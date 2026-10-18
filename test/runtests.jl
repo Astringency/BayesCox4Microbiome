@@ -13,6 +13,7 @@ const B = BayesCox4Micro
 include("data_preprocessing_tests.jl")
 include("likelihood_api_tests.jl")
 include("sampler_api_tests.jl")
+include("sampling_timing_tests.jl")
 
 @testset "sum-to-zero Moreau helpers" begin
     beta = [1.0, -2.0, 4.0, 0.5]

@@ -67,6 +67,13 @@ end
             @test !isfile(joinpath(dir, "diagnostics.json"))
             @test !isfile(joinpath(dir, "rank_diagnostics.csv"))
             bundle = JLD2.load(joinpath(dir, "result_bundle.jld2"), "result_bundle")
+            if sampler == :hmc
+                runtime = only(eachrow(read_diagnostics(dir; category = "runtime")))
+                for field in (:warmup_seconds, :sample_seconds, :total_seconds)
+                    @test getproperty(runtime, field) == getproperty(result.diagnostics, field)
+                    @test bundle["diagnostics"][String(field)] == getproperty(result.diagnostics, field)
+                end
+            end
             @test bundle["diagnostics"]["transition_diagnostics_available"]
             @test nrow(bundle["transition_diagnostics"]) == n_transitions
         end

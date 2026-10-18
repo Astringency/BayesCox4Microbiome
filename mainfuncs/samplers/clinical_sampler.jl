@@ -33,6 +33,8 @@ function sample_clinical_cox(X, time, event, clinical_X;
         _car_weight_edges(car_weight_matrix(X; distance = car_distance, threshold_quantile = car_weight_quantile))
     rng = MersenneTwister(seed)
     rngs = chains == 1 ? [rng] : [_independent_rng(rng) for _ in 1:chains]
+    phase_clock = _SamplingPhaseClock(chains)
+    run_parallel = multichains && chains > 1 && Threads.nthreads() > 1
     function run_chain(c)
         if prior isa SpikeSlabLassoPrior
             return _sample_ssl_prox_explicit_hmc_gibbs_one(data, prior;
@@ -41,7 +43,8 @@ function sample_clinical_cox(X, time, event, clinical_X;
                 prox_block_adapt_every, prox_block_divergence_threshold, prox_block_metric,
                 constraint, prox_sum0_lambda, prox_l1_lambda, alpha_prior_shape, alpha_prior_scale,
                 alpha_prior_kind, prox_root_tol, prox_root_maxiter, init, progress,
-                clinical_X, clinical_names, clinical_prior_df, clinical_prior_scale)
+                clinical_X, clinical_names, clinical_prior_df, clinical_prior_scale,
+                phase_clock, chain_id = c)
         end
         base = _make_explicit_nuts_target(data, prior; constraint, prox_sum0_lambda, noncentered,
             car_weights = weights, use_car, car_precision, sample_car_strength,
@@ -50,11 +53,12 @@ function sample_clinical_cox(X, time, event, clinical_X;
             prior_df = clinical_prior_df, prior_scale = clinical_prior_scale)
         return _sample_explicit_hmc_one(target; n_samples, warmup, thin,
             rng = rngs[c], target_accept, hmc_n_leapfrog, hmc_step_size, progress,
-            initial = initial_state(target, rngs[c]))
+            initial = initial_state(target, rngs[c]), phase_clock, chain_id = c)
     end
     timed = @timed begin
+        _start_sampling_clock!(phase_clock)
         output = Vector{MHSamples}(undef, chains)
-        if multichains && chains > 1
+        if run_parallel
             Threads.@threads for c in 1:chains
                 output[c] = run_chain(c)
             end
@@ -65,7 +69,6 @@ function sample_clinical_cox(X, time, event, clinical_X;
         end
         chains == 1 ? first(output) : MultiMHSamples(output)
     end
-    diag = SamplingDiagnostics(missing, missing, timed.time, Int64(timed.bytes), timed.gctime,
-        timed.time > 0 ? 100timed.gctime/timed.time : NaN)
+    diag = _phase_diagnostics(timed, phase_clock, warmup, run_parallel)
     return CoxSamplerResult(timed.value, data, prior, :hmc, diag)
 end

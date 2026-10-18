@@ -21,7 +21,7 @@ leapfrog 100。非 L1 敏感性实验的 Prox-SSLASSO L1 平滑固定 `1e-6`。
 
 零和参数默认 `1e-2,1e-3,1e-4,1e-5`；L1 默认 `1e-2,1e-3,1e-4,1e-5,1e-6`；
 p0 默认 `3,6,12`（soft_center）。敏感性取值可通过 `VALUES` 覆盖。
-S1–S3 默认比较 Cox-RHS soft_center 与 Prox-SSLASSO prox。
+S1–S3 默认比较 Cox-RHS soft_center 与 Prox-SSLASSO prox，两种方法均默认随机初始化（`init=rand`）。
 
 S4 使用 Brownian 系统发育丰度模型；真实先验图只保留非零系数之间的树邻域边，
 所有零系数节点均孤立，图版本为 `signal_only_v3`。四种设定分别为：
@@ -38,6 +38,8 @@ BcCox PH / BCCox PH 继续由各自的 R 项目维护。
 
 零和处理默认比较 `exact,none,soft_center,prox(1e-3),prox(1e-6)`，两种方法共 10 组。
 `CONSTRAINTS` 选择约束，`SUM0_LAMBDAS` 选择 prox 参数。
+Prox-SSLASSO 默认随机初始化（`init=rand`），Cox-RHS 默认零初始化（`init=zero`）。
+S1–S3 和零和处理实验均可用 `INIT` 覆盖初始化设置。
 
 全局尺度校准先计算训练集 Cox 信息矩阵在 `β=0` 的对角元 `I_jj(0)`（支持 Efron ties），
 求解 `sum_j τ sqrt(I_jj)/(1+τ sqrt(I_jj)) = p0`。相对于原 `cox_tau0` 的乘数写入

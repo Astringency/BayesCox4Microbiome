@@ -23,7 +23,7 @@ for method in "${revision_priors[@]}"; do
             --weak-multiplier 0.35 --null-correlation 0.6 --depth-median 5000 --depth-log-sd 0.5 \
             --priors "$method" --sampler "${SAMPLER:-hmc}" --nuts-backend explicit --hmc-n-leapfrog "${HMC_N_LEAPFROG:-300}" --target-accept "${TARGET_ACCEPT:-0.8}" \
             --samples "$SAMPLES" --warmup "$WARMUP" --thin 1 --chains "$CHAINS" --multichains true \
-            --noncentered true --seed 1 --use-car "$use_car" --sample-car-strength "$use_car" \
+            --noncentered true --init "${INIT:-rand}" --seed 1 --use-car "$use_car" --sample-car-strength "$use_car" \
             --car-weight-quantile 0.99 --car-precision 1 --car-strength-prior-a 1 --car-strength-prior-b 1 \
             --car-distance bray --p0 truth --constraint "$constraint" --prox-sum0-lambda "$sum_lambda" \
             --prox-l1-lambda "$l1_lambda" --alpha-prior-kind invgamma --alpha-prior-shape 1 --alpha-prior-scale 50 \
