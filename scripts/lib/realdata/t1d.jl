@@ -1,12 +1,15 @@
 using BayesCox4Micro: _cindex_candidate_configs, _cindex_fit_kwargs, _dict_rows_dataframe, _finite_number, _fit_diagnostics, _json_ready, _kfold_indices, _loo_atomic_json, _loo_checkpoint_manifest, _nested_cindex_summary, _select_inner_cindex, _tuning_dict, _validation_cindices, _write_nested_table, _write_tuning_json
-# T1D review: clinical design, nested CV, candidate partitions and final posterior.
+# T1D: clinical design, nested CV, candidate partitions and final posterior.
 const PARTITION_CODE_ROOT = normpath(joinpath(@__DIR__, "..", "..", ".."))
-isdefined(@__MODULE__, :parse_cli_args) || include(joinpath(PARTITION_CODE_ROOT,"scripts","analysis_common.jl"))
+isdefined(@__MODULE__, :parse_cli_args) || include(joinpath(PARTITION_CODE_ROOT,"scripts","lib","analysis_common.jl"))
 
-function t1d_review_main()
-    args=parse_cli_args()
+function t1d_main(args=parse_cli_args())
+    require_known_args!(args,("stage","source-arm","retry-from","input","outdir","prior","adjusted",
+        "constraint","samples","warmup","chains","seed","target-accept","leapfrog","alpha-prior-scale",
+        "outer-folds","inner-folds","smoke","config-ids","prepare-only","final-samples","final-warmup",
+        "run-ph","ph-particles","ph-repetitions","ph-moves","ph-ess-fraction","ph-max-stages","ph-time-prior-scale"))
     stage=arg(args,"stage","all")
-    stage in ("all","prepare","full_tuning","final","1","2","3","4","5") || error("Unknown T1D stage")
+    (stage in ("all","prepare","full_tuning","final") || tryparse(Int,stage)!==nothing) || error("Unknown T1D stage")
     source=arg(args,"source-arm","")
     retry_from=arg(args,"retry-from","")
     if !isempty(retry_from)
@@ -26,14 +29,14 @@ function t1d_review_main()
     if isempty(source)
         preparation=copy(args); preparation["prepare-only"]="true"
         source=t1d_prepare_specification(preparation)
-        push!(ARGS,"--source-arm",source)
+        args["source-arm"]=source
     end
     source=abspath(source)
-    s=t1d_partition_setup(source; input=arg(args,"input",joinpath(PARTITION_CODE_ROOT,"data","T1D.csv")),create_manifest=true)
+    s=t1d_partition_setup(source; input=get(args,"input",nothing),create_manifest=true)
     stage=="prepare" && return
     if haskey(args,"config-ids")
-        stage in ("full_tuning","1","2","3","4","5") || error("Candidate partitions need a tuning/outer-fold stage")
-        return softssl_worker()
+        (stage=="full_tuning" || tryparse(Int,stage)!==nothing) || error("Candidate partitions need a tuning/outer-fold stage")
+        return t1d_candidate_worker(args)
     end
     if stage=="all"
         for fold in 1:s.spec["outer_folds"]
@@ -47,10 +50,14 @@ function t1d_review_main()
         _write_nested_table(joinpath(root,"nested_cv_folds.csv"),_dict_rows_dataframe(rows),[s.method])
         summary=_nested_cindex_summary(rows,[s.method];dataset_id="T1D",constraint=string(s.model[:constraint]),outer_folds=s.spec["outer_folds"],inner_folds=s.spec["inner_folds"])
         _write_nested_table(joinpath(root,"nested_cv_summary.csv"),summary,[s.method])
-        push!(ARGS,"--stage","final")
-        return main_final_revision()
+        args["stage"]="final"
+        t1d_final_fit(args)
+        return t1d_ph_diagnostics(source,args)
     end
-    stage=="final" && return main_final_revision()
+    if stage=="final"
+        t1d_final_fit(args)
+        return t1d_ph_diagnostics(source,args)
+    end
     with_t1d_stage_lock(source,stage) do
         run_t1d_partition(s,stage)
     end
@@ -66,7 +73,7 @@ end
 
 function t1d_prepare_specification(args = parse_cli_args())
     input = arg(args, "input", joinpath("data", "T1D.csv"))
-    root = arg(args, "outdir", joinpath("results", "realdata_review", "T1D"))
+    root = arg(args, "outdir", joinpath("results", "realdata", "T1D"))
     method = arg(args, "prior", "cox-rhs")
     method in ("cox-rhs", "prox-sslasso") || error("unsupported prior")
     adjusted = arg(args, "adjusted", true)
@@ -97,10 +104,6 @@ function t1d_prepare_specification(args = parse_cli_args())
     prior_kwargs = Dict{Symbol,Any}(:alpha_prior_kind => :invgamma,
         :alpha_prior_shape => 1.0, :alpha_prior_scale => alpha_scale)
     car = Dict(:use_car => false, :sample_car_strength => false)
-    grids = deepcopy(PRIOR_PARAM_GRIDS)
-    # Use the established grid; do not pick candidates from outer-fold results.
-    arg(args, "smoke", false) && (grids[method] = [Dict{String,Any}(
-        (method == "cox-rhs" ? "rhs_local_scale" : "sslasso_spike_scale") => 0.5)])
     outer, inner = arg(args, "outer-folds", 5), arg(args, "inner-folds", 5)
     metadata = Dict("dataset_name" => "T1D", "method_name" => method, "prior_name" => method,
         "adjustment" => label, "clinical_coding" => Dict("Sex_M" => "M=1,F=0", "Antibiotics_Tylosin" => "Tylosin=1,Control=0"),
@@ -112,6 +115,7 @@ function t1d_prepare_specification(args = parse_cli_args())
         "alpha_prior_scale" => alpha_scale,
         "alpha_scale_definition" => "fixed total coefficient count by default; clinical coefficients retain independent priors",
         "outer_folds" => outer, "inner_folds" => inner, "seed" => seed,
+        "input"=>abspath(input), "smoke"=>arg(args,"smoke",false),
         "sampler" => "hmc", "hmc_n_leapfrog" => sampler[:hmc_n_leapfrog],
         "target_accept" => sampler[:target_accept],
         "note" => "Full-data tuning scores are not test performance. Clinical covariates are outside the taxon constraint.")
@@ -129,8 +133,9 @@ end
 # Existing inner and outer fingerprints must match before any fit is performed.
 using Dates
 
-function t1d_partition_setup(source; input = joinpath(PARTITION_CODE_ROOT, "data", "T1D.csv"), smoke=false, create_manifest=false)
+function t1d_partition_setup(source; input=nothing, smoke=false, create_manifest=false)
     spec = JSON.parsefile(joinpath(source, "analysis_specification.json"); use_mmap=false)
+    input = input===nothing ? get(spec,"input",joinpath(PARTITION_CODE_ROOT,"data","T1D.csv")) : input
     method, adjusted = spec["method_name"], spec["adjustment"] == "adjusted"
     df = CSV.read(input, DataFrame)
     C, cnames = t1d_clinical_design(df)
@@ -149,7 +154,7 @@ function t1d_partition_setup(source; input = joinpath(PARTITION_CODE_ROOT, "data
     prior = Dict{Symbol,Any}(:alpha_prior_kind => :invgamma, :alpha_prior_shape => 1.0, :alpha_prior_scale => alpha_scale)
     car = Dict(:use_car => false, :sample_car_strength => false)
     grids = deepcopy(PRIOR_PARAM_GRIDS)
-    smoke && (grids[method] = [Dict{String,Any}((method == "cox-rhs" ? "rhs_local_scale" : "sslasso_spike_scale") => 0.5)])
+    (smoke || get(spec,"smoke",false)) && (grids[method] = [Dict{String,Any}((method == "cox-rhs" ? "rhs_local_scale" : "sslasso_spike_scale") => 0.5)])
     configs = _cindex_candidate_configs(method, sampler; tune_priorparams=true, tune_algparams=false, prior_grids=grids)
     settings = Dict(:sampler => _tuning_dict(sampler), :prior => _tuning_dict(prior),
         :car => _tuning_dict(car), :model => _tuning_dict(model), :configs => Dict(method => configs),
@@ -232,7 +237,7 @@ function run_t1d_partition(setup, stage)
 end
 
 function with_t1d_stage_lock(f::Function, source, stage)
-    stage in ("1", "2", "3", "4", "5", "full_tuning") || error("invalid T1D stage")
+    (stage=="full_tuning" || (tryparse(Int,stage)!==nothing && parse(Int,stage)>0)) || error("invalid T1D stage")
     # Linux deployment lock: an early-started stage and a later queued worker
     # must not write its checkpoints concurrently. Closing releases the lock;
     # the small lock file remains as a record and no outputs are removed.
@@ -288,8 +293,7 @@ function export_final_posterior(fit, source, spec, X, time, event, clinical)
     write_table(joinpath(source,"event_index.csv"),DataFrame(subject_index=findall(!=(0),event),time=time[findall(!=(0),event)]))
 end
 
-function main_final_revision()
-    args = parse_cli_args()
+function t1d_final_fit(args=parse_cli_args())
     source = abspath(arg(args,"source-arm",""))
     stage = arg(args,"stage","final")
     s = t1d_partition_setup(source;create_manifest=true)
@@ -303,7 +307,9 @@ function main_final_revision()
     (;spec,method,X,time,event,clinical,sampler,model,prior,car,configs)=s
     choice_file=joinpath(source,"full_data_tuning","selected_config.json")
     if !isfile(choice_file)
-        run_t1d_partition(s,"full_tuning")
+        with_t1d_stage_lock(source,"full_tuning") do
+            run_t1d_partition(s,"full_tuning")
+        end
     end
     selected=Dict(Symbol(k)=>v for (k,v) in JSON.parsefile(choice_file))
     # Preserve the declared CV budget unless a final-stage override is explicit.
@@ -335,7 +341,7 @@ function main_final_revision()
     run=joinpath(source,"runs","realdata_"*method)
     meta=merge(spec,Dict("selected_config"=>selected,"p0"=>fit.p0,
         "n_samples"=>sampler[:n_samples],"warmup"=>sampler[:warmup],
-        "data_sha256"=>bytes2hex(sha256(read(joinpath(PARTITION_CODE_ROOT,"data","T1D.csv")))),
+        "data_sha256"=>bytes2hex(sha256(read(get(spec,"input",joinpath(PARTITION_CODE_ROOT,"data","T1D.csv"))))),
         "parameter_source"=>"full-data inner C-index tuning followed by joint Bayesian full-data fit",
         "clinical_prior"=>"independent Student-t(3,0,2.5); outside taxon constraints",
         "tie_method"=>"efron","use_car"=>false))
@@ -352,8 +358,7 @@ end
 
 # Disjoint candidate workers share a full-grid fingerprint and distinct caches.
 
-function softssl_worker()
-    args=parse_cli_args()
+function t1d_candidate_worker(args=parse_cli_args())
     source=abspath(arg(args,"source-arm",""))
     s=t1d_partition_setup(source;create_manifest=true)
     (;spec,method,X,time,event,clinical,sampler,model,prior,car,configs,pdir)=s
@@ -379,3 +384,15 @@ function softssl_worker()
     println("Completed candidate subset $ids for $source stage=$stage")
 end
 
+
+# Full/final requests include PH by default, including --source-arm retries.
+function t1d_ph_diagnostics(source,args)
+    arg(args,"run-ph",get(ENV,"RUN_PH","true")=="true") || return
+    script=joinpath(@__DIR__,"..","diagnostics","ph.jl")
+    options=String["--source-arm",source]
+    for key in ("particles","repetitions","moves","ess-fraction","max-stages","time-prior-scale")
+        haskey(args,"ph-"*key) && append!(options,["--"*key,args["ph-"*key]])
+    end
+    cmd=`$(Base.julia_cmd()) --startup-file=no --project=$PARTITION_CODE_ROOT $script $options`
+    run(cmd)
+end

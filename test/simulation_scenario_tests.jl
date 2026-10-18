@@ -1,6 +1,6 @@
 using Test, Random, LinearAlgebra, Statistics, Distributions
 if !isdefined(Main, :generate_simulation_data)
-    include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
+    include(joinpath(@__DIR__, "..", "scripts", "lib", "analysis_common.jl"))
 end
 
 @testset "Legacy DGP remains byte-for-byte reproducible" begin

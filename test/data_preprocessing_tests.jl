@@ -7,7 +7,7 @@ using Statistics
 
 
 module SavedSummary
-include(joinpath(@__DIR__, "..", "scripts", "summarize_realdata_convergence.jl"))
+include(joinpath(@__DIR__, "..", "scripts", "lib", "realdata", "summarize_convergence.jl"))
 end
 
 @testset "zero-only abundance preprocessing" begin

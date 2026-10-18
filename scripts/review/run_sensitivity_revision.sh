@@ -1,17 +1,16 @@
 #!/usr/bin/env bash
-# Usage: run_sensitivity_revision.sh lambda|l1|p0
+# Usage: run_sensitivity_revision.sh lambda|l1|p0|scale
 # p0 is a Cox-RHS hyperparameter; it is not imposed on proximal LASSO priors.
 # p0 uses soft_center; lambda and l1 sensitivity use prox.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
-suite="${1:?choose lambda, l1 or p0}"
+suite="${1:?choose lambda, l1, p0 or scale}"
 shift
 
 source scripts/lib/simulation_progress.sh
 simulation_setup
 SIM_EXTRA=("$@")
-# /large_storage/zhangxf/BayesCox
 REVISION_OUT="${REVISION_OUT:-./results/review_runs}"
 OUT_ROOT="${OUT_ROOT:-$REVISION_OUT/$suite}"
 REPS="${REPS:-50}"; CHAINS="${CHAINS:-4}"; SAMPLES="${SAMPLES:-5000}"; WARMUP="${WARMUP:-2000}"
@@ -21,7 +20,8 @@ case "$suite" in
     lambda) methods="${PRIORS:-cox-rhs,prox-sslasso}"; values="${VALUES:-1e-2,1e-3,1e-4,1e-5}" ;;
     l1) methods=prox-sslasso; values="${VALUES:-1e-2,1e-3,1e-4,1e-5,1e-6}" ;;
     p0) methods=cox-rhs; values="${VALUES:-3,6,12}"; constraint=soft_center ;;
-    *) echo 'suite must be lambda, l1 or p0' >&2; exit 2 ;;
+    scale) methods=cox-rhs; values="none,null_information"; constraint=soft_center ;;
+    *) echo 'suite must be lambda, l1, p0 or scale' >&2; exit 2 ;;
 esac
 
 IFS=',' read -ra revision_priors <<< "$methods"
@@ -34,10 +34,11 @@ for method in "${revision_priors[@]}"; do
         *) echo "Unsupported method $method" >&2; exit 2 ;;
     esac
     for value in "${revision_values[@]}"; do
-        p0=6; sum_lambda=1e-3
+        p0=6; sum_lambda=1e-3; calibration=none
         if [[ "$suite" == lambda ]]; then sum_lambda="$value"
         elif [[ "$suite" == l1 ]]; then l1_lambda="$value"
-        else p0="$value"; fi
+        elif [[ "$suite" == p0 ]]; then p0="$value"
+        else calibration="$value"; fi
         outdir="$REVISION_OUT/$suite/$method/$value"
         if [[ "$suite" == p0 ]]; then
             # Keep new soft_center fits separate from historical prox results.
@@ -50,7 +51,7 @@ for method in "${revision_priors[@]}"; do
             SIM_JOB_LOCK="$REVISION_OUT/.rhs_baseline.lock"
         fi
         simulation_job "${suite}_${method}_${value}" "$outdir" \
-            --reps "$REPS" --rep-ids "${REP_IDS:-}" --n 400 --p 50 --nonzero 6 --baseline weibull \
+            --rhs-scale-calibration "$calibration" --reps "$REPS" --rep-ids "${REP_IDS:-}" --n 400 --p 50 --nonzero 6 --baseline weibull \
             --priors "$method" --sampler "${SAMPLER:-hmc}" --nuts-backend explicit --hmc-n-leapfrog "${HMC_N_LEAPFROG:-100}" \
             --samples "$SAMPLES" --warmup "$WARMUP" --thin 1 --chains "$CHAINS" --multichains true \
             --noncentered true --init "${INIT:-rand}" --seed 1 --use-car "$use_car" --sample-car-strength "$use_car" \

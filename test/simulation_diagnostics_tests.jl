@@ -1,5 +1,5 @@
 if !isdefined(@__MODULE__, :generate_simulation_data)
-    include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
+    include(joinpath(@__DIR__, "..", "scripts", "lib", "analysis_common.jl"))
 end
 
 @testset "simulation sanity checks" begin

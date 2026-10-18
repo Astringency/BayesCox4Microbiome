@@ -57,7 +57,7 @@ simulation_job() {
     SIM_NAMES+=("$label [$priors]"); SIM_LOGS+=("$log"); SIM_STATUS+=("等待")
     SIM_COUNTS+=(0); SIM_TOTALS+=("$((reps * ${#methods[@]}))"); SIM_PIDS+=('')
     if [[ "${DRY_RUN:-false}" == true ]]; then
-        run_julia scripts/run_simulation.jl --outdir "$outdir" "${args[@]}"
+        run_julia scripts/lib/simulation/run_simulation.jl --outdir "$outdir" "${args[@]}"
         printf '  log: %s\n' "$log"; return
     fi
     mkdir -p "$(dirname "$log")"
@@ -68,7 +68,7 @@ simulation_job() {
     fi
     printf 'exec ' >> "$SIM_TMP/$id.sh"
     printf '%q ' "${BCX_JULIA[@]}" -t "${THREADS:-${CHAINS:-4}}" --startup-file=no \
-        "--project=$BCX_PROJECT_ROOT" scripts/run_simulation.jl --outdir "$outdir" \
+        "--project=$BCX_PROJECT_ROOT" scripts/lib/simulation/run_simulation.jl --outdir "$outdir" \
         "${args[@]}" --progress-file "$log.progress.tsv" >> "$SIM_TMP/$id.sh"
     printf '\n' >> "$SIM_TMP/$id.sh"
 }

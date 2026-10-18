@@ -6,7 +6,7 @@ using DataFrames
 using Logging
 
 if !isdefined(@__MODULE__, :evaluate_cox_loo)
-    include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
+    include(joinpath(@__DIR__, "..", "scripts", "lib", "analysis_common.jl"))
 end
 
 @testset "subject deletion includes censored risk-set effects" begin

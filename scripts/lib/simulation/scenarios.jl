@@ -89,7 +89,7 @@ end
 """Planted balanced phylogeny, with signal taxa in neighboring leaves.
 
 Brownian abundances use the full generating tree. The S4 correct prior graph
-retains tree-neighborhood edges only within the planted signal/null classes.
+retains tree-neighborhood edges only between nonzero coefficients; null taxa are isolated.
 This support-compatible graph is a simulation assumption, not an estimate from
 observed outcomes. A fixed leaf-label permutation creates the wrong graph while
 preserving the spectrum, degree distribution and edge weights.
@@ -127,7 +127,7 @@ function planted_phylogeny(p::Integer, signal_indices; covariance_model::Symbol 
     covariance = covariance_model == :brownian ? Symmetric(shared_path / height) : Symmetric(exp.(-D / 4.0))
     raw_weights = [i != j && D[i,j] <= 4 ? exp(-D[i,j]/2.0) : 0.0 for i in 1:p, j in 1:p]
     support = [i in signal_indices for i in 1:p]
-    W = signal_separated_car_weights(raw_weights, support)
+    W = signal_only_car_weights(raw_weights, support)
     permutation = randperm(MersenneTwister(9017), p)
     W_wrong = W[permutation, permutation]
     # Collapse unary nodes when exporting Newick, preserving total branch length.
@@ -158,14 +158,14 @@ end
 The retained weights are unchanged. Adaptive CAR recomputes its degree scale
 and graph rank from this graph, following the ordinary fitting implementation.
 """
-function signal_separated_car_weights(weights::AbstractMatrix, beta::AbstractVector)
+function signal_only_car_weights(weights::AbstractMatrix, beta::AbstractVector)
     p = length(beta)
     size(weights) == (p, p) || throw(DimensionMismatch("weights and beta dimensions differ"))
     all(isfinite, weights) && all(isfinite, beta) || throw(ArgumentError("weights and beta must be finite"))
     issymmetric(weights) && all(>=(0), weights) || throw(ArgumentError("weights must be symmetric and nonnegative"))
     result = Matrix{Float64}(weights)
     for j in 2:p, i in 1:(j-1)
-        if iszero(beta[i]) != iszero(beta[j])
+        if iszero(beta[i]) || iszero(beta[j])
             result[i,j] = result[j,i] = 0.0
         end
     end
@@ -186,7 +186,7 @@ function brownian_phylogeny_metadata(phylo)
         "phylogenetic_diffusion_rate" => 1.0 / phylo.height,
         "phylogenetic_tree_sha256" => bytes2hex(sha256(phylo.newick)),
         "phylogenetic_covariance_sha256" => digest(phylo.covariance),
-        "phylogenetic_graph_version" => "support_compatible_v2",
+        "phylogenetic_graph_version" => "signal_only_v3",
         "phylogenetic_graph_support_compatible" => true,
         "phylogenetic_graph_sha256" => digest(vcat(vec(phylo.weights), vec(phylo.misspecified_weights))),
         "phylogenetic_graph_range" => 2.0, "phylogenetic_max_distance" => 4,

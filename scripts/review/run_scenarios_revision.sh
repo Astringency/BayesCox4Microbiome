@@ -5,8 +5,8 @@ source scripts/lib/simulation_progress.sh
 simulation_setup
 SIM_EXTRA=("$@")
 REVISION_OUT="${REVISION_OUT:-./results/review_runs}"
-# Separate the revised protocol from existing prox / long-chain results.
-SCENARIO_OUT="$REVISION_OUT/scenarios/revised_20261013"
+# Canonical S1–S3 protocol; historical exploratory settings live in audit.
+SCENARIO_OUT="$REVISION_OUT/scenarios"
 OUT_ROOT="${OUT_ROOT:-$SCENARIO_OUT}"
 REPS="${REPS:-50}"; CHAINS="${CHAINS:-4}"; SAMPLES="${SAMPLES:-5000}"; WARMUP="${WARMUP:-5000}"
 IFS=',' read -ra revision_priors <<< "${PRIORS:-cox-rhs,prox-sslasso}"
@@ -19,7 +19,7 @@ for method in "${revision_priors[@]}"; do
     esac
     for scenario in "${revision_scenarios[@]}"; do
         simulation_job "${scenario}_${method}" "$SCENARIO_OUT/$scenario/$method" \
-            --reps "$REPS" --n 200 --p 50 --nonzero 6 --baseline weibull --scenario "$scenario" \
+            --reps "$REPS" --rep-ids "${REP_IDS:-}" --n 200 --p 50 --nonzero 6 --baseline weibull --scenario "$scenario" \
             --weak-multiplier 0.35 --null-correlation 0.6 --depth-median 5000 --depth-log-sd 0.5 \
             --priors "$method" --sampler "${SAMPLER:-hmc}" --nuts-backend explicit --hmc-n-leapfrog "${HMC_N_LEAPFROG:-300}" --target-accept "${TARGET_ACCEPT:-0.8}" \
             --samples "$SAMPLES" --warmup "$WARMUP" --thin 1 --chains "$CHAINS" --multichains true \

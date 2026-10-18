@@ -32,7 +32,7 @@ for constraint in "${constraints[@]}"; do
             candidate="$base/$DATA_NAME/tuning/best_prior_configs.json"
             if [[ -f "$candidate" ]]; then configs="$candidate"; break; fi
         done
-        run_logged "${constraint}_${DATA_NAME}" "${LOG_ROOT:-$OUT_ROOT/logs}" run_julia scripts/analyze_real_data.jl \
+        run_logged "${constraint}_${DATA_NAME}" "${LOG_ROOT:-$OUT_ROOT/logs}" run_julia scripts/lib/realdata/analyze.jl --workflow standard \
             --input "$DATA_INPUT" --outdir "$OUT_ROOT/$constraint/$DATA_NAME" --time-col "$DATA_TIME" --status-col "$DATA_STATUS" \
             --comp-cols none --exclude-cols "$DATA_EXCLUDE" --constraint "$constraint" --prox-sum0-lambda "$sum0" \
             --noncentered "$noncentered" --p0 auto --alpha-prior-scale "$DATA_P" --prior-configs "$configs" "${COMMON[@]}" "$@"

@@ -1,6 +1,6 @@
 using BayesCox4Micro: _divergence_count
 using Test
-isdefined(Main, :fit_and_evaluate) || include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
+isdefined(Main, :fit_and_evaluate) || include(joinpath(@__DIR__, "..", "scripts", "lib", "analysis_common.jl"))
 
 @testset "Tuning reads HMC transitions and excludes warmup" begin
     records = NamedTuple[(phase="warmup", divergent=true),

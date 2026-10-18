@@ -1,4 +1,4 @@
-# Shared publication panels; sourced by scripts/plot_simulation.R.
+# Shared publication panels; sourced by scripts/lib/plotting/plot_simulation.R.
 # Mathematical labels use R plotmath, rendered as typeset math in vector PDFs.
 CHAIN_COLOURS <- c('#2878A5', '#D38B24', '#448C79', '#AA658C')
 PLOT_BASE_SIZE <- 16

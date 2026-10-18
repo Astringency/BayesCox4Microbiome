@@ -3,7 +3,7 @@
 # deliberately not reused as an outer-test estimate.
 using Pkg
 Pkg.activate(normpath(joinpath(@__DIR__, "..", "..", "..")))
-isdefined(@__MODULE__, :parse_cli_args) || include(joinpath(@__DIR__, "..", "..", "analysis_common.jl"))
+isdefined(@__MODULE__, :parse_cli_args) || include(joinpath(@__DIR__, "..", "analysis_common.jl"))
 
 include(joinpath(@__DIR__, "replay_common.jl"))
 

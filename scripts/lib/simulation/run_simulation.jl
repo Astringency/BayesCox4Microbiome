@@ -3,7 +3,7 @@
 using Pkg
 
 function _activate_repo_project()
-    project = abspath(joinpath(@__DIR__, "..", "Project.toml"))
+    project = abspath(joinpath(@__DIR__, "..", "..", "..", "Project.toml"))
     active = Base.active_project()
     active !== project && Pkg.activate(dirname(project))
 end
@@ -22,49 +22,9 @@ function _include_script(path::AbstractString)
     return include(path)
 end
 
-_include_script(joinpath(@__DIR__, "analysis_common.jl"))
+_include_script(joinpath(@__DIR__, "..", "analysis_common.jl"))
 using BayesCox4Micro: _extract_algorithm_params, _write_tuning_json
-
-function write_simulation_plots(
-    run_dir::AbstractString,
-    figs_dir::AbstractString,
-    summary::DataFrame,
-    sim;
-    label::AbstractString,
-    prior::AbstractString,
-    baseline,
-    n::Integer,
-    p::Integer,
-    nonzero::Integer,
-)
-    coef_paths = [
-        joinpath(figs_dir, "coef_$label.pdf"),
-        joinpath(figs_dir, "coef_median_$label.pdf"),
-        joinpath(figs_dir, "coef_map_$label.pdf"),
-    ]
-    coefficient_plot(
-        summary,
-        coef_paths[1];
-        truth = sim.beta,
-        title = "Simulation $prior $baseline n=$n p=$p nonzero=$nonzero",
-        estimate = :mean,
-    )
-    coefficient_plot(
-        summary,
-        coef_paths[2];
-        truth = sim.beta,
-        title = "Simulation $prior median $baseline n=$n p=$p nonzero=$nonzero",
-        estimate = :median,
-    )
-    coefficient_plot(
-        summary,
-        coef_paths[3];
-        truth = sim.beta,
-        title = "Simulation $prior MAP $baseline n=$n p=$p nonzero=$nonzero",
-        estimate = :map,
-    )
-    return nothing
-end
+include(joinpath(@__DIR__, "scale_calibration.jl"))
 
 function _diagnostic_format_list(formats)
     raw =
@@ -172,6 +132,7 @@ function simulation_cli_valid_keys()
             "save-wide-csv",
             "save-jld2",
             "car-graph",
+            "rhs-scale-calibration",
         ),
         COMMON_ANALYSIS_CLI_KEYS,
         BASELINE_PARAMETER_CLI_KEYS,
@@ -211,13 +172,20 @@ function main()
     diagnostic_kwargs = diagnostic_cli_options(args)
     scenario_kwargs = simulation_scenario_parameters(args)
     car_graph = Symbol(arg(args, "car-graph", "abundance"))
-    car_graph in (:abundance, :independent, :correct, :misspecified, :signal_separated) ||
-        throw(ArgumentError("car-graph must be abundance, independent, correct, misspecified, or signal_separated"))
-    if car_graph in (:correct, :misspecified, :signal_separated)
+    car_graph in (:abundance, :independent, :correct, :misspecified) ||
+        throw(ArgumentError("car-graph must be abundance (training-only learned graph), independent, correct, or misspecified"))
+    if car_graph in (:correct, :misspecified)
         scenario_kwargs.scenario == :phylo_bm || throw(ArgumentError("planted CAR graphs require --scenario S4"))
         car_kwargs.use_car || throw(ArgumentError("planted graphs require --use-car true"))
         all(p -> occursin("hs", lowercase(p)), priors) ||
             throw(ArgumentError("the existing CAR prior applies only to HS/RHS methods"))
+    end
+    scale_calibration = arg(args, "rhs-scale-calibration", "none")
+    scale_calibration in ("none", "null_information") || error("unknown RHS scale calibration")
+    if scale_calibration != "none"
+        priors == ["cox-rhs"] || error("scale calibration is a Cox-RHS paired sensitivity experiment")
+        !arg(args,"tune_priorsparams",false) && !arg(args,"tune_algparams",false) ||
+            error("scale calibration requires fixed paired hyperparameters")
     end
     tuning_kwargs = tuning_cli_options(args)
     sampler = sampler_kwargs.sampler
@@ -311,21 +279,26 @@ function main()
             phylogeny_dir = joinpath(outdir, "phylogeny", "p$(p)_nz$(nonzero)")
             save_planted_phylogeny(phylogeny_dir, phylogeny)
             simulation_car_weights = car_graph == :correct ? phylogeny.weights :
-                car_graph == :misspecified ? phylogeny.misspecified_weights :
-                car_graph == :signal_separated ? phylogeny.weights : nothing
-            if car_graph in (:correct, :misspecified, :signal_separated)
+                car_graph == :misspecified ? phylogeny.misspecified_weights : nothing
+            if car_graph in (:correct, :misspecified)
                 dgp_metadata["car_graph_uses_simulation_truth"] = true
                 dgp_metadata["car_graph_cross_signal_edges"] = count(
                     simulation_car_weights[i,j] > 0 && iszero(sim.beta[i]) != iszero(sim.beta[j])
                     for j in 2:p for i in 1:(j-1))
-                dgp_metadata["car_removed_cross_signal_edges"] = count(
-                    phylogeny.raw_tree_weights[i,j] > 0 && phylogeny.weights[i,j] == 0
-                    for j in 2:p for i in 1:(j-1))
             end
-            if car_graph == :signal_separated
-                CSV.write(joinpath(phylogeny_dir, "signal_separated_weights.csv"),
-                    DataFrame(simulation_car_weights, :auto))
+            if car_graph == :abundance && use_car
+                simulation_car_weights=car_weight_matrix(sim.X;distance=car_distance,
+                    threshold_quantile=car_weight_quantile)
             end
+            graph_dir=ensure_dir(joinpath(outdir,"fitted_graphs"))
+            graph_path=joinpath(graph_dir,"rep$(rep)_n$(n)_p$(p)_nz$(nonzero)_$(baseline).csv")
+            fitted_weights=simulation_car_weights===nothing ? zeros(p,p) : simulation_car_weights
+            CSV.write(graph_path,DataFrame(fitted_weights,:auto))
+            dgp_metadata["fitted_graph_sha256"]=bytes2hex(sha256(read(graph_path)))
+            dgp_metadata["car_graph_uses_simulation_truth"] = car_graph in (:correct, :misspecified)
+            dgp_metadata["car_graph_uses_test"] = false
+            dgp_metadata["car_graph_uses_survival"] = false
+            dgp_metadata["car_graph_estimator"] = car_graph == :abundance ? "training_abundance" : string(car_graph)
         end
         save_scenario_observations(sim, joinpath(outdir, "training_data"), "rep$(rep)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)")
         if sim.scenario != :baseline
@@ -431,6 +404,16 @@ function main()
             end
 
 
+            if scale_calibration == "null_information"
+                calibration = calibrate_rhs_scale(sim.X,sim.time,sim.event; p0=p0_value,
+                    tie_method,standardize)
+                prior_kwargs_dict[:rhs_tau_scale] *= calibration["multiplier"]
+                calibration["rhs_tau_scale"] = prior_kwargs_dict[:rhs_tau_scale]
+                training_file = joinpath(outdir,"training_data","rep$(rep)_$(baseline)_n$(n)_p$(p)_nz$(nonzero).csv")
+                calibration["training_sha256"] = bytes2hex(sha256(read(training_file)))
+                _write_tuning_json(joinpath(outdir,"calibration",label*".json"),calibration)
+            end
+            dgp_metadata["rhs_scale_calibration"] = scale_calibration
             # Update local prior variables from merged dict (may include tuned values)
             alpha_prior_shape = get(prior_kwargs_dict, :alpha_prior_shape, alpha_prior_shape)
             alpha_prior_scale  = get(prior_kwargs_dict, :alpha_prior_scale, alpha_prior_scale)
@@ -488,7 +471,7 @@ function main()
                 "prox_sum0_lambda" => prox_sum0_lambda,
                 "noncentered" => noncentered,
                 "use_car" => actual_use_car,
-                "car_distance" => simulation_car_weights === nothing ? string(car_distance) : "planted_phylogenetic",
+                "car_distance" => car_graph in (:correct,:misspecified) ? "planted_phylogenetic" : string(car_distance),
                 "car_weight_quantile" => car_weight_quantile,
                 "car_precision" => car_precision,
                 "sample_car_strength" => actual_sample_car_strength,
@@ -673,7 +656,7 @@ function main()
                 "observed_censoring_rate" => mean(sim.event .== 0),
                 "observed_event_rate" => mean(sim.event .!= 0),
                 "use_car" => actual_use_car,
-                "car_distance" => simulation_car_weights === nothing ? string(car_distance) : "planted_phylogenetic",
+                "car_distance" => car_graph in (:correct,:misspecified) ? "planted_phylogenetic" : string(car_distance),
                 "car_weight_quantile" => car_weight_quantile,
                 "car_precision" => car_precision,
                 "sample_car_strength" => actual_sample_car_strength,
@@ -714,7 +697,7 @@ function main()
                 "prox_block_divergence_threshold" => prox_block_divergence_threshold,
                 "prox_block_metric" => string(prox_block_metric),
                 "use_car" => actual_use_car,
-                "car_distance" => simulation_car_weights === nothing ? string(car_distance) : "planted_phylogenetic",
+                "car_distance" => car_graph in (:correct,:misspecified) ? "planted_phylogenetic" : string(car_distance),
                 "car_weight_quantile" => car_weight_quantile,
                 "car_precision" => car_precision,
                 "sample_car_strength" => actual_sample_car_strength,

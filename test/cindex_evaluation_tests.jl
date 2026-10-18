@@ -6,7 +6,7 @@ using Statistics
 using Random
 
 if !isdefined(@__MODULE__, :generate_simulation_test_data)
-    include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
+    include(joinpath(@__DIR__, "..", "scripts", "lib", "analysis_common.jl"))
 end
 
 @testset "Cox approximation CLI options are rejected" begin
@@ -219,15 +219,15 @@ end
 end
 
 module CindexSummaryReaders
-include(joinpath(@__DIR__, "..", "scripts", "summarize_realdata_convergence.jl"))
+include(joinpath(@__DIR__, "..", "scripts", "lib", "realdata", "summarize_convergence.jl"))
 end
 
 module CindexMethodReaders
-include(joinpath(@__DIR__, "..", "scripts", "summarize_realdata_methods.jl"))
+include(joinpath(@__DIR__, "..", "scripts", "lib", "realdata", "summarize_methods.jl"))
 end
 
 module CindexSimulationReaders
-include(joinpath(@__DIR__, "..", "scripts", "summarize_simulation_results.jl"))
+include(joinpath(@__DIR__, "..", "scripts", "lib", "simulation", "summarize.jl"))
 end
 
 @testset "summaries reject historical tuning scores as nested tests" begin

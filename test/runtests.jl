@@ -781,7 +781,7 @@ end
 end
 
 @testset "run_simulation CLI CAR flags" begin
-    include(joinpath(@__DIR__, "..", "scripts", "run_simulation.jl"))
+    include(joinpath(@__DIR__, "..", "scripts", "lib", "simulation", "run_simulation.jl"))
     parsed = parse_cli_args([
         "--car-precision", "0.05",
         "--car-weight-quantile", "0.75",
@@ -823,3 +823,6 @@ include("simulation_initialization_resume_tests.jl")
 include("t1d_partition_tests.jl")
 include("realdata_alpha_scale_tests.jl")
 include("tuning_transition_diagnostics_tests.jl")
+
+include("scale_calibration_tests.jl")
+include("ph_diagnostics_tests.jl")

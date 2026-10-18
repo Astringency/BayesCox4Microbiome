@@ -1,6 +1,6 @@
 using BayesCox4Micro: _actual_fit_kwargs, _cindex_fit_kwargs
 using Test
-isdefined(Main, :fit_and_evaluate) || include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
+isdefined(Main, :fit_and_evaluate) || include(joinpath(@__DIR__, "..", "scripts", "lib", "analysis_common.jl"))
 
 @testset "Real-data alpha scale survives every tuning candidate" begin
     for prior in ("prox-lasso", "prox-sslasso")

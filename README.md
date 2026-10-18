@@ -110,7 +110,7 @@ julia --project=. -e "using Pkg; Pkg.instantiate()"
 The following command generates data with a Weibull baseline hazard and fits both Cox-RHS and Prox-SSLASSO. It uses `n = 200`, `p = 50`, six nonzero coefficients, and four parallel chains:
 
 ```bash
-julia -t 4 --project=. scripts/run_simulation.jl --outdir results/simulation/example --reps 1 --n 200 --p 50 --nonzero 6 --baseline weibull --priors cox-rhs,prox-sslasso --sampler nuts --nuts-backend explicit --samples 1000 --warmup 500 --chains 4 --multichains true --p0 truth --use-car false
+julia -t 4 --project=. scripts/lib/simulation/run_simulation.jl --outdir results/simulation/example --reps 1 --n 200 --p 50 --nonzero 6 --baseline weibull --priors cox-rhs,prox-sslasso --sampler nuts --nuts-backend explicit --samples 1000 --warmup 500 --chains 4 --multichains true --p0 truth --use-car false
 ```
 
 Key options:
@@ -148,7 +148,7 @@ To refresh aggregate reports from existing `posterior_summary.csv` files that
 contain `true_beta` and interval bounds, without fitting or loading MCMC samples:
 
 ```bash
-julia +1.11.7 --startup-file=no --project=. scripts/summarize_simulation_results.jl --root results/simulation/example
+julia +1.11.7 --startup-file=no --project=. scripts/lib/simulation/summarize.jl --root results/simulation/example
 ```
 
 This writes coverage into `model_metrics_summary.csv` and
@@ -157,25 +157,22 @@ without saved truth or bounds have missing coverage, rather than assumed values.
 
 ## Real-data example
 
-The bundled `data/T1D.csv` contains `time`, `status`, microbiome abundance columns, and the non-compositional columns `Sex` and `Antibiotics`. Run:
+The bundled T1D workflow runs inner tuning, outer-fold evaluation, full-data tuning,
+final posterior fits, and PH diagnostics by default:
 
 ```bash
-julia -t 4 --project=. scripts/analyze_real_data.jl --input data/T1D.csv --outdir results/realdata/T1D --time-col time --status-col status --exclude-cols Sex,Antibiotics --priors cox-rhs,prox-sslasso --sampler nuts --nuts-backend explicit --samples 1000 --warmup 500 --chains 4 --multichains true --p0 auto --use-car false
+bash scripts/analyze_real_data.sh
 ```
 
-A custom CSV must contain a finite, nonnegative survival-time column, a 0/1 event column with at least one event, and finite, nonnegative numeric component columns. Select columns with `--time-col`, `--status-col`, `--comp-cols`, or `--exclude-cols`. Rows with missing survival outcomes are dropped; missing component values are treated as zero.
+It compares Cox-RHS and Prox-SSLASSO under soft-center/prox constraints, with and
+without joint clinical adjustment. Time-effect models are fitted on all data with
+fixed hyperparameters. Individual/global Schoenfeld plots and all ordered
+static/time-model Bayes factors are saved. See [the experiment guide](scripts/README.md)
+for output paths, budgets, evidence assumptions and independent SMC diagnostics.
+Tuning candidate values are maintained in `mainfuncs/tuning_grids.jl`.
 
-Outputs are written below the selected `--outdir`:
-
-```text
-results/realdata/T1D/
-  tables/                  # Model metrics, screening, and coefficient summaries
-  figures/                 # Coefficient and model-metric plots
-  runs/realdata_cox-rhs/   # Cox-RHS samples and diagnostics
-  runs/realdata_prox-sslasso/
-```
-
-Sampling sizes, prior hyperparameters, compositional constraints, and diagnostics can all be changed through CLI options. See `scripts/analysis_common.jl` for the authoritative option definitions.
+For another CSV, use `scripts/lib/realdata/analyze.jl --workflow standard` with
+`--input`, `--time-col`, `--status-col`, `--comp-cols` / `--exclude-cols`.
 
 Prox-SSLASSO's explicit HMC/NUTS samplers honor `--init zero` and `--init rand`
 for single, serial, and parallel chains. The default `zero` starts at beta=0,
@@ -218,7 +215,7 @@ score. Baseline packages' existing CV scores retain their original definitions.
 To backfill nested CV for saved Bayesian runs, use:
 
 ```bash
-julia +1.11.7 --startup-file=no --project=. scripts/analyze_real_data.jl --workflow cv-replay --priors cox-rhs,prox-sslasso --outer-cv-folds 5 --cv-folds 5
+julia +1.11.7 --startup-file=no --project=. scripts/lib/realdata/analyze.jl --workflow cv-replay --priors cox-rhs,prox-sslasso --outer-cv-folds 5 --cv-folds 5
 ```
 
 This command now retunes inside each outer fold; historical fixed-configuration
@@ -248,7 +245,7 @@ To rerun T1D for Cox-RHS (`soft_center`) and Prox-SSLASSO (`prox`) using the sav
 configurations and fixed risk sets:
 
 ```bash
-julia +1.11.7 --startup-file=no -t 4 --project=. scripts/analyze_real_data.jl --workflow loo
+julia +1.11.7 --startup-file=no -t 4 --project=. scripts/lib/realdata/analyze.jl --workflow loo
 ```
 
 The unified `bash scripts/analyze_real_data.sh loo` entry uses the same `fixed_risk` default.
@@ -262,25 +259,23 @@ fixed-risk PSIS scores have different evaluation targets.
 
 See [scripts/README.md](scripts/README.md) for the runnable entry points and
 [review runners](scripts/review/README.md) for the supplementary protocols.
-The baseline grid uses the same `run_simulation.jl` and prior-family shell
+The baseline grid uses `scripts/lib/simulation/run_simulation.jl` and prior-family shell
 launchers as ordinary simulations; it has no separate Python driver.
 Each simulation shell launcher keeps its own settings and loops. The terminal
 shows group and overall fit counts; sampler output is saved under the run's
 `logs/` directory. Shared shell helpers live in `scripts/lib/`.
 
 All real-data workflows enter through `analyze_real_data.sh` or
-`analyze_real_data.jl`: ordinary datasets, the eight T1D review combinations,
+`scripts/lib/realdata/analyze.jl`: ordinary datasets, the eight T1D combinations,
 partitioned nested CV, candidate workers, final posterior retries and LOO.
 The T1D implementation lives in `scripts/lib/realdata/`.
 
-The BCCox R runners and their 50 paired S4 cohorts are maintained in the sibling
-`BayesCox4micro_baseline` R project. Its `simulation_bccox_survival_analysis.R`
-runs from local `datasets/S4`, `testdata/S4`, `beta/S4` and `bccox` inputs.
+BcCox PH and BCCox PH baselines remain in their corresponding R projects;
+the Julia supplementary suite does not duplicate those implementations.
 
-The local `audit/` directory is ignored by Git. Current review verification,
-aggregation, reporting, and synchronization tools live in `audit/review/`;
-the experiment scheduler remains in `scripts/review/run_review_rerun.py`.
-Earlier tools and the pre-cleanup source archive remain under `audit/`.
-The review directory now has one Markdown report, `results/review_20261012/RESULTS.md`.
-Its consolidation manifest maps every original Markdown source to the merged
-report and the byte-preserving archive. Numerical results remain in place.
+The local `audit/` directory is ignored by Git. Historical probes, manuscript exports,
+server-specific schedulers and superseded patches are archived under
+`audit/script_refactor_20261018/`. The current supplementary entry points retain
+sensitivity, S1–S3, the eight S4 graph/constraint combinations, zero-sum handling,
+and paired training-information scale calibration. Historical numerical results
+and frozen source snapshots remain in place.

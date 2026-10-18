@@ -1,6 +1,6 @@
 using Test
 if !isdefined(Main, :simulation_metadata_matches_typed)
-    include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
+    include(joinpath(@__DIR__, "..", "scripts", "lib", "analysis_common.jl"))
 end
 
 @testset "Resume requires matching recorded initialization" begin

@@ -4,11 +4,12 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 source scripts/lib/common.sh
 source scripts/lib/realdata/datasets.sh
 case "${1:-}" in
-    --help) echo 'Usage: analyze_real_data.sh [standard|t1d-review|loo|cv-replay|convergence] [Julia options]; see scripts/README.md'; exit 0;;
-    t1d-review) shift; exec bash scripts/lib/realdata/review_batch.sh "$@";;
+    --help) echo 'Usage: analyze_real_data.sh [t1d|standard|loo|cv-replay|convergence] [options]; default: complete T1D analysis and PH diagnostics'; exit 0;;
+    t1d) shift; exec bash scripts/lib/realdata/t1d_batch.sh "$@";;
     convergence) shift; exec bash scripts/lib/realdata/convergence_grid.sh "$@";;
-    loo|cv-replay) workflow="$1"; shift; run_julia scripts/analyze_real_data.jl --workflow "$workflow" "$@"; exit;;
+    loo|cv-replay) workflow="$1"; shift; run_julia scripts/lib/realdata/analyze.jl --workflow "$workflow" "$@"; exit;;
     standard) shift;;
+    *) exec bash scripts/lib/realdata/t1d_batch.sh "$@";;
 esac
 constraint="${CONSTRAINT:-prox}"
 OUT_ROOT="${OUT_ROOT:-results/realdata_${constraint}}"
@@ -37,11 +38,11 @@ COMMON=(
     --diagnose-max-lag 50 --tune_priorsparams false --tune_algparams false
     --cv-folds 5 --tune-seed 42
  )
-IFS=',' read -ra datasets <<< "${RUN_DATASETS:-HCT_bcorsis}"
+IFS=',' read -ra datasets <<< "${RUN_DATASETS:-T1D}"
 [[ "${RUN_DATASETS:-}" != all ]] || IFS=',' read -ra datasets <<< "$ALL_REALDATA_DATASETS"
 for dataset in "${datasets[@]}"; do
     realdata_dataset "$dataset"
-    run_logged "${constraint}_${DATA_NAME}" "${LOG_ROOT:-$OUT_ROOT/logs}" run_julia scripts/analyze_real_data.jl \
+    run_logged "${constraint}_${DATA_NAME}" "${LOG_ROOT:-$OUT_ROOT/logs}" run_julia scripts/lib/realdata/analyze.jl --workflow standard \
         --input "$DATA_INPUT" --outdir "$OUT_ROOT/$DATA_NAME" --time-col "$DATA_TIME" --status-col "$DATA_STATUS" \
         --comp-cols none --exclude-cols "$DATA_EXCLUDE" \
         --prior-configs "$SOFT_CONFIG_ROOT/$DATA_CONFIG/tuning/best_prior_configs.json" "${COMMON[@]}" "$@"

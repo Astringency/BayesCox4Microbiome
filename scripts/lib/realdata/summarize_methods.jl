@@ -3,11 +3,11 @@
 using CSV
 using DataFrames
 
-const ROOT = normpath(joinpath(@__DIR__, ".."))
+const ROOT = normpath(joinpath(@__DIR__, "..", "..", ".."))
 const SUMMARY_ROOT = joinpath(ROOT, "results", "summary", "realdata")
 const DEFAULT_BAYES_DIR = joinpath(SUMMARY_ROOT, "bayes_all_methods")
 const DEFAULT_OUTDIR = joinpath(SUMMARY_ROOT, "method_comparison")
-const DEFAULT_PLOT_SCRIPT = joinpath(ROOT, "scripts", "plot_realdata_method_comparison.R")
+const DEFAULT_PLOT_SCRIPT = joinpath(ROOT, "scripts", "lib", "plotting", "plot_realdata_method_comparison.R")
 const GROUP_ORDER = Dict("T1D" => 1, "HCT" => 2, "TCGA" => 3)
 const PRIOR_ORDER = ["hs", "rhs", "new-rhs", "est-rhs", "cox-hs", "cox-rhs", "lasso", "sslasso", "prox-lasso", "prox-sslasso"]
 const CONSTRAINT_ORDER = Dict("soft_center" => 1, "prox" => 2)

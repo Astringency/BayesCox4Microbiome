@@ -50,7 +50,7 @@ const ClinicalBC = BayesCox4Micro
 end
 
 if !isdefined(Main, :fit_and_evaluate)
-    include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
+    include(joinpath(@__DIR__, "..", "scripts", "lib", "analysis_common.jl"))
 end
 
 @testset "Clinical nested CV slicing and prediction" begin

@@ -7,9 +7,9 @@ if [[ "${1:-}" == --help ]]; then
     exit 0
 fi
 for value in "$@"; do
-    if [[ "$value" == --root ]]; then run_julia scripts/monitor_simulation.jl "$@"; exit; fi
+    if [[ "$value" == --root ]]; then run_julia scripts/lib/simulation/monitor.jl "$@"; exit; fi
 done
 IFS=',' read -ra roots <<< "${ROOTS:-results/simulation/prox,results/simulation/soft_center}"
 for root in "${roots[@]}"; do
-    run_julia scripts/monitor_simulation.jl --root "$root" "$@"
+    run_julia scripts/lib/simulation/monitor.jl --root "$root" "$@"
 done

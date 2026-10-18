@@ -3,7 +3,7 @@
 using Pkg
 
 function _activate_repo_project()
-    project = abspath(joinpath(@__DIR__, "..", "Project.toml"))
+    project = abspath(joinpath(@__DIR__, "..", "..", "..", "Project.toml"))
     active = Base.active_project()
     active !== project && Pkg.activate(dirname(project))
 end
@@ -22,7 +22,7 @@ function _include_script(path::AbstractString)
     return include(path)
 end
 
-_include_script(joinpath(@__DIR__, "analysis_common.jl"))
+_include_script(joinpath(@__DIR__, "..", "analysis_common.jl"))
 using BayesCox4Micro: _extract_algorithm_params
 
 function _split_optional_strings(value::AbstractString)
@@ -548,7 +548,12 @@ function main()
 end
 
 function analyze_real_data_main()
-    workflow="standard"
+    workflow="t1d"
+    inline=findfirst(x->startswith(x,"--workflow="),ARGS)
+    if inline!==nothing
+        workflow=split(ARGS[inline],'=';limit=2)[2]
+        deleteat!(ARGS,inline)
+    end
     index=findfirst(==("--workflow"),ARGS)
     if index !== nothing
         index < length(ARGS) || error("--workflow needs a value")
@@ -557,14 +562,14 @@ function analyze_real_data_main()
     end
     if workflow=="standard"
         main()
-    elseif workflow=="t1d-review"
-        include(joinpath(@__DIR__,"lib","realdata","t1d_review.jl"))
-        Base.invokelatest(t1d_review_main)
+    elseif workflow=="t1d"
+        include(joinpath(@__DIR__,"t1d.jl"))
+        Base.invokelatest(t1d_main)
     elseif workflow=="loo"
-        include(joinpath(@__DIR__,"lib","realdata","loo.jl"))
+        include(joinpath(@__DIR__,"loo.jl"))
         Base.invokelatest(t1d_loo_main)
     elseif workflow=="cv-replay"
-        include(joinpath(@__DIR__,"lib","realdata","cv_replay.jl"))
+        include(joinpath(@__DIR__,"cv_replay.jl"))
         Base.invokelatest(realdata_cv_replay_main)
     else
         error("Unknown workflow: $workflow")

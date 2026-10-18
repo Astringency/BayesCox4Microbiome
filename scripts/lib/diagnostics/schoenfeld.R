@@ -53,9 +53,14 @@ run_posterior_ph <- function(design_file, coefficient_file, output_dir) {
   write.csv(raw,file.path(output_dir,'schoenfeld_residuals.csv'),row.names=FALSE)
   # The plots are the primary Watson et al. diagnostic. Off-MLE chi-square tests
   # below are exploratory plug-in diagnostics, not calibrated Bayesian p-values.
-  z <- cox.zph(fixed,transform='km',terms=FALSE,global=TRUE)
-  tab <- data.frame(feature_id=c(labels,'GLOBAL'),z$table,row.names=NULL,check.names=FALSE)
-  names(tab)[names(tab)=='p'] <- 'p_plugin_exploratory'
+  z <- tryCatch(cox.zph(fixed,transform='km',terms=FALSE,global=TRUE),error=function(e)e)
+  if (inherits(z,'error')) {
+    tab <- data.frame(feature_id=c(labels,'GLOBAL'),chisq=NA_real_,df=NA_real_,
+                      p_plugin_exploratory=NA_real_,reason=conditionMessage(z))
+  } else {
+    tab <- data.frame(feature_id=c(labels,'GLOBAL'),z$table,row.names=NULL,check.names=FALSE)
+    names(tab)[names(tab)=='p'] <- 'p_plugin_exploratory'
+  }
   tab$estimator <- 'joint Bayesian posterior mean; zero optimization iterations'
   tab$interpretation <- 'Exploratory plug-in score diagnostic: shrinkage estimate is not MLE; chi-square calibration is not guaranteed. Primary assessment uses residual plots.'
   write.csv(tab,file.path(output_dir,'posterior_mean_ph.csv'),row.names=FALSE)
@@ -77,11 +82,32 @@ run_posterior_ph <- function(design_file, coefficient_file, output_dir) {
     lines(smooth,col='#C04B24',lwd=2)
     trend[[j]] <- data.frame(feature_id=labels[j],event_time=smooth$x,smooth_residual=smooth$y)
   }
+  # Global residual process: covariance-whitened cumulative score bridge.
+  # The retained SVD directions handle p >= events and collinear compositions.
+  centered <- scale(r$residuals,center=TRUE,scale=FALSE)
+  sv <- svd(centered)
+  keep <- sv$d > max(sv$d)*1e-8
+  score <- if (any(keep)) sv$u[,keep,drop=FALSE]*sqrt(nrow(centered)-1) else matrix(0,nrow(centered),1)
+  cumulative <- apply(score,2,cumsum)/sqrt(nrow(score))
+  if (is.null(dim(cumulative))) cumulative <- matrix(cumulative,ncol=1)
+  global <- data.frame(time=r$time,cumulative_score_norm=sqrt(rowSums(cumulative^2)),
+                       risk_score_residual=drop(r$residuals %*% beta))
+  write.csv(global,file.path(output_dir,'schoenfeld_global.csv'),row.names=FALSE)
+  par(mfrow=c(2,1),mar=c(4,4,3,1))
+  plot(global$time,global$cumulative_score_norm,type='l',lwd=2,col='#C04B24',
+       xlab='Observed event time',ylab='Whitened cumulative score norm',
+       main='GLOBAL: centered cumulative Schoenfeld process (descriptive)')
+  plot(global$time,global$risk_score_residual,pch=16,cex=.6,col='#66666688',
+       xlab='Observed event time',ylab='Risk-score Schoenfeld residual',
+       main='GLOBAL: residual projection on posterior-mean risk score')
+  abline(h=0,lty=2,col='gray50')
+  lines(smooth.spline(global$time,global$risk_score_residual,df=4),col='#C04B24',lwd=2)
   dev.off()
   write.csv(do.call(rbind,trend),file.path(output_dir,'schoenfeld_smooth.csv'),row.names=FALSE)
   writeLines(c('Joint model parameters: Bayesian posterior means, all included taxa and clinical covariates.',
     'Raw Schoenfeld residuals use full observed risk sets and Efron tied-event means.',
     'Primary diagnostic: residual-versus-time plots with a four-degree-of-freedom smoothing spline.',
+    'Global plots: covariance-whitened cumulative score bridge and posterior-risk-score projection; descriptive, no calibrated thresholds.',
     'No auxiliary model or coefficient re-estimation; coxph iter.max=0 is a numerical residual cross-check.',
     'cox.zph p-values are exploratory plug-in values, not posterior probabilities or calibrated Bayesian tests.',
     paste('Independent residual check maximum absolute difference:',format(error,digits=16)),
@@ -91,6 +117,6 @@ run_posterior_ph <- function(design_file, coefficient_file, output_dir) {
 
 if (sys.nframe()==0L) {
   args <- commandArgs(trailingOnly=TRUE)
-  if (length(args)!=3L) stop('usage: check_t1d_ph.R ph_design.csv ph_coefficients.csv OUTPUT_DIR')
+  if (length(args)!=3L) stop('usage: schoenfeld.R ph_design.csv ph_coefficients.csv OUTPUT_DIR')
   run_posterior_ph(args[1],args[2],args[3])
 }

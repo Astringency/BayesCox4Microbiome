@@ -1,6 +1,6 @@
 using Test, Random, LinearAlgebra, BayesCox4Micro
 if !isdefined(Main, :generate_simulation_data)
-    include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
+    include(joinpath(@__DIR__, "..", "scripts", "lib", "analysis_common.jl"))
 end
 
 @testset "S4 Brownian shared ancestry and reproducible data" begin
@@ -74,27 +74,27 @@ end
     end
 end
 
-@testset "S4 correct graph has no signal-null edges" begin
+@testset "S4 Oracle graph connects only nonzero coefficients" begin
     beta, idx = true_beta(50,6)
     phylo = scenario_phylogeny(50,idx,:S4)
     w = phylo.raw_tree_weights
     before = copy(w)
-    cut = signal_separated_car_weights(w,beta)
+    cut = signal_only_car_weights(w,beta)
     removed = [(i,j) for j in 2:50 for i in 1:(j-1) if w[i,j]>0 && cut[i,j]==0]
-    @test Set(removed) == Set([(1,26),(2,26),(1,28),(2,28)])
+    @test !isempty(removed)
     @test w == before
     @test cut == phylo.weights
-    @test count(>(0),triu(cut,1)) == 69
-    @test all(iszero(cut[i,j]) for i in 1:50 for j in 1:50 if iszero(beta[i])!=iszero(beta[j]))
+    @test count(>(0),triu(cut,1)) == 7
+    @test all(iszero(cut[i,j]) for i in 1:50 for j in 1:50 if iszero(beta[i]) || iszero(beta[j]))
     @test any(phylo.misspecified_weights[i,j]>0 for i in 1:50 for j in 1:50 if iszero(beta[i])!=iszero(beta[j]))
     @test sort(vec(cut)) == sort(vec(phylo.misspecified_weights))
-    @test BayesCox4Micro._car_rank(BayesCox4Micro._prepare_car_weights(phylo.misspecified_weights,50)) == 36
-    @test signal_separated_car_weights(cut,beta) == cut
+    @test BayesCox4Micro._car_rank(BayesCox4Micro._prepare_car_weights(phylo.misspecified_weights,50)) == 4
+    @test signal_only_car_weights(cut,beta) == cut
     @test issymmetric(cut) && all(iszero,diag(cut))
-    @test all(cut[i,j]==w[i,j] for i in 1:50 for j in 1:50 if iszero(beta[i])==iszero(beta[j]))
+    @test all(cut[i,j]==w[i,j] for i in 1:50 for j in 1:50 if !iszero(beta[i]) && !iszero(beta[j]))
     @test BayesCox4Micro._car_rank(BayesCox4Micro._prepare_car_weights(w,50)) == 37
-    @test BayesCox4Micro._car_rank(BayesCox4Micro._prepare_car_weights(cut,50)) == 36
-    @test_throws DimensionMismatch signal_separated_car_weights(w,beta[1:4])
+    @test BayesCox4Micro._car_rank(BayesCox4Micro._prepare_car_weights(cut,50)) == 4
+    @test_throws DimensionMismatch signal_only_car_weights(w,beta[1:4])
 end
 
 @testset "Planted phylogeny and misspecified graph" begin
@@ -117,20 +117,25 @@ end
     @test size(generate_simulation_test_data(200, 50, 6; scenario = :phylo).X) == (1000, 50)
 end
 
-@testset "Custom CAR weights reach posterior fitting" begin
+@testset "All S4 graph and constraint combinations reach posterior fitting" begin
     sim = generate_simulation_data(24, 8, 2; scenario = :phylo, seed = 27)
     phylo = planted_phylogeny(8, sim.nonzero_index)
-    fits = Any[]
-    for weights in (nothing, phylo.weights, phylo.misspecified_weights)
-        fit = fit_and_evaluate(sim.X, sim.time, sim.event; prior_name = "cox-rhs",
-            sampler = :hmc, n_samples = 12, warmup = 8, chains = 1,
-            hmc_n_leapfrog = 3, noncentered = true, p0 = 2,
-            use_car = weights !== nothing, car_weights = weights,
-            sample_car_strength = weights !== nothing, seed = 7, progress = false,
-            compute_metrics = false)
-        @test all(isfinite, fit.draws)
-        push!(fits, fit)
+    learned = car_weight_matrix(sim.X;distance=:bray,threshold_quantile=0.5)
+    @test learned != phylo.weights
+    for constraint in (:soft_center,:prox)
+        fits = Any[]
+        for weights in (nothing, phylo.weights, phylo.misspecified_weights, learned)
+            fit = fit_and_evaluate(sim.X, sim.time, sim.event; prior_name = "cox-rhs",
+                sampler = :hmc, n_samples = 12, warmup = 8, chains = 1,
+                hmc_n_leapfrog = 3, noncentered = true, p0 = 2, constraint,
+                use_car = weights !== nothing, car_weights = weights,
+                sample_car_strength = weights !== nothing, seed = 7, progress = false,
+                compute_metrics = false)
+            @test all(isfinite, fit.draws)
+            push!(fits, fit)
+        end
+        @test fits[1].draws != fits[2].draws
+        @test fits[2].draws != fits[3].draws
+        @test fits[3].draws != fits[4].draws
     end
-    @test fits[1].draws != fits[2].draws
-    @test fits[2].draws != fits[3].draws
 end

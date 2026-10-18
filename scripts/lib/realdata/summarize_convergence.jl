@@ -9,7 +9,7 @@ using Plots
 using Printf
 using Statistics
 
-const ROOT = normpath(joinpath(@__DIR__, ".."))
+const ROOT = normpath(joinpath(@__DIR__, "..", "..", ".."))
 const DEFAULT_REALDATA_ROOT = joinpath(ROOT, "results", "realdata")
 const DEFAULT_TUNING_ROOT = joinpath(ROOT, "results", "realdata_tuning")
 const DEFAULT_SUMMARY_DIR = joinpath(ROOT, "results", "summary", "realdata", "bayes_all_methods")

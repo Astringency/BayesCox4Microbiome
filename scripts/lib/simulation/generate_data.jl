@@ -3,7 +3,7 @@
 using Pkg
 
 function _activate_repo_project()
-    project = abspath(joinpath(@__DIR__, "..", "Project.toml"))
+    project = abspath(joinpath(@__DIR__, "..", "..", "..", "Project.toml"))
     active = Base.active_project()
     active !== project && Pkg.activate(dirname(project))
 end
@@ -22,7 +22,7 @@ function _include_script(path::AbstractString)
     return include(path)
 end
 
-_include_script(joinpath(@__DIR__, "analysis_common.jl"))
+_include_script(joinpath(@__DIR__, "..", "analysis_common.jl"))
 
 function simulation_label(; rep, n, p, nonzero, baseline, seed)
     return "rep$(rep)_$(baseline)_n$(n)_p$(p)_nz$(nonzero)_seed$(seed)"

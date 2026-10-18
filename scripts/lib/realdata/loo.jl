@@ -4,7 +4,7 @@ using Pkg
 const T1D_LOO_ROOT = normpath(joinpath(@__DIR__, "..", "..", ".."))
 Base.active_project() == joinpath(T1D_LOO_ROOT, "Project.toml") || Pkg.activate(T1D_LOO_ROOT)
 using BayesCox4Micro: _loo_atomic_json, _loo_checkpoint_manifest
-isdefined(@__MODULE__, :parse_cli_args) || include(joinpath(@__DIR__, "..", "..", "analysis_common.jl"))
+isdefined(@__MODULE__, :parse_cli_args) || include(joinpath(@__DIR__, "..", "analysis_common.jl"))
 include(joinpath(@__DIR__, "replay_common.jl"))
 
 function t1d_loo_main(args = ARGS)

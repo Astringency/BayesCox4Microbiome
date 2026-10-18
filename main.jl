@@ -152,6 +152,7 @@ include("mainfuncs/diagnostics/diagnostics.jl")
 include("mainfuncs/diagnostics/specialized_diagnostics.jl")
 include("mainfuncs/diagnostics/visualization_diagnostics.jl")
 include("mainfuncs/metrics/bayesian_metrics.jl")
+include("mainfuncs/tuning_grids.jl")
 include("mainfuncs/metrics/cindex_metrics.jl")
 include("mainfuncs/metrics/simulation_metrics.jl")
 

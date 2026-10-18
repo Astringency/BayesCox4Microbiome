@@ -5,11 +5,11 @@ using Statistics
 using BayesCox4Micro
 
 if !isdefined(@__MODULE__, :load_or_recover_simulation_run)
-    include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
+    include(joinpath(@__DIR__, "..", "scripts", "lib", "analysis_common.jl"))
 end
 
 module CoverageSummaryReaders
-include(joinpath(@__DIR__, "..", "scripts", "summarize_simulation_results.jl"))
+include(joinpath(@__DIR__, "..", "scripts", "lib", "simulation", "summarize.jl"))
 end
 
 @testset "95% marginal credible interval coverage" begin

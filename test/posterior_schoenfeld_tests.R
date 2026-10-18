@@ -1,5 +1,5 @@
 suppressPackageStartupMessages(library(survival))
-source('scripts/check_t1d_ph.R')
+source('scripts/lib/diagnostics/schoenfeld.R')
 # Non-MLE coefficients, tied failures, a simultaneous censored subject, and a
 # clinical indicator. Tests reject any accidental auxiliary refit or wrong risk set.
 time <- c(1,1,1,2,3,3,4,5,6,7,8,9)
@@ -27,3 +27,8 @@ score <- sapply(seq_along(beta),function(j) {
 })
 stopifnot(max(abs(colSums(posterior_schoenfeld(time,status,X,beta)$residuals)-score))<1e-7)
 cat('Posterior-mean Schoenfeld checks passed: fixed coefficients, Efron ties, full risk sets, finite-difference score.\n')
+
+global <- read.csv(file.path(out,'schoenfeld_global.csv'))
+stopifnot(nrow(global)==sum(status),all(is.finite(global$cumulative_score_norm)),
+          all(is.finite(global$risk_score_residual)),
+          file.info(file.path(out,'posterior_mean_schoenfeld.pdf'))$size>1000)

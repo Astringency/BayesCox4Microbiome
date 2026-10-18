@@ -10,8 +10,8 @@
 #   Figure 4: Coefficient-sum distribution across posterior samples for one replicate
 #
 # Usage:
-#   Rscript scripts/plot_simulation.R --root results/simulation/prox
-#   Rscript scripts/plot_simulation.R --roots results/simulation/prox,results/simulation/soft_center
+#   Rscript scripts/lib/plotting/plot_simulation.R --root results/simulation/prox
+#   Rscript scripts/lib/plotting/plot_simulation.R --roots results/simulation/prox,results/simulation/soft_center
 ###############################################################################
 
 .libPaths(c("~/R/library", .libPaths()))
@@ -54,8 +54,8 @@ split_csv <- function(value) {
 usage <- function() {
   cat(
     "Usage:\n",
-    "  Rscript scripts/plot_simulation.R --root ROOT [options]\n",
-    "  Rscript scripts/plot_simulation.R --roots ROOT1,ROOT2 [options]\n\n",
+    "  Rscript scripts/lib/plotting/plot_simulation.R --root ROOT [options]\n",
+    "  Rscript scripts/lib/plotting/plot_simulation.R --roots ROOT1,ROOT2 [options]\n\n",
     "Options:\n",
     "  --root ROOT              One simulation result root.\n",
     "  --roots ROOT1,ROOT2      Comma-separated simulation result roots.\n",
@@ -542,7 +542,7 @@ publication_theme <- function(base_size = PLOT_BASE_SIZE) {
 
 script_arg <- grep("^--file=",commandArgs(),value=TRUE)[1]
 script_dir <- dirname(normalizePath(sub("^--file=","",script_arg),mustWork=TRUE))
-source(file.path(script_dir,"lib","plotting","simulation_figures.R"))
+source(file.path(script_dir,"simulation_figures.R"))
 
 plot_coef_sum <- function(sum_values) {
   if (length(sum_values) < 2) {
@@ -771,7 +771,7 @@ process_root <- function(data_root, output_dir = NULL) {
 }
 
 if(!is.null(MANIFEST)) {
-  source(file.path(script_dir,"lib","plotting","simulation_manifest.R"))
+  source(file.path(script_dir,"simulation_manifest.R"))
   process_manifest(MANIFEST, OUTPUT_DIR_OVERRIDE)
   quit(status=0)
 }
