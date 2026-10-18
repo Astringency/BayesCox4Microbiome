@@ -1,7 +1,8 @@
 #!/usr/bin/env julia
+using BayesCox4Micro: _select_inner_cindex, _validation_cindices, _write_tuning_json
 # Frozen, resumable T1D alpha-count experiment. Jobs never reuse historical draws.
 include(joinpath(@__DIR__, "..", "analysis_common.jl"))
-include(joinpath(@__DIR__, "..", "tune_hyperparams_cindex.jl"))
+
 using SHA, Dates
 BLAS.set_num_threads(1)
 
@@ -70,8 +71,6 @@ function run_alpha_job(job, protocol, root)
             metadata=merge(job,Dict("data_sha256"=>protocol["data_sha256"],
                 "julia_version"=>string(VERSION),"source_sha256"=>protocol["source_sha256"])),
             posterior_summary=summary,save_jld2=false,save_wide_csv=true)
-        diagnostics = BayesCox4Micro.rank_convergence_diagnostics(wide)
-        write_table(joinpath(out,"rank_diagnostics.csv"),diagnostics)
         _write_tuning_json(done,Dict("status"=>"complete",
             "taxa_selected"=>count(summary.selected_95[summary.feature_type .== "taxon"]),
             "clinical_selected"=>count(summary.selected_95[summary.feature_type .== "clinical"]),

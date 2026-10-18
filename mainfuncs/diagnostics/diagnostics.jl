@@ -15,19 +15,7 @@ function _require_pkg(name::Symbol)
     return Base.require(Base.PkgId(Base.UUID(uuid), String(name)))
 end
 
-function _configure_headless_gr!()
-    if !haskey(ENV, "GKSwstype") && !haskey(ENV, "DISPLAY")
-        ENV["GKSwstype"] = "100"
-    end
-    return nothing
-end
-
 _call_latest(f, args...; kwargs...) = Base.invokelatest(f, args...; kwargs...)
-
-function _is_chains_object(x)
-    MCMCChains = _require_pkg(:MCMCChains)
-    return x isa getproperty(MCMCChains, :Chains)
-end
 
 function _safe_string(x)
     x === missing && return missing
@@ -90,42 +78,6 @@ end
 
 function _prior_name(prior)
     return string(nameof(typeof(prior)))
-end
-
-function sampling_diagnostics_dict(d::SamplingDiagnostics)
-    return Dict(
-        "warmup_seconds" => d.warmup_seconds,
-        "sample_seconds" => d.sample_seconds,
-        "total_seconds" => d.total_seconds,
-        "allocated_bytes" => d.allocated_bytes,
-        "allocated_mb" => d.allocated_bytes / 2.0^20,
-        "gc_seconds" => d.gc_seconds,
-        "gc_percent" => d.gc_percent,
-    )
-end
-
-function _sampler_acceptance_metadata(result::CoxSamplerResult)
-    if result.samples isa MHSamples
-        return Dict(
-            "acceptance_rate" => result.samples.acceptance_rate,
-            "warmup_acceptance_rate" => result.samples.warmup_acceptance_rate,
-            "final_step_size" => result.samples.final_step,
-        )
-    elseif result.samples isa MultiMHSamples
-        samples = result.samples.chains
-        return Dict(
-            "acceptance_rate" => mean([s.acceptance_rate for s in samples]),
-            "warmup_acceptance_rate" => mean([s.warmup_acceptance_rate for s in samples]),
-            "acceptance_rate_by_chain" => [s.acceptance_rate for s in samples],
-            "warmup_acceptance_rate_by_chain" => [s.warmup_acceptance_rate for s in samples],
-            "final_step_size_by_chain" => [s.final_step for s in samples],
-        )
-    end
-    return Dict(
-        "acceptance_rate" => missing,
-        "warmup_acceptance_rate" => missing,
-        "final_step_size" => missing,
-    )
 end
 
 function _base_metadata(result::CoxSamplerResult; run_id = "run", metadata = Dict(), settings = Dict())
@@ -282,11 +234,11 @@ function _posterior_summary_dataframe(chains)
         rename_map = Dict{Symbol,Symbol}()
         for c in propertynames(qs)
             sc = String(c)
-            if sc in ("2.5%", "2.5%")
+            if sc == "2.5%"
                 rename_map[c] = :q025
             elseif sc in ("50.0%", "50%", "median")
                 rename_map[c] = :median
-            elseif sc in ("97.5%", "97.5%")
+            elseif sc == "97.5%"
                 rename_map[c] = :q975
             end
         end
@@ -298,23 +250,74 @@ function _posterior_summary_dataframe(chains)
     return summary
 end
 
-function _diagnostics_summary_dataframe(chains; metadata = Dict(), rhat_threshold::Real = 1.01)
+"""Rank-normalized split/folded R-hat, bulk/tail ESS and posterior summaries.
+Constant parameters do not demonstrate mixing; their R-hat and ESS are missing.
+Single-chain R-hat is withheld. ESS thresholds use 100 times the chain count.
+"""
+function convergence_diagnostics(chains; rhat_threshold::Real = 1.01)
     df = _posterior_summary_dataframe(chains)
     :std in propertynames(df) && rename!(df, :std => :sd)
-    if !(:parameters in propertynames(df)) && (:parameter in propertynames(df))
-        rename!(df, :parameter => :parameters)
+    df.parameters = string.(df.parameters)
+    arr, params = _chains_array_and_names(chains)
+    n_chains = size(arr, 3)
+    df.constant_all_draws = [length(unique(vec(arr[:, findfirst(==(p), params), :]))) == 1 for p in df.parameters]
+    for col in (:rhat, :ess_bulk, :ess_tail)
+        col in propertynames(df) || (df[!, col] = fill(missing, nrow(df)))
+        allowmissing!(df, col)
+        df[df.constant_all_draws, col] .= missing
     end
-    if !(:rhat in propertynames(df))
-        df.rhat = fill(missing, nrow(df))
-    end
-    if !(:ess_bulk in propertynames(df)) && (:ess in propertynames(df))
-        rename!(df, :ess => :ess_bulk)
-    end
-    for (k, v) in pairs(metadata)
-        df[!, Symbol(k)] = fill(_csv_value(v), nrow(df))
-    end
+    n_chains == 1 && (df.rhat .= missing)
+    df.n_chains = fill(n_chains, nrow(df))
+    df.n_draws = fill(size(arr, 1), nrow(df))
     df.rhat_threshold = fill(Float64(rhat_threshold), nrow(df))
+    df.ess_threshold = fill(100 * n_chains, nrow(df))
     return df
+end
+convergence_diagnostics(wide::AbstractDataFrame; kwargs...) =
+    convergence_diagnostics(dataframe_to_chains(DataFrame(wide)); kwargs...)
+
+"""Combine parameter, constraint, mixing, transition and cost summaries in one table.
+`category`, `parameters`, `chain` and `phase` identify the row's scope.
+Raw transition records have a different grain and are saved separately.
+"""
+function diagnostic_table(wide::AbstractDataFrame; transitions = DataFrame(),
+    runtime = Dict(), rhat_threshold::Real = 1.01)
+    tables = DataFrame[]
+    function add!(table, category; parameter = "", phase = "sample")
+        isempty(table) && return
+        table = copy(table)
+        :parameter in propertynames(table) && rename!(table, :parameter => :parameters)
+        :parameters in propertynames(table) || (table.parameters = fill(parameter, nrow(table)))
+        :chain in propertynames(table) || (table.chain = fill("pooled", nrow(table)))
+        table.chain = string.(table.chain)
+        :phase in propertynames(table) || (table.phase = fill(phase, nrow(table)))
+        table.category = fill(category, nrow(table))
+        push!(tables, table)
+    end
+    add!(convergence_diagnostics(wide; rhat_threshold), "convergence")
+    add!(zero_sum_diagnostics(wide), "zero_sum"; parameter = "sum(beta)")
+    add!(selection_mixing_diagnostics(wide), "selection_mixing")
+    add!(transition_diagnostics_summary(transitions), "transition")
+    costs = runtime isa SamplingDiagnostics ? sampling_diagnostics_dict(runtime) : runtime
+    isempty(costs) || add!(DataFrame([Symbol(k) => [_csv_value(v)] for (k,v) in pairs(costs)]), "runtime"; phase = "all")
+    table = vcat(tables...; cols = :union)
+    select!(table, :category, :parameters, :chain, :phase, Not([:category, :parameters, :chain, :phase]))
+    return table
+end
+
+"""Read one category from the unified numerical diagnostic output."""
+function read_diagnostics(run_dir::AbstractString; category = nothing)
+    table = CSV.read(joinpath(run_dir, "diagnostics_summary.csv"), DataFrame)
+    category === nothing && return table
+    return table[table.category .== string(category), :]
+end
+
+function _save_numerical_diagnostics(wide, output_dir; transitions = DataFrame(), kwargs...)
+    mkpath(output_dir)
+    table = diagnostic_table(wide; transitions, kwargs...)
+    _write_csv(joinpath(output_dir, "diagnostics_summary.csv"), table)
+    isempty(transitions) || _write_csv(joinpath(output_dir, "transition_diagnostics.csv"), transitions)
+    return table
 end
 
 function save_run_outputs(
@@ -342,17 +345,18 @@ function save_run_outputs(
     diagnostics["transition_diagnostics_available"] = !isempty(transitions)
     diagnostics["transition_diagnostics_definition"] = "numerical error or absolute Hamiltonian energy error > 1000; block samplers use their configured divergence threshold"
     output_chains = result.data.standardize || sample_thin != 1 ? dataframe_to_chains(wide) : chains
-    summary_df = posterior_summary === nothing ? _posterior_summary_dataframe(output_chains) : DataFrame(posterior_summary)
+    summary_df = posterior_summary === nothing ? select(_posterior_summary_dataframe(output_chains),
+        Not([:mcse, :ess_bulk, :ess_tail, :rhat, :ess_per_sec])) : DataFrame(posterior_summary)
 
     if save_wide_csv
         _write_csv(joinpath(output_dir, "samples_wide.csv"), wide)
     end
     if save_csv
         _write_csv(joinpath(output_dir, "posterior_summary.csv"), summary_df)
-        save_revision_diagnostics(wide_full, output_dir; transitions = transitions)
+        _save_numerical_diagnostics(wide_full, output_dir; transitions,
+            runtime = merge(sampling_diagnostics_dict(result.diagnostics), _sampler_acceptance_metadata(result)))
     end
     _write_json(joinpath(output_dir, "metadata.json"), meta)
-    _write_json(joinpath(output_dir, "diagnostics.json"), merge(copy(diagnostics), _sampler_acceptance_metadata(result)))
 
     if save_jld2
         JLD2 = _require_pkg(:JLD2)
@@ -383,7 +387,7 @@ function save_run_outputs(
         samples_wide = joinpath(output_dir, "samples_wide.csv"),
         result_bundle = joinpath(output_dir, "result_bundle.jld2"),
         metadata = joinpath(output_dir, "metadata.json"),
-        diagnostics = joinpath(output_dir, "diagnostics.json"),
+        diagnostics = joinpath(output_dir, "diagnostics_summary.csv"),
         posterior_summary = joinpath(output_dir, "posterior_summary.csv"),
     )
 end
@@ -408,258 +412,51 @@ function _load_chains_from_run(input_dir::AbstractString)
     return dataframe_to_chains(CSV.read(wide_path, DataFrame))
 end
 
-function _read_metadata(input_dir::AbstractString)
-    path = joinpath(input_dir, "metadata.json")
-    isfile(path) || return Dict{String,Any}()
-    try
-        JSON = _require_pkg(:JSON)
-        return Dict{String,Any}(_call_latest(getproperty(JSON, :parsefile), path))
+function _numeric_col_values(df::DataFrame, col::Symbol)
+    vals = Float64[]
+    col in propertynames(df) || return vals
+    for x in df[!, col]
+        x isa Real && isfinite(x) && push!(vals, Float64(x))
+    end
+    return vals
+end
+
+function _chain_diagnostics(result)
+    chains = try
+        result_to_chains(result)
     catch
-        return Dict{String,Any}()
-    end
-end
-
-function _selected_params(chains; params = nothing, top_k_beta::Integer = 10)
-    all_names = string.(names(chains))
-    if params !== nothing
-        raw = params isa AbstractString ? String.(strip.(split(params, ","))) : string.(params)
-        return [p for p in raw if p in all_names]
-    end
-    selected = String[]
-    "logposterior" in all_names && push!(selected, "logposterior")
-    beta_names = [n for n in all_names if occursin(r"^beta\[\d+\]$", n)]
-    if !isempty(beta_names) && top_k_beta > 0
-        arr, param_names = _chains_array_and_names(chains)
-        means = Dict(param_names[j] => mean(vec(arr[:, j, :])) for j in eachindex(param_names))
-        ordered = sort(beta_names; by = n -> -abs(get(means, n, 0.0)))
-        append!(selected, first(ordered, min(top_k_beta, length(ordered))))
-    end
-    "theta" in all_names && push!(selected, "theta")
-    return unique(selected)
-end
-
-function _subset_chains(chains, params::AbstractVector{<:AbstractString})
-    isempty(params) && return chains
-    return chains[:, Symbol.(params), :]
-end
-
-function _save_plot_all_formats(plot_obj, output_dir::AbstractString, stem::AbstractString, formats)
-    _configure_headless_gr!()
-    Plots = _require_pkg(:Plots)
-    mkpath(output_dir)
-    fmt_list = formats isa AbstractString ? strip.(split(formats, ",")) : string.(formats)
-    paths = String[]
-    for fmt in fmt_list
-        path = joinpath(output_dir, "$stem.$fmt")
-        if lowercase(fmt) == "eps"
-            open(path, "w") do io
-                _call_latest(show, io, MIME("application/postscript"), plot_obj)
-            end
-        else
-            _call_latest(getproperty(Plots, :savefig), plot_obj, path)
-        end
-        push!(paths, path)
-    end
-    return paths
-end
-
-_plot_margin(Plots, value::Real) = _call_latest(*, value, getproperty(Plots, :mm))
-
-function _plot_mcmc_chains(chains, output_dir::AbstractString, stem::AbstractString, seriestype::Symbol; formats, kwargs...)
-    _configure_headless_gr!()
-    _require_pkg(:StatsPlots)
-    Plots = _require_pkg(:Plots)
-    try
-        _call_latest(getproperty(Plots, :gr))
-    catch
-    end
-    n_params = max(size(chains, 2), 1)
-    plot_kwargs = merge(
-        (
-            seriestype = seriestype,
-            size = (1050, max(680, 150 * n_params)),
-            left_margin = _plot_margin(Plots, 5),
-            right_margin = _plot_margin(Plots, 3),
-            bottom_margin = _plot_margin(Plots, 4),
-            top_margin = _plot_margin(Plots, 4),
-            tickfontsize = 7,
-            guidefontsize = 9,
-            titlefontsize = 10,
-        ),
-        NamedTuple(kwargs),
-    )
-    plot_obj = _call_latest(getproperty(Plots, :plot), chains; plot_kwargs...)
-    return _save_plot_all_formats(plot_obj, output_dir, stem, formats)
-end
-
-function _rhat_dataframe(summary::DataFrame)
-    (:parameters in propertynames(summary) && :rhat in propertynames(summary)) || return DataFrame()
-    rows = summary[.!ismissing.(summary.rhat), [:parameters, :rhat]]
-    rows = rows[isfinite.(Float64.(rows.rhat)), :]
-    return rows
-end
-
-function _beta_rhat_dataframe(summary::DataFrame)
-    rows = _rhat_dataframe(summary)
-    isempty(rows) && return rows
-    keep = occursin.(r"^beta\[\d+\]$", string.(rows.parameters))
-    rows = rows[keep, :]
-    rows.beta_index = [parse(Int, match(r"\[(\d+)\]", string(p)).captures[1]) for p in rows.parameters]
-    sort!(rows, :beta_index)
-    return rows
-end
-
-function _save_rhat_plots(summary::DataFrame, output_dir::AbstractString; rhat_threshold::Real, formats)
-    _configure_headless_gr!()
-    Plots = _require_pkg(:Plots)
-    try
-        _call_latest(getproperty(Plots, :gr))
-    catch
-    end
-    paths = String[]
-    beta_rows = _beta_rhat_dataframe(summary)
-    if nrow(beta_rows) > 0
-        p = _call_latest(getproperty(Plots, :scatter),
-            beta_rows.beta_index,
-            Float64.(beta_rows.rhat);
-            xlabel = "beta index",
-            ylabel = "R-hat",
-            label = "beta",
-            title = "R-hat by beta index",
-            size = (850, 520),
-            left_margin = _plot_margin(Plots, 9),
-            right_margin = _plot_margin(Plots, 6),
-            bottom_margin = _plot_margin(Plots, 8),
-            top_margin = _plot_margin(Plots, 7),
+        return Dict{Symbol,Any}(
+            :rhat_max => missing,
+            :rhat_median => missing,
+            :ess_bulk_min => missing,
+            :ess_bulk_median => missing,
+            :ess_tail_min => missing,
+            :ess_tail_median => missing,
         )
-        _call_latest(getproperty(Plots, :hline!), p, [Float64(rhat_threshold)]; label = "threshold")
-        append!(paths, _save_plot_all_formats(p, output_dir, "rhat_scatter", formats))
     end
-    all_rows = _rhat_dataframe(summary)
-    if nrow(all_rows) > 0
-        p = _call_latest(getproperty(Plots, :histogram),
-            Float64.(all_rows.rhat);
-            xlabel = "R-hat",
-            ylabel = "count",
-            label = "parameters",
-            title = "R-hat histogram",
-            size = (850, 520),
-            left_margin = _plot_margin(Plots, 9),
-            right_margin = _plot_margin(Plots, 6),
-            bottom_margin = _plot_margin(Plots, 8),
-            top_margin = _plot_margin(Plots, 7),
-        )
-        _call_latest(getproperty(Plots, :vline!), p, [Float64(rhat_threshold)]; label = "threshold")
-        append!(paths, _save_plot_all_formats(p, output_dir, "rhat_histogram", formats))
+    stats = try
+        convergence_diagnostics(chains)
+    catch
+        DataFrame()
     end
-    return paths
-end
-
-function _gamma_inclusion_dataframe(chains)
-    arr, param_names = _chains_array_and_names(chains)
-    gamma_idx = findall(n -> occursin(r"^gamma\[\d+\]$", n), param_names)
-    isempty(gamma_idx) && return DataFrame()
-    return DataFrame(
-        parameter = param_names[gamma_idx],
-        inclusion_probability = [mean(vec(arr[:, j, :])) for j in gamma_idx],
+    isempty(stats) && return Dict{Symbol,Any}(
+        :rhat_max => missing,
+        :rhat_median => missing,
+        :ess_bulk_min => missing,
+        :ess_bulk_median => missing,
+        :ess_tail_min => missing,
+        :ess_tail_median => missing,
     )
-end
-
-function save_diagnostic_outputs(
-    chains,
-    output_dir::AbstractString;
-    metadata = Dict(),
-    params = nothing,
-    top_k_beta::Integer = 10,
-    max_lag::Integer = 50,
-    rhat_threshold::Real = 1.01,
-    formats = "pdf",
-    plots::Bool = true,
-)
-    mkpath(output_dir)
-    selected = _selected_params(chains; params = params, top_k_beta = top_k_beta)
-
-    summary = _diagnostics_summary_dataframe(
-        chains;
-        metadata = metadata,
-        rhat_threshold = rhat_threshold,
-    )
-    _write_csv(joinpath(output_dir, "diagnostics_summary.csv"), summary)
-    _write_json(joinpath(output_dir, "diagnostics_summary.json"), [Dict(String(c) => _jsonable(row[c]) for c in propertynames(summary)) for row in eachrow(summary)])
-
-    gamma_df = _gamma_inclusion_dataframe(chains)
-    !isempty(gamma_df) && _write_csv(joinpath(output_dir, "gamma_inclusion_probabilities.csv"), gamma_df)
-
-    plot_paths = String[]
-    if plots
-        plot_chains = _subset_chains(chains, selected)
-        if !isempty(selected)
-            append!(plot_paths, _plot_mcmc_chains(plot_chains, output_dir, "traceplot", :traceplot; formats = formats))
-            append!(plot_paths, _plot_mcmc_chains(plot_chains, output_dir, "density", :mixeddensity; formats = formats))
-            append!(plot_paths, _plot_mcmc_chains(plot_chains, output_dir, "acf", :autocorplot; formats = formats, maxlag = max_lag))
-        end
-
-        if size(chains, 3) <= 1
-            @warn "R-hat requires multiple chains; R-hat plots were skipped."
-        else
-            append!(plot_paths, _save_rhat_plots(summary, output_dir; rhat_threshold = rhat_threshold, formats = formats))
-        end
-    end
-
-    return (
-        output_dir = output_dir,
-        selected_params = selected,
-        diagnostics_summary = joinpath(output_dir, "diagnostics_summary.csv"),
-        plot_paths = plot_paths,
-    )
-end
-
-function save_diagnostic_outputs(
-    result::CoxSamplerResult;
-    output_dir::AbstractString,
-    metadata = Dict(),
-    params = nothing,
-    top_k_beta::Integer = 10,
-    max_lag::Integer = 50,
-    rhat_threshold::Real = 1.01,
-    formats = "pdf",
-    plots::Bool = true,
-)
-    return save_diagnostic_outputs(
-        result_to_chains(result),
-        output_dir;
-        metadata = metadata,
-        params = params,
-        top_k_beta = top_k_beta,
-        max_lag = max_lag,
-        rhat_threshold = rhat_threshold,
-        formats = formats,
-        plots = plots,
-    )
-end
-
-function diagnose_run(
-    input_dir::AbstractString;
-    output_dir::AbstractString = joinpath(input_dir, "diagnose"),
-    params = nothing,
-    top_k_beta::Integer = 10,
-    max_lag::Integer = 50,
-    rhat_threshold::Real = 1.01,
-    formats = "pdf",
-    plots::Bool = true,
-)
-    mkpath(output_dir)
-    chains = _load_chains_from_run(input_dir)
-    metadata = _read_metadata(input_dir)
-    return save_diagnostic_outputs(
-        chains,
-        output_dir;
-        metadata = metadata,
-        params = params,
-        top_k_beta = top_k_beta,
-        max_lag = max_lag,
-        rhat_threshold = rhat_threshold,
-        formats = formats,
-        plots = plots,
+    beta_rows = stats[occursin.(r"^beta\[\d+\]$", stats.parameters), :]
+    ess = _numeric_col_values(beta_rows, :ess_bulk)
+    tail = _numeric_col_values(beta_rows, :ess_tail)
+    rhat = _numeric_col_values(beta_rows, :rhat)
+    return Dict{Symbol,Any}(
+        :rhat_max => isempty(rhat) ? missing : maximum(rhat),
+        :rhat_median => isempty(rhat) ? missing : median(rhat),
+        :ess_bulk_min => isempty(ess) ? missing : minimum(ess),
+        :ess_bulk_median => isempty(ess) ? missing : median(ess),
+        :ess_tail_min => isempty(tail) ? missing : minimum(tail),
+        :ess_tail_median => isempty(tail) ? missing : median(tail),
     )
 end

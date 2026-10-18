@@ -75,7 +75,7 @@ function sampling_complete(run_dir::AbstractString)
 end
 
 function diagnosis_complete(run_dir::AbstractString)
-    return file_complete(joinpath(run_dir, "diagnose", "diagnostics_summary.csv"))
+    return file_complete(joinpath(run_dir, "diagnostics_summary.csv"))
 end
 
 function metrics_complete(run_dir::AbstractString)

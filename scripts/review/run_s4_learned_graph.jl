@@ -63,22 +63,23 @@ function fit_rep(root,rep;replay=false)
     CSV.write(joinpath(dest,"coefficient_audit.csv"),coefs)
     z=log.(X ./ sum(X;dims=2));zt=log.(Xt ./ sum(Xt;dims=2));risk=zt*beta
     CSV.write(joinpath(dest,"test_predictions.csv"),DataFrame(time=test.time,event=test.event,risk=risk))
-    ranks=CSV.read(joinpath(dest,"rank_diagnostics.csv"),DataFrame)
+    ranks=BayesCox4Micro.read_diagnostics(dest; category = "convergence")
     br=ranks[startswith.(string.(ranks.parameters),"beta["),:]
     @assert nrow(br)==50
     bs=screen(br);alls=screen(ranks)
-    selected=(coefs.lower .> 0) .| (coefs.upper .< 0)
-    covered=(coefs.lower .<= truth) .& (coefs.upper .>= truth)
-    nz=truth .!= 0;fp=count(selected .& .!nz);tp=count(selected .& nz)
+    fd = false_discovery(truth, coefs)
+    coverage = simulation_coverage(truth, coefs.lower, coefs.upper)
+    fp, tp = fd.FP, fd.TP
+    nz = truth .!= 0
     degrees=vec(sum(W;dims=2));L=Diagonal(degrees)-W
-    transitions=CSV.read(joinpath(dest,"transition_summary.csv"),DataFrame)
+    transitions=BayesCox4Micro.read_diagnostics(dest; category = "transition")
     kept=transitions[string.(transitions.phase).=="sample",:]
     record=merge(metadata,Dict("test_path"=>testpath,"test_sha256"=>bytes2hex(sha256(read(testpath))),
-      "truth_sha256"=>bytes2hex(sha256(read(truthpath))),"MSE"=>mean((beta-truth).^2),
+      "truth_sha256"=>bytes2hex(sha256(read(truthpath))),"MSE"=>coefficient_mse(truth, beta),
       "Cindex_train"=>concordance_index(train.time,train.event,z*beta),
-      "Cindex_test"=>concordance_index(test.time,test.event,risk),"FP"=>fp,"TP"=>tp,"FN"=>6-tp,
-      "FDP"=>fp/max(1,count(selected)),"coverage_95_nonzero"=>mean(covered[nz]),
-      "coverage_95_zero"=>mean(covered[.!nz]),"coverage_95_all"=>mean(covered),
+      "Cindex_test"=>concordance_index(test.time,test.event,risk),"FP"=>fp,"TP"=>tp,"FN"=>fd.FN,
+      "FDP"=>fd.FDR,"coverage_95_nonzero"=>coverage.coverage_95_nonzero,
+      "coverage_95_zero"=>coverage.coverage_95_zero,"coverage_95_all"=>coverage.coverage_95_all,
       "beta_screen_pass"=>bs["pass"],"all_screen_pass"=>alls["pass"],
       "graph_edges"=>count(>(0),W)÷2,"graph_rank"=>rank(L),"isolated_taxa"=>count(iszero,degrees),
       "signal_null_edges"=>count(W[i,j]>0 && nz[i]!=nz[j] for j in 2:50 for i in 1:(j-1)),

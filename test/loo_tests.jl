@@ -1,3 +1,4 @@
+using BayesCox4Micro: _loo_augment
 using Test
 using BayesCox4Micro
 using Statistics
@@ -123,9 +124,9 @@ end
     @test only(fixed.summary.target) == "event_attribution_fixed_risk"
     @test isempty(fixed.pointwise)
     @test only(fixed.summary.LOOIC) == old.LOOIC
-    @test only(fixed.summary.NLPML) == old.LPML
+    @test only(fixed.summary.NLPML) == old.NLPML
     @test only(fixed.summary.WAIC_pw2) == old.WAIC_pw2
     # Stabilized harmonic mean must not overflow when ell << -709.
     extreme = fit_metrics(data, draws, [0.0, 0.0]; ll_event = fill(-1000.0, 2, 40), loo = old)
-    @test extreme.LPML ≈ 2000.0
+    @test extreme.NLPML ≈ 2000.0
 end

@@ -1,7 +1,7 @@
 #!/usr/bin/env julia
 
 using CSV
-using BayesCox4Micro: prepare_cox_data
+using BayesCox4Micro: prepare_cox_data, concordance_index, convergence_diagnostics, read_diagnostics
 using DataFrames
 using Dates
 using JSON
@@ -163,46 +163,24 @@ function rhat_tables(samples_path::AbstractString, component_names::Vector{Strin
     chains = sort(unique(Int.(samples[!, :chain])))
     length(chains) < 2 && return DataFrame(), (missing, missing, missing, missing, missing, missing)
 
-    rows = DataFrame(
-        parameter = String[],
-        variable = String[],
-        rhat = Float64[],
-        n_chains = Int[],
-        n_per_chain_min = Int[],
-        n_per_chain_max = Int[],
-    )
+    path = joinpath(dirname(samples_path), "diagnostics_summary.csv")
+    stats = isfile(path) ? read_diagnostics(dirname(samples_path); category = "convergence") : convergence_diagnostics(samples)
+    stats = stats[in.(string.(stats.parameters), Ref(bcols)), :]
+    rows = DataFrame(parameter = String[], variable = String[], rhat = Union{Missing,Float64}[],
+        ess_bulk = Union{Missing,Float64}[], ess_tail = Union{Missing,Float64}[],
+        n_chains = Int[], n_per_chain_min = Int[], n_per_chain_max = Int[])
     min_unique = typemax(Int)
     for (j, col) in enumerate(bcols)
-        vals_by_chain = Vector{Vector{Float64}}()
-        for chain in chains
-            vals = Float64.(samples[samples[!, :chain] .== chain, Symbol(col)])
-            push!(vals_by_chain, vals)
-        end
-        nmin = minimum(length.(vals_by_chain))
-        nmax = maximum(length.(vals_by_chain))
-        nmin < 2 && continue
-        vals_by_chain = [v[1:nmin] for v in vals_by_chain]
-        uniqs = [length(unique(round.(v; digits = 12))) for v in vals_by_chain]
-        min_unique = min(min_unique, minimum(uniqs))
-        means = [mean(v) for v in vals_by_chain]
-        vars = [var(v; corrected = true) for v in vals_by_chain]
-        w = mean(vars)
-        rhat = if w <= 0
-            Inf
-        else
-            m = length(vals_by_chain)
-            mean_all = mean(means)
-            b = nmin * sum((mu - mean_all)^2 for mu in means) / (m - 1)
-            var_hat = (nmin - 1) / nmin * w + b / nmin
-            sqrt(var_hat / w)
-        end
+        vals = [Float64.(samples[samples.chain .== c, Symbol(col)]) for c in chains]
+        min_unique = min(min_unique, minimum(length(unique(round.(v; digits = 12))) for v in vals))
+        row = only(eachrow(stats[stats.parameters .== col, :]))
         variable = j <= length(component_names) ? component_names[j] : ""
-        push!(rows, (col, variable, rhat, length(chains), nmin, nmax))
+        push!(rows, (col, variable, row.rhat, row.ess_bulk, row.ess_tail, length(chains), minimum(length.(vals)), maximum(length.(vals))))
     end
     if nrow(rows) == 0
         return rows, (missing, missing, missing, missing, missing, missing)
     end
-    finite_rhat = [x for x in rows.rhat if isfinite(x)]
+    finite_rhat = [x for x in skipmissing(rows.rhat) if isfinite(x)]
     nfinite = length(finite_rhat)
     rhat_median = isempty(finite_rhat) ? missing : median(finite_rhat)
     rhat_p95 = isempty(finite_rhat) ? missing : quantile(finite_rhat, 0.95)
@@ -250,26 +228,6 @@ function prepared_data(metadata::Dict{String,Any})
     event = Int.(df[!, status_col])
     data = prepare_cox_data(x, time, event; standardize)
     return data.z, data.time, data.event
-end
-
-function concordance_index(time::Vector{Float64}, event::Vector{Int}, risk::Vector{Float64})
-    concordant = 0.0
-    comparable = 0.0
-    n = length(time)
-    for i in 1:n
-        event[i] == 0 && continue
-        for j in 1:n
-            if time[i] < time[j]
-                comparable += 1
-                if risk[i] > risk[j]
-                    concordant += 1
-                elseif risk[i] == risk[j]
-                    concordant += 0.5
-                end
-            end
-        end
-    end
-    return comparable > 0 ? concordant / comparable : missing
 end
 
 function recover_apparent_cindex(run_dir::AbstractString, metadata::Dict{String,Any})
@@ -545,9 +503,9 @@ function run_summary(;
                     rhat_max = rhat_max,
                     n_parameters = n_parameters,
                     n_rhat_finite = n_rhat_finite,
-                    n_rhat_gt_1_01 = nrow(rhats) == 0 ? missing : count(>(1.01), rhats.rhat),
-                    n_rhat_gt_1_05 = nrow(rhats) == 0 ? missing : count(>(1.05), rhats.rhat),
-                    n_rhat_gt_1_10 = nrow(rhats) == 0 ? missing : count(>(1.10), rhats.rhat),
+                    n_rhat_gt_1_01 = nrow(rhats) == 0 ? missing : count(>(1.01), skipmissing(rhats.rhat)),
+                    n_rhat_gt_1_05 = nrow(rhats) == 0 ? missing : count(>(1.05), skipmissing(rhats.rhat)),
+                    n_rhat_gt_1_10 = nrow(rhats) == 0 ? missing : count(>(1.10), skipmissing(rhats.rhat)),
                     min_unique_per_chain = min_unique,
                     p0 = maybe_float(getdict(metadata, "p0", missing)),
                     p0_requested = as_string(getdict(metadata, "p0_requested", getdict(metadata, "p0_mode", ""))),
@@ -557,7 +515,7 @@ function run_summary(;
                     apparent_cindex_se = missing,
                     waic_pw1 = mrow === nothing ? missing : maybe_float(getval(mrow, "WAIC_pw1", missing)),
                     waic_pw2 = mrow === nothing ? missing : maybe_float(getval(mrow, "WAIC_pw2", missing)),
-                    lpml = mrow === nothing ? missing : maybe_float(getval(mrow, "LPML", missing)),
+                    nlpml = mrow === nothing ? missing : maybe_float(getval(mrow, "NLPML", missing)),
                     elpd_loo = mrow === nothing ? missing : maybe_float(getval(mrow, "ELPD_LOO", missing)),
                     elpd_loo_se = mrow === nothing ? missing : maybe_float(getval(mrow, "ELPD_LOO_SE", missing)),
                     looic = mrow === nothing ? missing : maybe_float(getval(mrow, "LOOIC", missing)),

@@ -274,14 +274,15 @@ run_dir <- function(data_root, sc_dir, method, baseline, n, p, nz, rep_id) {
 
 load_diagnostics <- function(data_root, sc_dir, method, baseline, n, p, nz, rep_id) {
   run <- run_dir(data_root, sc_dir, method, baseline, n, p, nz, rep_id)
-  candidates <- file.path(run,c("rank_diagnostics.csv","diagnose/diagnostics_summary.csv"))
+  candidates <- file.path(run,"diagnostics_summary.csv")
   diag_path <- candidates[file.exists(candidates)][1]
   if(is.na(diag_path)) stop("No saved coefficient diagnostics: ",run)
   if (!file.exists(diag_path)) {
     stop(sprintf("Diagnostics file not found: %s", diag_path))
   }
 
-  diag <- fread(diag_path, select = c("parameters", "rhat", "ess_bulk", "ess_tail"))
+  diag <- fread(diag_path, select = c("category", "parameters", "rhat", "ess_bulk", "ess_tail", "n_chains", "ess_threshold"))
+  diag <- diag[category == "convergence"]
   diag <- diag[grepl("^beta\\[", parameters)]
   diag[, p_dim := p]
   diag

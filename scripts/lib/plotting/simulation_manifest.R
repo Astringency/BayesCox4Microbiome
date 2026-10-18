@@ -31,10 +31,9 @@ process_manifest <- function(path, output_dir=NULL) {
     out<-file.path(output_dir,row$suite,row$cell,sprintf('rep%04d',row$replicate))
     dir.create(out,recursive=TRUE,showWarnings=FALSE)
     cat(sprintf('[%d/%d] %s rep%d\n',i,nrow(selected),row$cell,row$replicate));flush.console()
-    diag_path<-file.path(run,'rank_diagnostics.csv')
-    if(!file.exists(diag_path)) diag_path<-file.path(run,'diagnose','diagnostics_summary.csv')
+    diag_path<-file.path(run,'diagnostics_summary.csv')
     if(!file.exists(diag_path)) stop('Missing diagnostics for ',run)
-    diag<-fread(diag_path);diag<-diag[grepl('^beta\\[',parameters)]
+    diag<-fread(diag_path);diag<-diag[category=='convergence'];diag<-diag[grepl('^beta\\[',parameters)]
     post<-normalize_posterior(fread(file.path(run,'posterior_summary.csv')),run);nz<-posterior_nonzero(post)
     if(is.finite(row$nonzero) && row$nonzero>0 && nrow(nz)!=row$nonzero) stop('Truth/support mismatch: ',run)
     samples_path<-file.path(run,'samples_wide.csv')

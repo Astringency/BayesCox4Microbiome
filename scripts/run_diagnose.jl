@@ -41,7 +41,7 @@ end
 function main()
     args = parse_cli_args()
     input = get(args, "input", joinpath("results", "runs", "example"))
-    output = get(args, "output", joinpath(input, "diagnose"))
+    output = get(args, "output", input)
     params = haskey(args, "params") ? args["params"] : nothing
     top_k_beta = parse(Int, get(args, "top-k-beta", "10"))
     max_lag = parse(Int, get(args, "max-lag", "50"))

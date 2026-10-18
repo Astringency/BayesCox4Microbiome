@@ -99,5 +99,5 @@ end
         @test all(isfinite, posterior_logposterior_draws(result))
     end
     @test_throws ArgumentError sample_bayes_cox(X, times, events;
-        sampler = :mala, constraint = :exact, n_samples = 2, warmup = 0)
+        sampler = :mh, constraint = :exact, n_samples = 2, warmup = 0)
 end

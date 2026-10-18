@@ -65,12 +65,12 @@ function run_probe(plan_path, job_id)
         # All proportions here are positive and generated closed. Reclose as in
         # the original evaluation to avoid relying on CSV rounding.
         z = log.(X ./ sum(X;dims=2)); zt = log.(Xt ./ sum(Xt;dims=2))
-        ranks = CSV.read(joinpath(dest,"rank_diagnostics.csv"),DataFrame)
+        ranks = BayesCox4Micro.read_diagnostics(dest; category = "convergence")
         br = ranks[startswith.(string.(ranks.parameters),"beta["),:]
         finitecol(v) = Float64[x for x in v if !ismissing(x) && isfinite(x)]
         rh=maximum(finitecol(br.rhat)); eb=minimum(finitecol(br.ess_bulk)); et=minimum(finitecol(br.ess_tail))
         record = Dict("scenario"=>job["scenario"],"replicate"=>job["replicate"],
-          "case"=>name,"sample_car_strength"=>true,"MSE"=>mean((estimates-truth).^2),
+          "case"=>name,"sample_car_strength"=>true,"MSE"=>coefficient_mse(truth, estimates),
           "Cindex_train"=>concordance_index(train.time,train.event,z*estimates),
           "Cindex_test"=>concordance_index(test.time,test.event,zt*estimates),
           "beta_rhat_max"=>rh,"beta_ess_bulk_min"=>eb,"beta_ess_tail_min"=>et,

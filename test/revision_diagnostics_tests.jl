@@ -22,7 +22,7 @@ using BayesCox4Micro
     @test all(==(1), active.n_one_to_zero)
     @test all(==(2), active.longest_dwell_draws)
     @test all(==(0.6), active.switch_rate)
-    ranks = B.rank_convergence_diagnostics(wide)
+    ranks = B.convergence_diagnostics(wide)
     constrow = ranks[string.(ranks.parameters) .== "gamma[2]", :]
     @test only(constrow.constant_all_draws)
     @test ismissing(only(constrow.rhat))
@@ -56,11 +56,16 @@ end
             recorded = B._require_pkg(:JSON).parse(read(joinpath(dir, "metadata.json"), String))
             @test recorded["prox_sum0_lambda"] == 1e-3
             @test recorded["noncentered"] == true
-            for file in ("zero_sum_summary.csv", "rank_diagnostics.csv", "transition_diagnostics.csv", "transition_summary.csv")
+            for file in ("diagnostics_summary.csv", "transition_diagnostics.csv")
                 @test isfile(joinpath(dir, file))
             end
             @test nrow(CSV.read(joinpath(dir, "transition_diagnostics.csv"), DataFrame)) == n_transitions
-            @test isfile(joinpath(dir, "selection_mixing.csv")) == ssl
+            table = read_diagnostics(dir)
+            @test Set(["convergence", "zero_sum", "transition", "runtime"]) ⊆ Set(table.category)
+            @test ("selection_mixing" in table.category) == ssl
+            @test only(read_diagnostics(dir; category = "runtime").total_seconds) == result.diagnostics.total_seconds
+            @test !isfile(joinpath(dir, "diagnostics.json"))
+            @test !isfile(joinpath(dir, "rank_diagnostics.csv"))
             bundle = JLD2.load(joinpath(dir, "result_bundle.jld2"), "result_bundle")
             @test bundle["diagnostics"]["transition_diagnostics_available"]
             @test nrow(bundle["transition_diagnostics"]) == n_transitions

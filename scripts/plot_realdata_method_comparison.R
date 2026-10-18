@@ -797,9 +797,9 @@ build_combined_forest_plot <- function(combo, show_legend = TRUE, scale = combin
 build_combined_rhat_index_plot <- function(combo, show_legend = FALSE, scale = combined_font_scale) {
   dat <- combo$rhat
   p <- ggplot(dat, aes(x = variable_index, y = rhat, color = color_group, shape = shape_group, group = method_label)) +
-    geom_hline(yintercept = 1.0, linetype = "dashed", color = "red", linewidth = 0.45) +
+    geom_hline(yintercept = 1.01, linetype = "dashed", color = "red", linewidth = 0.45) +
     geom_hline(yintercept = 1.1, linetype = "dashed", color = "red", linewidth = 0.45) +
-    annotate("text", x = Inf, y = 1.0, label = "1.0", hjust = 1.05, vjust = -0.35, color = "red", size = font_size(3.4, scale), family = font_family) +
+    annotate("text", x = Inf, y = 1.01, label = "1.01", hjust = 1.05, vjust = -0.35, color = "red", size = font_size(3.4, scale), family = font_family) +
     annotate("text", x = Inf, y = 1.1, label = "1.1", hjust = 1.05, vjust = -0.35, color = "red", size = font_size(3.4, scale), family = font_family) +
     geom_point(size = 1.7, alpha = 0.82) +
     combined_color_scale(combo$method_levels) +
@@ -1075,9 +1075,9 @@ for (dataset in sort(unique(rhats$dataset_id))) {
     7.2 + fixed_legend_height(rhat_font_scale, row_height = 0.34)
   ) * rhat_height_scale
   p <- ggplot(dat, aes(x = variable_index, y = rhat, color = color_group, shape = shape_group, group = method_label)) +
-    geom_hline(yintercept = 1.0, linetype = "dashed", color = "red", linewidth = 0.45) +
+    geom_hline(yintercept = 1.01, linetype = "dashed", color = "red", linewidth = 0.45) +
     geom_hline(yintercept = 1.1, linetype = "dashed", color = "red", linewidth = 0.45) +
-    annotate("text", x = Inf, y = 1.0, label = "1.0", hjust = 1.05, vjust = -0.35, color = "red", size = font_size(3.4, rhat_font_scale), family = font_family) +
+    annotate("text", x = Inf, y = 1.01, label = "1.01", hjust = 1.05, vjust = -0.35, color = "red", size = font_size(3.4, rhat_font_scale), family = font_family) +
     annotate("text", x = Inf, y = 1.1, label = "1.1", hjust = 1.05, vjust = -0.35, color = "red", size = font_size(3.4, rhat_font_scale), family = font_family) +
     geom_point(size = 1.7, alpha = 0.82) +
     combined_color_scale(unique(dat$color_group)) +

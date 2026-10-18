@@ -18,13 +18,7 @@ COMMON=(
     --warmup "${WARMUP:-4000}" --thin 1 --chains "${CHAINS:-4}"
     --multichains true --target-accept 0.8 --noncentered true
     --seed "${SEED:-1}" --progress true --nuts-backend explicit
-    --max-depth 10 --hmc-n-leapfrog 100 --mala-step-size 1e-4
-    --mala-target-accept 0.574 --mala-adapt-every 50 --mala-min-step 1e-8
-    --mala-max-step 1.0 --mala-precondition false --mala-precondition-mode auto
-    --mala-precondition-diag false --mala-metric-ridge 1e-6 --mala-metric-max-cholesky-tries 8
-    --mala-stepsize-schedule adaptive_mcmc --mala-sgld-c0 1.0 --mala-sgld-target-accept 0.574
-    --mala-sgld-accept-low 0.40 --mala-sgld-accept-high 0.60 --mala-sgld-adapt-c0 true
-    --mala-sgld-adapt-every 50 --mala-sgld-c0-min 1e-12 --mala-sgld-c0-max 1e12
+    --max-depth 10 --hmc-n-leapfrog 100
     --prox-block-min-step-size 1e-8 --prox-block-max-step-size 1.0 --prox-block-adapt-every 1
     --prox-block-divergence-threshold 1000.0 --prox-block-metric unit_diag --hs-tau-scale 1.0
     --hs-local-scale 1.0 --rhs-slab-df 4.0 --rhs-slab-s2 2.0

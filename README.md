@@ -6,6 +6,12 @@ All samplers evaluate the Cox partial likelihood directly. Its analytical score
 is used by the explicit gradient-based samplers; tied events use Efron by default,
 with Breslow available through `tie_method` / `--tie-method`.
 
+Supported samplers are NUTS (`nuts`, with `turing` or `explicit` backend),
+HMC (`hmc`, using explicit gradients), random-walk Metropolis (`mh`), and
+Gibbs / Metropolis-within-Gibbs (`gibbs`). Prox-SSLASSO uses continuous
+HMC/NUTS block updates together with Gibbs updates for its indicators when
+running with HMC or explicit NUTS.
+
 The [consolidated review results](results/review_20261012/RESULTS.md) include the
 completed 2,400-fit Weibull/Gompertz main experiment, 1,800 supplementary fits,
 canonical S4 graph ablation, official BCCox PH comparison, and T1D results.
@@ -49,22 +55,45 @@ exact RHS baseline likewise should not be called the unmodified zero-lambda
 limit of the current unnormalized prox penalty. These prior conventions must
 be reported when interpreting comparisons.
 
-Each saved run additionally writes `zero_sum_summary.csv`, containing per-chain
-and pooled coefficient-sum mean, SD, quantiles, mean absolute value, RMS,
-maximum absolute value and fractions within fixed tolerances. Floating-point
-roundoff is expected for exact constraints. Sums of marginal posterior medians
-need not vanish, even when every joint draw satisfies the constraint; the sum
-of posterior means does vanish up to rounding.
+Diagnostics are implemented in three files under `mainfuncs/diagnostics/`:
 
-`rank_diagnostics.csv` explicitly labels rank-normalized split/folded R-hat,
-bulk ESS and tail ESS. `selection_mixing.csv` reports indicator switch counts,
-directional transitions, dwell lengths and lag-1 correlation. Constant
-indicators are flagged; they do not receive a claim of convergence.
-New explicit HMC/NUTS runs also save warm-up and sampling transition records
-and summaries, including acceptance probabilities and divergences. Divergence
-uses numerical failures or absolute energy error above 1000; block samplers
-use their configured threshold. Historical samples alone cannot reconstruct
-missing transition records. Runtime is retained in `diagnostics.json`.
+- `diagnostics.jl`: parameter convergence, rank-normalized split/folded R-hat,
+  bulk/tail ESS, and shared output handling.
+- `specialized_diagnostics.jl`: coefficient-sum constraints, indicator mixing,
+  numerical transition diagnostics and runtime/allocation/GC statistics.
+- `visualization_diagnostics.jl`: trace, density, ACF and R-hat/ESS scatter plots.
+  Red dashed lines mark R-hat 1.01 and 1.1 and ESS 100 times the chain count.
+
+Each run writes one numerical summary, `diagnostics_summary.csv`. Its `category`
+column distinguishes `convergence`, `zero_sum`, `selection_mixing`, `transition`
+and `runtime`; `parameters`, `chain` and `phase` identify each row's scope.
+Read a category with `read_diagnostics(run_dir; category="convergence")`.
+Constant parameters have missing R-hat/ESS; single-chain R-hat is withheld.
+Zero-sum diagnostics use the original coefficient scale, before output thinning.
+The sum of marginal medians need not vanish even when every joint draw sums to zero.
+
+`transition_diagnostics.csv` retains individual warmup and sampling transitions,
+including acceptance, energy errors and divergences. These records cannot be
+reconstructed from posterior draws. The default divergence threshold is 1000;
+block samplers use their configured threshold. `diagnose_run(run_dir)` reuses
+saved full-draw numerical diagnostics and adds figures to the run directory.
+`posterior_summary.csv` holds coefficient estimates and credible intervals.
+
+Evaluation is provided by three files under `mainfuncs/metrics/`:
+
+- `bayesian_metrics.jl`: WAIC, AIC, BIC, DIC, NLPML, PSIS-LOO and subject-refit LOO.
+- `cindex_metrics.jl`: concordance, training-only validation transforms,
+  hyperparameter selection and resumable nested cross-validation.
+- `simulation_metrics.jl`: coefficient MSE, false discoveries and interval coverage.
+
+Use `fit_and_evaluate`, `evaluate_fit`, `fit_metrics`, `evaluate_cox_loo` and
+`evaluate_nested_cindex` directly from `BayesCox4Micro`. The general
+`bayesian_fit_metrics` accepts a units-by-draws log-likelihood matrix.
+For Cox models fixed-risk criteria use event partial-likelihood factors;
+subject-refit LOO uses the distinct subject-deletion partial-likelihood-ratio score.
+`NLPML` explicitly denotes negative log pseudo-marginal likelihood.
+DIC uses `2 * mean(deviance) - deviance(posterior mean)`; smaller is better.
+Old metric names, split diagnostic files and script-level evaluation APIs are removed.
 
 Reference: [Stan's sum-to-zero transform and unknown-scale correction](https://mc-stan.org/docs/reference-manual/transforms.html#sum-to-zero-transforms).
 

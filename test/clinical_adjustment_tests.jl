@@ -1,3 +1,4 @@
+using BayesCox4Micro: _validation_cindices
 using Test, Random, LinearAlgebra, BayesCox4Micro
 const ClinicalBC = BayesCox4Micro
 
@@ -50,9 +51,6 @@ end
 
 if !isdefined(Main, :fit_and_evaluate)
     include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
-end
-if !isdefined(Main, :evaluate_nested_cindex)
-    include(joinpath(@__DIR__, "..", "scripts", "tune_hyperparams_cindex.jl"))
 end
 
 @testset "Clinical nested CV slicing and prediction" begin

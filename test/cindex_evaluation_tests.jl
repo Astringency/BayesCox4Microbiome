@@ -1,3 +1,4 @@
+using BayesCox4Micro: _validation_design_matrix, _write_nested_table
 using Test
 using BayesCox4Micro
 using DataFrames
@@ -7,9 +8,6 @@ using Random
 if !isdefined(@__MODULE__, :generate_simulation_test_data)
     include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
 end
-if !isdefined(@__MODULE__, :evaluate_nested_cindex)
-    include(joinpath(@__DIR__, "..", "scripts", "tune_hyperparams_cindex.jl"))
-end
 
 @testset "Cox approximation CLI options are rejected" begin
     for (key, value) in (("approx", "false"), ("approx", "true"), ("approx-point", "zero"))
@@ -17,10 +15,25 @@ end
     end
 end
 
+@testset "Removed sampler options are rejected by analysis" begin
+    for (key, value) in (("mala-step-size", "1e-4"), ("mala-precondition", "true"),
+                         ("mala-stepsize-schedule", "adaptive_sgld"))
+        @test_throws ArgumentError require_known_args!(Dict(key => value), COMMON_ANALYSIS_CLI_KEYS)
+    end
+    X = [0.2 0.8; 0.4 0.6; 0.7 0.3; 0.5 0.5]
+    time, event = [1., 2., 2., 4.], [1, 1, 0, 1]
+    for sampler in (:mala, :ula)
+        @test_throws ArgumentError fit_and_evaluate(X, time, event;
+            sampler, p0 = 1, n_samples = 1, warmup = 0, chains = 1,
+            progress = false, compute_metrics = false)
+    end
+    @test_throws MethodError fit_and_evaluate(X, time, event; mala_step_size = 1e-4)
+end
+
 @testset "Analysis forwards only sampler-specific options" begin
     X = [0.2 0.8; 0.4 0.6; 0.7 0.3; 0.5 0.5]
     time, event = [1., 2., 2., 4.], [1, 1, 0, 1]
-    for sampler in (:hmc, :mala, :ula, :gibbs)
+    for sampler in (:hmc, :mh, :gibbs)
         fit = fit_and_evaluate(X, time, event;
             prior_name = "cox-rhs", p0 = 1, sampler, n_samples = 2, warmup = 1,
             chains = 1, multichains = false, hmc_n_leapfrog = 2,
@@ -200,7 +213,7 @@ end
             @test meta["n"] == 12
             @test meta["evaluation"] == "nested_cv_outer_training"
             @test isfile(joinpath(saved, "samples_wide.csv"))
-            @test isfile(joinpath(saved, "rank_diagnostics.csv"))
+            @test isfile(joinpath(saved, "diagnostics_summary.csv"))
         end
     end
 end

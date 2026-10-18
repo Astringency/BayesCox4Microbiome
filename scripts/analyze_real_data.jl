@@ -23,7 +23,7 @@ function _include_script(path::AbstractString)
 end
 
 _include_script(joinpath(@__DIR__, "analysis_common.jl"))
-_include_script(joinpath(@__DIR__, "tune_hyperparams_cindex.jl"))
+using BayesCox4Micro: _extract_algorithm_params
 
 function _split_optional_strings(value::AbstractString)
     raw = strip(value)
@@ -192,25 +192,6 @@ function main()
     prox_root_tol = prior_kwargs.prox_root_tol
     prox_root_maxiter = prior_kwargs.prox_root_maxiter
     init = Symbol(arg(args, "init", "zero"))
-    mala_step_size = sampler_kwargs.mala_step_size
-    mala_target_accept = sampler_kwargs.mala_target_accept
-    mala_adapt_every = sampler_kwargs.mala_adapt_every
-    mala_min_step = sampler_kwargs.mala_min_step
-    mala_max_step = sampler_kwargs.mala_max_step
-    mala_precondition = sampler_kwargs.mala_precondition
-    mala_precondition_mode = sampler_kwargs.mala_precondition_mode
-    mala_precondition_diag = sampler_kwargs.mala_precondition_diag
-    mala_metric_ridge = sampler_kwargs.mala_metric_ridge
-    mala_metric_max_cholesky_tries = sampler_kwargs.mala_metric_max_cholesky_tries
-    mala_stepsize_schedule = sampler_kwargs.mala_stepsize_schedule
-    mala_sgld_c0 = sampler_kwargs.mala_sgld_c0
-    mala_sgld_target_accept = sampler_kwargs.mala_sgld_target_accept
-    mala_sgld_accept_low = sampler_kwargs.mala_sgld_accept_low
-    mala_sgld_accept_high = sampler_kwargs.mala_sgld_accept_high
-    mala_sgld_adapt_c0 = sampler_kwargs.mala_sgld_adapt_c0
-    mala_sgld_adapt_every = sampler_kwargs.mala_sgld_adapt_every
-    mala_sgld_c0_min = sampler_kwargs.mala_sgld_c0_min
-    mala_sgld_c0_max = sampler_kwargs.mala_sgld_c0_max
     prox_block_step_size = sampler_kwargs.prox_block_step_size
     prox_block_min_step_size = sampler_kwargs.prox_block_min_step_size
     prox_block_max_step_size = sampler_kwargs.prox_block_max_step_size
@@ -346,10 +327,6 @@ function main()
                         hmc_n_leapfrog = Int(v)
                     elseif k == :hmc_step_size
                         hmc_step_size = v
-                    elseif k == :mala_step_size
-                        mala_step_size = Float64(v)
-                    elseif k == :mala_precondition
-                        mala_precondition = Bool(v)
                     end
                 end
             end
@@ -384,25 +361,6 @@ function main()
             p0_alpha = p0_alpha,
             constraint = constraint,
             prox_sum0_lambda = prox_sum0_lambda,
-            mala_step_size = mala_step_size,
-            mala_target_accept = mala_target_accept,
-            mala_adapt_every = mala_adapt_every,
-            mala_min_step = mala_min_step,
-            mala_max_step = mala_max_step,
-            mala_precondition = mala_precondition,
-            mala_precondition_mode = mala_precondition_mode,
-            mala_precondition_diag = mala_precondition_diag,
-            mala_metric_ridge = mala_metric_ridge,
-            mala_metric_max_cholesky_tries = mala_metric_max_cholesky_tries,
-            mala_stepsize_schedule = mala_stepsize_schedule,
-            mala_sgld_c0 = mala_sgld_c0,
-            mala_sgld_target_accept = mala_sgld_target_accept,
-            mala_sgld_accept_low = mala_sgld_accept_low,
-            mala_sgld_accept_high = mala_sgld_accept_high,
-            mala_sgld_adapt_c0 = mala_sgld_adapt_c0,
-            mala_sgld_adapt_every = mala_sgld_adapt_every,
-            mala_sgld_c0_min = mala_sgld_c0_min,
-            mala_sgld_c0_max = mala_sgld_c0_max,
             prox_block_step_size = prox_block_step_size,
             prox_block_min_step_size = prox_block_min_step_size,
             prox_block_max_step_size = prox_block_max_step_size,
@@ -449,25 +407,6 @@ function main()
                 "tie_method" => string(tie_method),
                 "constraint" => string(constraint),
                 "prox_sum0_lambda" => prox_sum0_lambda,
-                "mala_step_size" => mala_step_size,
-                "mala_target_accept" => mala_target_accept,
-                "mala_adapt_every" => mala_adapt_every,
-                "mala_min_step" => mala_min_step,
-                "mala_max_step" => mala_max_step,
-                "mala_precondition" => mala_precondition,
-                "mala_precondition_mode" => string(mala_precondition_mode),
-                "mala_precondition_diag" => mala_precondition_diag,
-                "mala_metric_ridge" => mala_metric_ridge,
-                "mala_metric_max_cholesky_tries" => mala_metric_max_cholesky_tries,
-                "mala_stepsize_schedule" => string(mala_stepsize_schedule),
-                "mala_sgld_c0" => mala_sgld_c0,
-                "mala_sgld_target_accept" => mala_sgld_target_accept,
-                "mala_sgld_accept_low" => mala_sgld_accept_low,
-                "mala_sgld_accept_high" => mala_sgld_accept_high,
-                "mala_sgld_adapt_c0" => mala_sgld_adapt_c0,
-                "mala_sgld_adapt_every" => mala_sgld_adapt_every,
-                "mala_sgld_c0_min" => mala_sgld_c0_min,
-                "mala_sgld_c0_max" => mala_sgld_c0_max,
                 "prox_block_step_size" => prox_block_step_size,
                 "prox_block_min_step_size" => prox_block_min_step_size,
                 "prox_block_max_step_size" => prox_block_max_step_size,
@@ -510,25 +449,6 @@ function main()
                 "alpha_prior_scale" => alpha_prior_scale,
                 "prox_root_tol" => prox_root_tol,
                 "prox_root_maxiter" => prox_root_maxiter,
-                "mala_step_size" => mala_step_size,
-                "mala_target_accept" => mala_target_accept,
-                "mala_adapt_every" => mala_adapt_every,
-                "mala_min_step" => mala_min_step,
-                "mala_max_step" => mala_max_step,
-                "mala_precondition" => mala_precondition,
-                "mala_precondition_mode" => string(mala_precondition_mode),
-                "mala_precondition_diag" => mala_precondition_diag,
-                "mala_metric_ridge" => mala_metric_ridge,
-                "mala_metric_max_cholesky_tries" => mala_metric_max_cholesky_tries,
-                "mala_stepsize_schedule" => string(mala_stepsize_schedule),
-                "mala_sgld_c0" => mala_sgld_c0,
-                "mala_sgld_target_accept" => mala_sgld_target_accept,
-                "mala_sgld_accept_low" => mala_sgld_accept_low,
-                "mala_sgld_accept_high" => mala_sgld_accept_high,
-                "mala_sgld_adapt_c0" => mala_sgld_adapt_c0,
-                "mala_sgld_adapt_every" => mala_sgld_adapt_every,
-                "mala_sgld_c0_min" => mala_sgld_c0_min,
-                "mala_sgld_c0_max" => mala_sgld_c0_max,
                 "prox_block_step_size" => prox_block_step_size,
                 "prox_block_min_step_size" => prox_block_min_step_size,
                 "prox_block_max_step_size" => prox_block_max_step_size,
@@ -563,7 +483,7 @@ function main()
         if diagnose
             diagnose_run(
                 run_dir;
-                output_dir = joinpath(run_dir, "diagnose"),
+                output_dir = run_dir,
                 top_k_beta = diagnose_top_k_beta,
                 max_lag = diagnose_max_lag,
                 formats = diagnose_formats,
@@ -591,7 +511,7 @@ function main()
         metrics = copy(fit.metrics)
         metrics.loo_mode .= "fixed_risk"
         metrics.score_target .= "event_attribution_fixed_risk"
-        metrics.NLPML = metrics.LPML
+
         metrics.prior .= prior
         metrics.p0 .= p0_value
         add_prior_hyperparameter_columns!(metrics, prior_kwargs_dict)

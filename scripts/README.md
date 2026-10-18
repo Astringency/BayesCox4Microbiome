@@ -15,9 +15,21 @@
 | 补充模拟实验 | [review/README.md](review/README.md) |
 | 共用执行函数及实际数据内部实现 | `lib/` |
 
-`analysis_common.jl`、`tune_hyperparams_cindex.jl`、`nested_cindex_evaluation.jl`、
-`loo_evaluation.jl`、`validation_common.jl`、`simulation_scenarios.jl` 和
-`simulation_coverage.jl` 是入口依赖的实现文件。
+`analysis_common.jl` 负责参数解析、实验数据和文件编排；评估计算统一调用
+`BayesCox4Micro` 导出的函数，不再单独 include LOO、嵌套 C-index、调参、
+验证预处理或覆盖率实现脚本。`simulation_scenarios.jl` 保留场景生成逻辑。
+
+`mainfuncs/metrics/` 中的三个脚本分别为 `bayesian_metrics.jl`、
+`cindex_metrics.jl`、`simulation_metrics.jl`。`mainfuncs/diagnostics/` 中的
+三个脚本分别为 `diagnostics.jl`、`specialized_diagnostics.jl`、
+`visualization_diagnostics.jl`。
+
+数值诊断统一写入运行目录的 `diagnostics_summary.csv`，通过 `category` 列
+区分收敛、零和约束、选择混合、采样数值问题和运行成本。逐步采样记录保留在
+`transition_diagnostics.csv`。模拟汇总入口也将运行成本和收敛汇总写入同一个
+`diagnostics_summary.csv`。图形默认写入运行目录；R-hat 的两条红色虚线
+为 1.01 和 1.1，ESS 红色虚线为 100 × 链数量。
+贝叶斯指标使用 `NLPML` 列名，DIC 使用标准偏差尺度；没有旧接口兼容层。
 
 ## 基础网格
 

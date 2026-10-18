@@ -12,6 +12,7 @@ const B = BayesCox4Micro
 
 include("data_preprocessing_tests.jl")
 include("likelihood_api_tests.jl")
+include("sampler_api_tests.jl")
 
 @testset "sum-to-zero Moreau helpers" begin
     beta = [1.0, -2.0, 4.0, 0.5]
@@ -350,79 +351,11 @@ end
     @test all(isfinite, rhs_adaptive_nc_grad)
 end
 
-@testset "MALA samplers short chains" begin
+@testset "MH samplers short chains" begin
     Random.seed!(12)
     X = rand(12, 4) .+ 0.1
     time = collect(1.0:12.0)
     event = [1, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1]
-
-    hs = sample_bayes_cox(
-        X,
-        time,
-        event;
-        prior = HorseshoePrior(p0 = 1.0),
-        sampler = :mala,
-        constraint = :soft_center,
-        n_samples = 4,
-        warmup = 4,
-        mala_step_size = 1e-5,
-        progress = false,
-        seed = 1,
-    )
-    @test size(posterior_beta_draws(hs)) == (4, 4)
-    @test 0 <= hs.samples.acceptance_rate <= 1
-
-    lasso = sample_bayes_cox(
-        X,
-        time,
-        event;
-        prior = BayesianLassoPrior(),
-        sampler = :mala,
-        constraint = :prox,
-        n_samples = 4,
-        warmup = 4,
-        mala_step_size = 1e-6,
-        progress = false,
-        seed = 2,
-    )
-    @test size(posterior_beta_draws(lasso)) == (4, 4)
-    @test length(posterior_logposterior_draws(lasso)) == 4
-    @test !("eta" in lasso.samples.names)
-
-    lasso_multi = sample_bayes_cox(
-        X,
-        time,
-        event;
-        prior = BayesianLassoPrior(),
-        sampler = :mala,
-        constraint = :prox,
-        n_samples = 2,
-        warmup = 2,
-        chains = 2,
-        mala_step_size = 1e-6,
-        progress = false,
-        seed = 22,
-    )
-    @test size(result_to_chains(lasso_multi), 3) == 2
-    @test lasso_multi.samples isa MultiMHSamples
-    @test size(posterior_beta_draws(lasso_multi)) == (4, 4)
-    @test length(posterior_logposterior_draws(lasso_multi)) == 4
-
-    sslasso = sample_bayes_cox(
-        X,
-        time,
-        event;
-        prior = SpikeSlabLassoPrior(),
-        sampler = :mala,
-        constraint = :prox,
-        n_samples = 4,
-        warmup = 4,
-        mala_step_size = 1e-6,
-        progress = false,
-        seed = 3,
-    )
-    @test size(posterior_beta_draws(sslasso)) == (4, 4)
-    @test length(sslasso_inclusion_probabilities(sslasso)) == 4
 
     mh = sample_bayes_cox(
         X,
@@ -478,72 +411,6 @@ end
     )
     @test "logit_car_kappa" in car_adaptive.samples.names
     @test size(posterior_beta_draws(car_adaptive)) == (2, 4)
-
-    ula = sample_bayes_cox(
-        X,
-        time,
-        event;
-        prior = BayesianLassoPrior(),
-        sampler = :ula,
-        constraint = :prox,
-        n_samples = 2,
-        warmup = 2,
-        mala_step_size = 1e-6,
-        progress = false,
-        seed = 5,
-    )
-    @test size(posterior_beta_draws(ula)) == (2, 4)
-    @test length(posterior_logposterior_draws(ula)) == 2
-
-    ula_multi = sample_bayes_cox(
-        X,
-        time,
-        event;
-        prior = BayesianLassoPrior(),
-        sampler = :ula,
-        constraint = :prox,
-        n_samples = 2,
-        warmup = 1,
-        chains = 2,
-        mala_step_size = 1e-6,
-        progress = false,
-        seed = 6,
-    )
-    @test ula_multi.samples isa MultiMHSamples
-    @test size(result_to_chains(ula_multi), 3) == 2
-    @test size(posterior_beta_draws(ula_multi)) == (4, 4)
-
-    mala_prox_soft_center = sample_bayes_cox(
-        X,
-        time,
-        event;
-        prior = cox_paper_prior("prox-lasso"),
-        sampler = :mala,
-        constraint = :soft_center,
-        n_samples = 2,
-        warmup = 1,
-        mala_step_size = 1e-6,
-        progress = false,
-        seed = 14,
-    )
-    @test size(posterior_beta_draws(mala_prox_soft_center)) == (2, 4)
-    @test mala_prox_soft_center.samples.names[end] == "eta"
-
-    ula_prox_soft_center = sample_bayes_cox(
-        X,
-        time,
-        event;
-        prior = cox_paper_prior("prox-lasso"),
-        sampler = :ula,
-        constraint = :soft_center,
-        n_samples = 2,
-        warmup = 1,
-        mala_step_size = 1e-6,
-        progress = false,
-        seed = 15,
-    )
-    @test size(posterior_beta_draws(ula_prox_soft_center)) == (2, 4)
-    @test ula_prox_soft_center.samples.names[end] == "eta"
 end
 
 @testset "NUTS backend smoke tests" begin
@@ -855,7 +722,7 @@ end
         @test isfile(joinpath(dir, "samples_wide.csv"))
         @test !isfile(joinpath(dir, "samples_long.csv"))
         @test isfile(joinpath(dir, "metadata.json"))
-        @test isfile(joinpath(dir, "diagnostics.json"))
+        @test isfile(joinpath(dir, "diagnostics_summary.csv"))
         @test isfile(joinpath(dir, "result_bundle.jld2"))
 
         bundle = JLD2.load(joinpath(dir, "result_bundle.jld2"), "result_bundle")
@@ -909,7 +776,7 @@ end
 
         diag = diagnose_run(dir; formats = "png", top_k_beta = 2, max_lag = 3)
         @test isfile(joinpath(diag.output_dir, "rhat_scatter.png"))
-        @test isfile(joinpath(diag.output_dir, "rhat_histogram.png"))
+        @test isfile(joinpath(diag.output_dir, "ess_bulk_scatter.png"))
     end
 end
 
@@ -923,20 +790,6 @@ end
         "--car-strength-prior-b", "1.0",
         "--car-degree-scale", "mean_active",
         "--car-kappa-init", "0.5",
-        "--mala-precondition", "true",
-        "--mala-precondition-mode", "auto",
-        "--mala-precondition-diag", "false",
-        "--mala-metric-ridge", "1e-6",
-        "--mala-metric-max-cholesky-tries", "8",
-        "--mala-stepsize-schedule", "adaptive_sgld",
-        "--mala-sgld-c0", "1.0",
-        "--mala-sgld-target-accept", "0.5",
-        "--mala-sgld-accept-low", "0.4",
-        "--mala-sgld-accept-high", "0.6",
-        "--mala-sgld-adapt-c0", "true",
-        "--mala-sgld-adapt-every", "10",
-        "--mala-sgld-c0-min", "1e-12",
-        "--mala-sgld-c0-max", "1e12",
     ])
     @test isnothing(require_known_args!(parsed, simulation_cli_valid_keys()))
     @test arg(parsed, "car-precision", 1.0) == 0.05
@@ -946,32 +799,19 @@ end
     @test arg(parsed, "car-strength-prior-b", 1.0) == 1.0
     @test Symbol(arg(parsed, "car-degree-scale", "mean_active")) == :mean_active
     @test arg(parsed, "car-kappa-init", 0.5) == 0.5
-    @test arg(parsed, "mala-precondition", false)
-    @test Symbol(arg(parsed, "mala-precondition-mode", "auto")) == :auto
-    @test !arg(parsed, "mala-precondition-diag", true)
-    @test arg(parsed, "mala-metric-ridge", 1.0) == 1e-6
-    @test arg(parsed, "mala-metric-max-cholesky-tries", 1) == 8
-    @test Symbol(arg(parsed, "mala-stepsize-schedule", "adaptive_mcmc")) == :adaptive_sgld
-    @test arg(parsed, "mala-sgld-c0", 0.0) == 1.0
-    @test arg(parsed, "mala-sgld-target-accept", 0.0) == 0.5
-    @test arg(parsed, "mala-sgld-accept-low", 0.0) == 0.4
-    @test arg(parsed, "mala-sgld-accept-high", 0.0) == 0.6
-    @test arg(parsed, "mala-sgld-adapt-c0", false)
-    @test arg(parsed, "mala-sgld-adapt-every", 1) == 10
-    @test arg(parsed, "mala-sgld-c0-min", 1.0) == 1e-12
-    @test arg(parsed, "mala-sgld-c0-max", 1.0) == 1e12
 
     removed = parse_cli_args(["--car-prior", "gaussian"])
     @test_throws ArgumentError require_known_args!(removed, simulation_cli_valid_keys())
 end
 
-include("mala_precondition_tests.jl")
+include("posterior_gradient_tests.jl")
 include("simulation_diagnostics_tests.jl")
 include("loo_tests.jl")
 include("cindex_evaluation_tests.jl")
 include("simulation_coverage_tests.jl")
 include("exact_zero_tests.jl")
 include("revision_diagnostics_tests.jl")
+include("metrics_diagnostics_integration_tests.jl")
 include("simulation_scenario_tests.jl")
 include("parallel_sampling_tests.jl")
 include("hmc_initialization_rng_tests.jl")

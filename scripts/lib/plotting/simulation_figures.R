@@ -21,7 +21,8 @@ plot_rhat_ess <- function(diag, p_dim) {
       br <- br[br>=lim[1] & br<=lim[2]]
       title <- expression(hat(italic(R))); yl <- NULL
     } else {
-      threshold <- 400; lim <- range(c(300,20000,vals[is.finite(vals)&vals>0]))
+      counts <- unique(na.omit(d$n_chains)); stopifnot(length(counts)==1L, counts>0)
+      threshold <- 100*counts; lim <- range(c(threshold*.75,threshold,vals[is.finite(vals)&vals>0]))
       title <- if(key=='ess_bulk') 'Bulk ESS' else 'Tail ESS'; yl <- NULL
     }
     d[, value := as.numeric(get(key))]
@@ -35,7 +36,7 @@ plot_rhat_ess <- function(diag, p_dim) {
         axis.ticks.x=element_line(linewidth=.18),axis.ticks.length=grid::unit(1,'mm'),
         plot.title=element_text(hjust=.5,size=18),axis.text=element_text(size=13))
     if(key=='rhat') g<-g+scale_y_continuous(limits=lim,breaks=br)
-    else g<-g+scale_y_log10(limits=lim,breaks=c(400,1000,5000,20000),labels=c('400','1,000','5,000','20,000'))
+    else g<-g+scale_y_log10(limits=lim,breaks=sort(unique(c(threshold,10^pretty(log10(lim))))))
     if(missing>0) g<-g+labs(subtitle=sprintf('%d unavailable; see diagnostic CSV',missing))
     g
   })

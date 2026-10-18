@@ -135,36 +135,6 @@ function _lasso_prox_logposterior(
     return lp
 end
 
-function _lasso_prox_gradient(
-    u::AbstractVector,
-    data::CoxPreparedData;
-    constraint::Symbol,
-    prox_sum0_lambda::Real,
-    prox_l1_lambda::Real,
-    alpha_prior_shape::Real,
-    alpha_prior_scale::Real,
-    alpha_prior_kind = :invgamma,
-    prox_root_tol::Real,
-    prox_root_maxiter::Integer,
-)
-    grad = zeros(Float64, length(u))
-    work = ProxGradientWorkspace(data)
-    return _lasso_prox_gradient!(
-        grad,
-        u,
-        data,
-        work;
-        constraint = constraint,
-        prox_sum0_lambda = prox_sum0_lambda,
-        prox_l1_lambda = prox_l1_lambda,
-        alpha_prior_shape = alpha_prior_shape,
-        alpha_prior_scale = alpha_prior_scale,
-        alpha_prior_kind = alpha_prior_kind,
-        prox_root_tol = prox_root_tol,
-        prox_root_maxiter = prox_root_maxiter,
-    )
-end
-
 function _lasso_prox_gradient!(
     grad::AbstractVector{Float64},
     u::AbstractVector,
@@ -296,40 +266,6 @@ function _ssl_prox_logposterior(
         prox_root_maxiter = prox_root_maxiter,
     )
     return lp
-end
-
-function _ssl_prox_gradient(
-    u::AbstractVector,
-    data::CoxPreparedData,
-    prior::SpikeSlabLassoPrior,
-    gamma::AbstractVector{Bool};
-    constraint::Symbol,
-    prox_sum0_lambda::Real,
-    prox_l1_lambda::Real,
-    alpha_prior_shape::Real,
-    alpha_prior_scale::Real,
-    alpha_prior_kind = :invgamma,
-    prox_root_tol::Real,
-    prox_root_maxiter::Integer,
-)
-    grad = zeros(Float64, length(u))
-    work = ProxGradientWorkspace(data)
-    return _ssl_prox_gradient!(
-        grad,
-        u,
-        data,
-        prior,
-        gamma,
-        work;
-        constraint = constraint,
-        prox_sum0_lambda = prox_sum0_lambda,
-        prox_l1_lambda = prox_l1_lambda,
-        alpha_prior_shape = alpha_prior_shape,
-        alpha_prior_scale = alpha_prior_scale,
-        alpha_prior_kind = alpha_prior_kind,
-        prox_root_tol = prox_root_tol,
-        prox_root_maxiter = prox_root_maxiter,
-    )
 end
 
 function _ssl_prox_gradient!(

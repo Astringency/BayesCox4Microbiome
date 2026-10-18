@@ -152,7 +152,7 @@ function standard_row(; dataset_id, dataset_group, method_family, method, prior 
     cv_cindex_se = missing, cv_cindex_sd = missing, n_selected = missing,
     cindex_metric = "CV-Cindex",
     selected_features = "", rhat_max = missing, rhat_median = missing, p0 = missing,
-    n = missing, p = missing, events = missing, lpml = missing, waic_pw1 = missing,
+    n = missing, p = missing, events = missing, nlpml = missing, waic_pw1 = missing,
     waic_pw2 = missing, elpd_loo = missing, elpd_loo_se = missing, looic = missing,
     looic_se = missing, pareto_k_max = missing, pareto_k_bad = missing, source = "",
     run_dir = "", coef_path = "")
@@ -178,7 +178,7 @@ function standard_row(; dataset_id, dataset_group, method_family, method, prior 
         n = n,
         p = p,
         events = events,
-        lpml = lpml,
+        nlpml = nlpml,
         waic_pw1 = waic_pw1,
         waic_pw2 = waic_pw2,
         elpd_loo = elpd_loo,
@@ -221,7 +221,7 @@ function bayes_rows(bayes_dir::AbstractString)
             n = maybe_int(getval(row, "n", missing)),
             p = maybe_int(getval(row, "p", missing)),
             events = maybe_int(getval(row, "events", missing)),
-            lpml = maybe_float(getval(row, "lpml", missing)),
+            nlpml = maybe_float(getval(row, "nlpml", missing)),
             waic_pw1 = maybe_float(getval(row, "waic_pw1", missing)),
             waic_pw2 = maybe_float(getval(row, "waic_pw2", missing)),
             elpd_loo = maybe_float(getval(row, "elpd_loo", missing)),
@@ -566,7 +566,7 @@ function metrics_table(methods::DataFrame)
         :dataset_id, :dataset_group, :method_family, :method, :prior, :constraint,
         :row_type, :fit_success, :converged, :cindex_metric, :cindex, :cindex_se,
         :cindex_sd, :n_selected, :rhat_median, :rhat_max, :p0, :n, :p, :events,
-        :lpml, :waic_pw1, :waic_pw2, :elpd_loo, :elpd_loo_se, :looic, :looic_se,
+        :nlpml, :waic_pw1, :waic_pw2, :elpd_loo, :elpd_loo_se, :looic, :looic_se,
         :pareto_k_max, :pareto_k_bad, :source,
     ]
     return methods[:, cols]

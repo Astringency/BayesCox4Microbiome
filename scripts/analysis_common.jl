@@ -11,12 +11,9 @@ if !haskey(ENV, "GKSwstype") && !haskey(ENV, "DISPLAY")
 end
 
 import Plots
-using PosteriorStats
 using Random
 using Statistics
 
-include(joinpath(@__DIR__, "validation_common.jl"))
-include(joinpath(@__DIR__, "simulation_coverage.jl"))
 include(joinpath(@__DIR__, "simulation_scenarios.jl"))
 
 const DEFAULT_BETA0 = [1.0, -1.0]
@@ -58,27 +55,6 @@ const HMC_SAMPLER_CLI_KEYS = (
     "hmc-n-leapfrog",
     "hmc-step-size",
 )
-const MALA_SAMPLER_CLI_KEYS = (
-    "mala-step-size",
-    "mala-target-accept",
-    "mala-adapt-every",
-    "mala-min-step",
-    "mala-max-step",
-    "mala-precondition",
-    "mala-precondition-mode",
-    "mala-precondition-diag",
-    "mala-metric-ridge",
-    "mala-metric-max-cholesky-tries",
-    "mala-stepsize-schedule",
-    "mala-sgld-c0",
-    "mala-sgld-target-accept",
-    "mala-sgld-accept-low",
-    "mala-sgld-accept-high",
-    "mala-sgld-adapt-c0",
-    "mala-sgld-adapt-every",
-    "mala-sgld-c0-min",
-    "mala-sgld-c0-max",
-)
 const PROX_BLOCK_SAMPLER_CLI_KEYS = (
     "prox-block-step-size",
     "prox-block-min-step-size",
@@ -91,7 +67,6 @@ const SAMPLER_HYPERPARAMETER_CLI_KEYS = _unique_cli_keys(
     SAMPLER_GENERAL_CLI_KEYS,
     NUTS_SAMPLER_CLI_KEYS,
     HMC_SAMPLER_CLI_KEYS,
-    MALA_SAMPLER_CLI_KEYS,
     PROX_BLOCK_SAMPLER_CLI_KEYS,
 )
 
@@ -255,7 +230,6 @@ function optional_float_arg(args, keys...)
 end
 
 function sampler_hyperparameter_kwargs(args)
-    mala_adapt_every = arg(args, "mala-adapt-every", 50)
     return (
         sampler = Symbol(arg(args, "sampler", "nuts")),
         nuts_backend = Symbol(arg(args, "nuts-backend", "turing")),
@@ -271,25 +245,6 @@ function sampler_hyperparameter_kwargs(args)
         noncentered = arg(args, "noncentered", false),
         seed = arg(args, "seed", 1),
         progress = arg(args, "progress", true),
-        mala_step_size = arg(args, "mala-step-size", 1e-4),
-        mala_target_accept = arg(args, "mala-target-accept", 0.574),
-        mala_adapt_every = mala_adapt_every,
-        mala_min_step = arg(args, "mala-min-step", 1e-8),
-        mala_max_step = arg(args, "mala-max-step", 1.0),
-        mala_precondition = arg(args, "mala-precondition", false),
-        mala_precondition_mode = Symbol(arg(args, "mala-precondition-mode", "auto")),
-        mala_precondition_diag = arg(args, "mala-precondition-diag", false),
-        mala_metric_ridge = arg(args, "mala-metric-ridge", 1e-6),
-        mala_metric_max_cholesky_tries = arg(args, "mala-metric-max-cholesky-tries", 8),
-        mala_stepsize_schedule = Symbol(arg(args, "mala-stepsize-schedule", "adaptive_mcmc")),
-        mala_sgld_c0 = arg(args, "mala-sgld-c0", 1.0),
-        mala_sgld_target_accept = arg(args, "mala-sgld-target-accept", 0.5),
-        mala_sgld_accept_low = arg(args, "mala-sgld-accept-low", 0.40),
-        mala_sgld_accept_high = arg(args, "mala-sgld-accept-high", 0.60),
-        mala_sgld_adapt_c0 = arg(args, "mala-sgld-adapt-c0", true),
-        mala_sgld_adapt_every = arg(args, "mala-sgld-adapt-every", mala_adapt_every),
-        mala_sgld_c0_min = arg(args, "mala-sgld-c0-min", 1e-12),
-        mala_sgld_c0_max = arg(args, "mala-sgld-c0-max", 1e12),
         prox_block_step_size = optional_float_arg(args, "prox-block-step-size"),
         prox_block_min_step_size = arg(args, "prox-block-min-step-size", 1e-8),
         prox_block_max_step_size = arg(args, "prox-block-max-step-size", 1.0),
@@ -742,74 +697,6 @@ function generate_simulation_test_data(n::Integer, p::Integer, nonzero::Integer;
     return merge(sim, (test_seed = "test-v1:$seed:$n:$p:$nonzero:$baseline$suffix",))
 end
 
-function add_simulation_test_metrics!(metrics, summary, train, test;
-    tie_method = :efron)
-    # Saved summaries are already on the unstandardized coefficient scale.
-    # Removing training centering only adds a constant to all risk scores.
-    data = prepare_cox_data(train.X, train.time, train.event;
-        transform = :log, standardize = false, tie_method)
-    z_test = _validation_design_matrix(train.X, test.X, data)
-    metrics.Cindex_train = copy(metrics.Cindex)
-    metrics.Cindex_test = [concordance_index(test.time, test.event,
-        z_test * Float64.(summary[!, est == "MAP" ? :map : Symbol(est)]))
-        for est in string.(metrics.estimate)]
-    metrics.n_test = fill(length(test.time), nrow(metrics))
-    metrics.test_seed = fill(test.test_seed, nrow(metrics))
-    return metrics
-end
-
-function prior_from_name(
-    name::AbstractString,
-    X::AbstractMatrix,
-    time::AbstractVector,
-    event::AbstractVector;
-    p0 = nothing,
-    p0_alpha::Real = 0.05,
-    realdata::Bool = false,
-    rhs_slab_df::Real = 4.0,
-    rhs_slab_s2::Real = 2.0,
-    hs_tau_scale::Real = 1.0,
-    hs_local_scale::Real = 1.0,
-    rhs_tau_scale::Real = 1.0,
-    rhs_local_scale::Real = 1.0,
-    rhs_pseudo_sigma_df::Real = 3.0,
-    rhs_pseudo_sigma_scale::Real = 10.0,
-    lasso_lambda = nothing,
-    lasso_lambda2_shape::Real = 1.0,
-    lasso_lambda2_rate::Real = 0.1,
-    sslasso_spike_scale = nothing,
-    sslasso_slab_scale = nothing,
-    sslasso_theta_a::Real = 1.0,
-    sslasso_theta_b::Real = 1.0,
-)
-    return cox_paper_prior(
-        name;
-        p0 = p0,
-        X = X,
-        time = time,
-        event = event,
-        p0_alpha = p0_alpha,
-        realdata = realdata,
-        rhs_slab_df = rhs_slab_df,
-        rhs_slab_s2 = rhs_slab_s2,
-        hs_tau_scale = hs_tau_scale,
-        hs_local_scale = hs_local_scale,
-        rhs_tau_scale = rhs_tau_scale,
-        rhs_local_scale = rhs_local_scale,
-        rhs_pseudo_sigma_df = rhs_pseudo_sigma_df,
-        rhs_pseudo_sigma_scale = rhs_pseudo_sigma_scale,
-        lasso_lambda = lasso_lambda,
-        lasso_lambda2_shape = lasso_lambda2_shape,
-        lasso_lambda2_rate = lasso_lambda2_rate,
-        sslasso_spike_scale = sslasso_spike_scale,
-        sslasso_slab_scale = sslasso_slab_scale,
-        sslasso_theta_a = sslasso_theta_a,
-        sslasso_theta_b = sslasso_theta_b,
-    )
-end
-
-prior_p0(prior) = hasproperty(prior, :p0) ? getproperty(prior, :p0) : missing
-
 function univariate_screen_table(X, time, event; names = nothing, alpha::Real = 0.05)
     screen = estimate_p0_univariate_cox(X, time, event; alpha = alpha)
     p = length(screen.pvalue)
@@ -823,624 +710,6 @@ function univariate_screen_table(X, time, event; names = nothing, alpha::Real = 
         significant = screen.significant,
         converged = screen.converged,
     ), screen
-end
-
-function posterior_summary(
-    draws::AbstractMatrix;
-    names = ["beta[$j]" for j in 1:size(draws, 2)],
-    alpha::Real = 0.05,
-    map = nothing,
-)
-    p = size(draws, 2)
-    lower_p = alpha / 2
-    upper_p = 1 - alpha / 2
-    beta_map = map === nothing ? fill(NaN, p) : collect(Float64, map)
-    length(beta_map) == p || throw(DimensionMismatch("MAP estimate length must match beta dimension."))
-    return DataFrame(
-        variable = names,
-        mean = vec(mean(draws; dims = 1)),
-        median = [median(view(draws, :, j)) for j in 1:p],
-        map = beta_map,
-        lower = [quantile(view(draws, :, j), lower_p) for j in 1:p],
-        upper = [quantile(view(draws, :, j), upper_p) for j in 1:p],
-    )
-end
-
-function beta_draws_unstandardized(data::CoxPreparedData, draws::AbstractMatrix)
-    size(draws, 2) == length(data.col_scale) ||
-        throw(DimensionMismatch("draw columns must match the number of covariates."))
-    data.standardize || return Matrix{Float64}(draws)
-    return Matrix{Float64}(draws) ./ reshape(data.col_scale, 1, :)
-end
-
-function beta_vector_unstandardized(data::CoxPreparedData, beta::AbstractVector)
-    length(beta) == length(data.col_scale) ||
-        throw(DimensionMismatch("beta length must match the number of covariates."))
-    data.standardize || return collect(Float64, beta)
-    return collect(Float64, beta) ./ data.col_scale
-end
-
-function false_discovery(beta::AbstractVector, summary::DataFrame)
-    selected = (summary.lower .* summary.upper) .> 0
-    truth = beta .!= 0
-    fp = sum((.!truth) .& selected)
-    tp = sum(truth .& selected)
-    fn = sum(truth .& (.!selected))
-    tn = sum((.!truth) .& (.!selected))
-    fdr = fp + tp == 0 ? 0.0 : fp / (fp + tp)
-    return (FP = fp, FN = fn, TP = tp, TN = tn, FDR = fdr)
-end
-
-function logmeanexp(v::AbstractVector)
-    m = maximum(v)
-    return m + log(mean(exp.(v .- m)))
-end
-
-function posterior_event_loglik(data::CoxPreparedData, draws::AbstractMatrix)
-    n = length(data.event)
-    s = size(draws, 1)
-    out = Matrix{Float64}(undef, n, s)
-    for r in 1:s
-        out[:, r] .= cox_loglik_events(data, view(draws, r, :))
-    end
-    return out
-end
-
-function posterior_draw_layout(result, n_total::Integer)
-    if result.samples isa MHSamples
-        return (chains = 1, draws = n_total)
-    elseif result.samples isa MultiMHSamples
-        n_chain = length(result.samples.chains)
-        n_iter = size(result.samples.chains[1].draws, 1)
-        return (chains = n_chain, draws = n_iter)
-    end
-    try
-        value = getfield(result.samples, :value)
-        n_iter, _, n_chain = size(value)
-        if n_iter * n_chain == n_total
-            return (chains = n_chain, draws = n_iter)
-        end
-    catch
-    end
-    return (chains = 1, draws = n_total)
-end
-
-function _loo_loglik_array(ll_event::AbstractMatrix, n_chains::Integer, n_draws::Integer)
-    n_events, n_total = size(ll_event)
-    n_chains * n_draws == n_total ||
-        throw(DimensionMismatch("LOO chain/draw layout does not match log-likelihood samples."))
-    out = Array{Float64}(undef, n_draws, n_chains, n_events)
-    @inbounds for c in 1:n_chains
-        offset = (c - 1) * n_draws
-        for d in 1:n_draws
-            out[d, c, :] .= view(ll_event, :, offset + d)
-        end
-    end
-    return out
-end
-
-function psis_loo_metrics(ll_event::AbstractMatrix, n_chains::Integer, n_draws::Integer)
-    if n_chains * n_draws < 26 || isempty(ll_event)
-        return (
-            ELPD_LOO = NaN,
-            ELPD_LOO_SE = NaN,
-            PLOO = NaN,
-            PLOO_SE = NaN,
-            LOOIC = NaN,
-            LOOIC_SE = NaN,
-            ParetoK_max = NaN,
-            ParetoK_bad = missing,
-            PSIS_LOO = NaN,
-        )
-    end
-    try
-        loo_result = PosteriorStats.loo(_loo_loglik_array(ll_event, n_chains, n_draws))
-        estimates = loo_result.estimates
-        pareto_k = vec(collect(loo_result.pointwise.pareto_shape))
-        looic = -2 * estimates.elpd
-        return (
-            ELPD_LOO = estimates.elpd,
-            ELPD_LOO_SE = estimates.se_elpd,
-            PLOO = estimates.p,
-            PLOO_SE = estimates.se_p,
-            LOOIC = looic,
-            LOOIC_SE = 2 * estimates.se_elpd,
-            ParetoK_max = maximum(pareto_k),
-            ParetoK_bad = count(>(0.7), pareto_k),
-            PSIS_LOO = looic,
-        )
-    catch err
-        @warn "PSIS-LOO calculation failed; LOO metrics will be NaN." exception=(err, catch_backtrace())
-        return (
-            ELPD_LOO = NaN,
-            ELPD_LOO_SE = NaN,
-            PLOO = NaN,
-            PLOO_SE = NaN,
-            LOOIC = NaN,
-            LOOIC_SE = NaN,
-            ParetoK_max = NaN,
-            ParetoK_bad = missing,
-            PSIS_LOO = NaN,
-        )
-    end
-end
-
-function fit_metrics(
-    data::CoxPreparedData,
-    draws::AbstractMatrix,
-    beta_hat::AbstractVector;
-    chains::Integer = 1,
-    draws_per_chain::Integer = size(draws, 1),
-    ll_event = nothing,
-    loo = nothing,
-)
-    point_loglik = cox_logpartiallikelihood(data, beta_hat)
-    point_risk = data.z * beta_hat
-    event_loglik =
-        if ll_event === nothing
-            ll = posterior_event_loglik(data, draws)
-            event_rows = findall(!=(0), data.event)
-            ll[event_rows, :]
-        else
-            ll_event
-        end
-    loo_metrics = loo === nothing ? psis_loo_metrics(event_loglik, chains, draws_per_chain) : loo
-    alog_plik = sum(logmeanexp(view(event_loglik, i, :)) for i in axes(event_loglik, 1))
-    mean_ll = vec(mean(event_loglik; dims = 2))
-    pw1 = 2 * sum([logmeanexp(view(event_loglik, i, :)) for i in axes(event_loglik, 1)] .- mean_ll)
-    pw2 = size(event_loglik, 2) > 1 ? sum(var(view(event_loglik, i, :)) for i in axes(event_loglik, 1)) : NaN
-    # Historical LPML column is negative LPML; keep its sign for compatibility.
-    lpml = sum(logmeanexp(-view(event_loglik, i, :)) for i in axes(event_loglik, 1))
-    sample_total = vec(sum(event_loglik; dims = 1))
-    pD = mean(-2 .* sample_total .+ 2) - (-2 * point_loglik + 2)
-    return (
-        loglik = point_loglik,
-        LPML = lpml,
-        AIC = -2 * point_loglik + 2 * length(beta_hat),
-        BIC = -2 * point_loglik + log(length(data.time)) * length(beta_hat),
-        WAIC_pw1 = -2 * alog_plik + 2 * pw1,
-        WAIC_pw2 = -2 * alog_plik + 2 * pw2,
-        DIC = point_loglik - pD,
-        ELPD_LOO = loo_metrics.ELPD_LOO,
-        ELPD_LOO_SE = loo_metrics.ELPD_LOO_SE,
-        PLOO = loo_metrics.PLOO,
-        PLOO_SE = loo_metrics.PLOO_SE,
-        LOOIC = loo_metrics.LOOIC,
-        LOOIC_SE = loo_metrics.LOOIC_SE,
-        ParetoK_max = loo_metrics.ParetoK_max,
-        ParetoK_bad = loo_metrics.ParetoK_bad,
-        PSIS_LOO = loo_metrics.PSIS_LOO,
-        Cindex = concordance_index(data.time, data.event, point_risk),
-    )
-end
-
-function add_elpd_diffs!(metrics::DataFrame; group_cols = Symbol[])
-    :ELPD_LOO in propertynames(metrics) || return metrics
-    :ELPD_Diff in propertynames(metrics) || (metrics.ELPD_Diff = fill(NaN, nrow(metrics)))
-    valid_group_cols = [c for c in group_cols if c in propertynames(metrics)]
-    groups = isempty(valid_group_cols) ? [metrics] : groupby(metrics, valid_group_cols)
-    for group in groups
-        vals = collect(skipmissing(group.ELPD_LOO))
-        vals = vals[isfinite.(vals)]
-        isempty(vals) && continue
-        best = maximum(vals)
-        rows = group isa SubDataFrame ? parentindices(group)[1] : axes(group, 1)
-        metrics[rows, :ELPD_Diff] .= group.ELPD_LOO .- best
-    end
-    return metrics
-end
-
-function fit_and_evaluate(
-    X::AbstractMatrix,
-    time::AbstractVector,
-    event::AbstractVector;
-    prior_name::AbstractString = "cox-rhs",
-    sampler::Symbol = :nuts,
-    nuts_backend::Symbol = :turing,
-    n_samples::Integer = 1000,
-    warmup::Integer = 500,
-    thin::Integer = 1,
-    chains::Integer = 4,
-    multichains::Bool = false,
-    target_accept::Real = 0.8,
-    max_depth::Integer = 10,
-    hmc_n_leapfrog::Integer = 10,
-    hmc_step_size = nothing,
-    noncentered::Bool = false,
-    seed::Integer = 1,
-    use_car::Bool = false,
-    car_weights = nothing,
-    car_distance = :bray,
-    car_weight_quantile::Real = 0.75,
-    car_precision::Real = 1.0,
-    sample_car_strength::Bool = false,
-    car_strength_prior_a::Real = 1.0,
-    car_strength_prior_b::Real = 1.0,
-    car_degree_scale::Symbol = :mean_active,
-    car_kappa_init::Real = 0.5,
-    p0 = nothing,
-    p0_alpha::Real = 0.05,
-    constraint::Symbol = :soft_center,
-    prox_sum0_lambda::Real = 1e-3,
-    prox_l1_lambda::Real = 1e-3,
-    prox_root_tol::Real = 1e-10,
-    prox_root_maxiter::Integer = 100,
-    mala_step_size::Real = 1e-4,
-    mala_target_accept::Real = 0.574,
-    mala_adapt_every::Integer = 50,
-    mala_min_step::Real = 1e-8,
-    mala_max_step::Real = 1.0,
-    mala_precondition::Bool = false,
-    mala_precondition_mode::Symbol = :auto,
-    mala_precondition_diag::Bool = false,
-    mala_metric_ridge::Real = 1e-6,
-    mala_metric_max_cholesky_tries::Integer = 8,
-    mala_stepsize_schedule::Symbol = :adaptive_mcmc,
-    mala_sgld_c0::Real = 1.0,
-    mala_sgld_target_accept::Real = 0.5,
-    mala_sgld_accept_low::Real = 0.40,
-    mala_sgld_accept_high::Real = 0.60,
-    mala_sgld_adapt_c0::Bool = true,
-    mala_sgld_adapt_every::Integer = mala_adapt_every,
-    mala_sgld_c0_min::Real = 1e-12,
-    mala_sgld_c0_max::Real = 1e12,
-    prox_block_step_size = nothing,
-    prox_block_min_step_size::Real = 1e-8,
-    prox_block_max_step_size::Real = 1.0,
-    prox_block_adapt_every::Integer = 50,
-    prox_block_divergence_threshold::Real = 1000.0,
-    prox_block_metric::Symbol = :unit_diag,
-    realdata::Bool = false,
-    clinical_X = nothing,
-    clinical_names = clinical_X === nothing ? String[] : ["clinical[$j]" for j in axes(clinical_X, 2)],
-    clinical_prior_df::Real = 3.0,
-    clinical_prior_scale::Real = 2.5,
-    standardize::Bool = false,
-    tie_method::Symbol = :efron,
-    rhs_slab_df::Real = 4.0,
-    rhs_slab_s2::Real = 2.0,
-    hs_tau_scale::Real = 1.0,
-    hs_local_scale::Real = 1.0,
-    rhs_tau_scale::Real = 1.0,
-    rhs_local_scale::Real = 1.0,
-    rhs_pseudo_sigma_df::Real = 3.0,
-    rhs_pseudo_sigma_scale::Real = 10.0,
-    lasso_lambda = nothing,
-    lasso_lambda2_shape::Real = 1.0,
-    lasso_lambda2_rate::Real = 0.1,
-    sslasso_spike_scale = nothing,
-    sslasso_slab_scale = nothing,
-    sslasso_theta_a::Real = 1.0,
-    sslasso_theta_b::Real = 1.0,
-    alpha_prior_shape = nothing,
-    alpha_prior_scale = nothing,
-    alpha_prior_kind = :invgamma,
-    init::Symbol = :zero,
-    progress::Bool = true,
-    compute_metrics::Bool = true,
-)
-    if realdata && prior_name in ("prox-lasso", "prox-sslasso") && alpha_prior_scale === nothing
-        alpha_prior_scale = Float64(size(X, 2) + (clinical_X === nothing ? 0 : size(clinical_X, 2)))
-    end
-    prior = prior_from_name(
-        prior_name,
-        X,
-        time,
-        event;
-        p0 = p0,
-        p0_alpha = p0_alpha,
-        realdata = realdata,
-        rhs_slab_df = rhs_slab_df,
-        rhs_slab_s2 = rhs_slab_s2,
-        hs_tau_scale = hs_tau_scale,
-        hs_local_scale = hs_local_scale,
-        rhs_tau_scale = rhs_tau_scale,
-        rhs_local_scale = rhs_local_scale,
-        rhs_pseudo_sigma_df = rhs_pseudo_sigma_df,
-        rhs_pseudo_sigma_scale = rhs_pseudo_sigma_scale,
-        lasso_lambda = lasso_lambda,
-        lasso_lambda2_shape = lasso_lambda2_shape,
-        lasso_lambda2_rate = lasso_lambda2_rate,
-        sslasso_spike_scale = sslasso_spike_scale,
-        sslasso_slab_scale = sslasso_slab_scale,
-        sslasso_theta_a = sslasso_theta_a,
-        sslasso_theta_b = sslasso_theta_b,
-    )
-    explicit_nuts_kwargs =
-        sampler == :nuts_explicit || (sampler == :nuts && nuts_backend == :explicit) ? (
-            max_depth = max_depth,
-            prox_block_step_size = prox_block_step_size,
-            prox_block_min_step_size = prox_block_min_step_size,
-            prox_block_max_step_size = prox_block_max_step_size,
-            prox_block_adapt_every = prox_block_adapt_every,
-            prox_block_divergence_threshold = prox_block_divergence_threshold,
-            prox_block_metric = prox_block_metric,
-        ) : NamedTuple()
-    result =
-        if clinical_X !== nothing
-            sampler == :hmc || throw(ArgumentError("joint clinical fitting currently requires HMC"))
-            sample_clinical_cox(X, time, event, clinical_X;
-                prior, clinical_names, clinical_prior_df, clinical_prior_scale,
-                n_samples, warmup, thin, chains, multichains, seed, target_accept,
-                hmc_n_leapfrog, hmc_step_size, noncentered, constraint, prox_sum0_lambda,
-                standardize, tie_method, use_car,
-                car_weights, car_distance, car_weight_quantile, car_precision, sample_car_strength,
-                car_strength_prior_a, car_strength_prior_b, car_degree_scale, car_kappa_init,
-                prox_l1_lambda, alpha_prior_shape, alpha_prior_scale, alpha_prior_kind,
-                prox_root_tol, prox_root_maxiter, prox_block_step_size, prox_block_min_step_size,
-                prox_block_max_step_size, prox_block_adapt_every, prox_block_divergence_threshold,
-                prox_block_metric, init, progress)
-        elseif sampler in (:nuts, :nuts_turing, :nuts_explicit)
-            sample_bayes_cox(
-                X,
-                time,
-                event;
-                prior = prior,
-                sampler = sampler,
-                nuts_backend = nuts_backend,
-                n_samples = n_samples,
-                warmup = warmup,
-                thin = thin,
-                chains = chains,
-                multichains = multichains,
-                target_accept = target_accept,
-                noncentered = noncentered,
-                seed = seed,
-                use_car = use_car,
-                car_weights = car_weights,
-                car_distance = car_weights === nothing ? car_distance : nothing,
-                car_weight_quantile = car_weight_quantile,
-                car_precision = car_precision,
-                sample_car_strength = sample_car_strength,
-                car_strength_prior_a = car_strength_prior_a,
-                car_strength_prior_b = car_strength_prior_b,
-                car_degree_scale = car_degree_scale,
-                car_kappa_init = car_kappa_init,
-                standardize = standardize,
-                tie_method = tie_method,
-                constraint = constraint,
-                prox_sum0_lambda = prox_sum0_lambda,
-                prox_l1_lambda = prox_l1_lambda,
-                alpha_prior_shape = alpha_prior_shape,
-                alpha_prior_scale = alpha_prior_scale,
-                alpha_prior_kind = alpha_prior_kind,
-                prox_root_tol = prox_root_tol,
-                prox_root_maxiter = prox_root_maxiter,
-                init = init,
-                progress = progress,
-                explicit_nuts_kwargs...,
-            )
-        elseif sampler == :hmc
-            sample_bayes_cox(
-                X,
-                time,
-                event;
-                prior = prior,
-                sampler = sampler,
-                n_samples = n_samples,
-                warmup = warmup,
-                thin = thin,
-                chains = chains,
-                multichains = multichains,
-                target_accept = target_accept,
-                hmc_n_leapfrog = hmc_n_leapfrog,
-                hmc_step_size = hmc_step_size,
-                noncentered = noncentered,
-                seed = seed,
-                use_car = use_car,
-                car_weights = car_weights,
-                car_distance = car_weights === nothing ? car_distance : nothing,
-                car_weight_quantile = car_weight_quantile,
-                car_precision = car_precision,
-                sample_car_strength = sample_car_strength,
-                car_strength_prior_a = car_strength_prior_a,
-                car_strength_prior_b = car_strength_prior_b,
-                car_degree_scale = car_degree_scale,
-                car_kappa_init = car_kappa_init,
-                standardize = standardize,
-                tie_method = tie_method,
-                constraint = constraint,
-                prox_sum0_lambda = prox_sum0_lambda,
-                prox_l1_lambda = prox_l1_lambda,
-                alpha_prior_shape = alpha_prior_shape,
-                alpha_prior_scale = alpha_prior_scale,
-                alpha_prior_kind = alpha_prior_kind,
-                prox_root_tol = prox_root_tol,
-                prox_root_maxiter = prox_root_maxiter,
-                prox_block_step_size = prox_block_step_size,
-                prox_block_min_step_size = prox_block_min_step_size,
-                prox_block_max_step_size = prox_block_max_step_size,
-                prox_block_adapt_every = prox_block_adapt_every,
-                prox_block_divergence_threshold = prox_block_divergence_threshold,
-                prox_block_metric = prox_block_metric,
-                init = init,
-                progress = progress,
-            )
-        elseif sampler == :mh || sampler == :mala || sampler == :ula
-            if sampler == :mala || sampler == :ula
-                mala_kwargs = sampler == :mala ? (
-                    target_accept = target_accept,
-                    mala_target_accept = mala_target_accept,
-                    mala_adapt_every = mala_adapt_every,
-                    mala_min_step = mala_min_step,
-                    mala_max_step = mala_max_step,
-                    mala_precondition = mala_precondition,
-                    mala_precondition_mode = mala_precondition_mode,
-                    mala_precondition_diag = mala_precondition_diag,
-                    mala_metric_ridge = mala_metric_ridge,
-                    mala_metric_max_cholesky_tries = mala_metric_max_cholesky_tries,
-                    mala_stepsize_schedule = mala_stepsize_schedule,
-                    mala_sgld_c0 = mala_sgld_c0,
-                    mala_sgld_target_accept = mala_sgld_target_accept,
-                    mala_sgld_accept_low = mala_sgld_accept_low,
-                    mala_sgld_accept_high = mala_sgld_accept_high,
-                    mala_sgld_adapt_c0 = mala_sgld_adapt_c0,
-                    mala_sgld_adapt_every = mala_sgld_adapt_every,
-                    mala_sgld_c0_min = mala_sgld_c0_min,
-                    mala_sgld_c0_max = mala_sgld_c0_max,
-                ) : NamedTuple()
-                sample_bayes_cox(
-                    X,
-                    time,
-                    event;
-                    prior = prior,
-                    sampler = sampler,
-                    n_samples = n_samples,
-                    warmup = warmup,
-                    thin = thin,
-                    chains = chains,
-                    multichains = multichains,
-                    seed = seed,
-                    use_car = use_car,
-                    car_weights = car_weights,
-                    car_distance = car_weights === nothing ? car_distance : nothing,
-                    car_weight_quantile = car_weight_quantile,
-                    car_precision = car_precision,
-                    sample_car_strength = sample_car_strength,
-                    car_strength_prior_a = car_strength_prior_a,
-                    car_strength_prior_b = car_strength_prior_b,
-                    car_degree_scale = car_degree_scale,
-                    car_kappa_init = car_kappa_init,
-                    standardize = standardize,
-                    tie_method = tie_method,
-                    constraint = constraint,
-                    prox_sum0_lambda = prox_sum0_lambda,
-                    prox_l1_lambda = prox_l1_lambda,
-                    alpha_prior_shape = alpha_prior_shape,
-                    alpha_prior_scale = alpha_prior_scale,
-                    prox_root_tol = prox_root_tol,
-                    prox_root_maxiter = prox_root_maxiter,
-                    mala_step_size = mala_step_size,
-                    mala_kwargs...,
-                    init = init,
-                    progress = progress,
-                )
-            else
-                sample_bayes_cox(
-                    X,
-                    time,
-                    event;
-                    prior = prior,
-                    sampler = sampler,
-                    n_samples = n_samples,
-                    warmup = warmup,
-                    thin = thin,
-                    chains = chains,
-                    multichains = multichains,
-                    target_accept = target_accept,
-                    seed = seed,
-                    use_car = use_car,
-                    car_weights = car_weights,
-                    car_distance = car_weights === nothing ? car_distance : nothing,
-                    car_weight_quantile = car_weight_quantile,
-                    car_precision = car_precision,
-                    sample_car_strength = sample_car_strength,
-                    car_strength_prior_a = car_strength_prior_a,
-                    car_strength_prior_b = car_strength_prior_b,
-                    car_degree_scale = car_degree_scale,
-                    car_kappa_init = car_kappa_init,
-                    standardize = standardize,
-                    tie_method = tie_method,
-                    constraint = constraint,
-                    prox_sum0_lambda = prox_sum0_lambda,
-                    init = init,
-                    progress = progress,
-                )
-            end
-        elseif sampler == :gibbs
-            ssl_kwargs = prior isa SpikeSlabLassoPrior ? (
-                prox_l1_lambda = prox_l1_lambda,
-                alpha_prior_shape = alpha_prior_shape,
-                alpha_prior_scale = alpha_prior_scale,
-                alpha_prior_kind = alpha_prior_kind,
-                prox_root_tol = prox_root_tol,
-                prox_root_maxiter = prox_root_maxiter,
-            ) : NamedTuple()
-            sample_bayes_cox(
-                X,
-                time,
-                event;
-                prior = prior,
-                sampler = sampler,
-                n_samples = n_samples,
-                warmup = warmup,
-                thin = thin,
-                chains = chains,
-                multichains = multichains,
-                target_accept = target_accept,
-                seed = seed,
-                use_car = use_car,
-                car_weights = car_weights,
-                car_distance = car_weights === nothing ? car_distance : nothing,
-                car_weight_quantile = car_weight_quantile,
-                car_precision = car_precision,
-                sample_car_strength = sample_car_strength,
-                car_strength_prior_a = car_strength_prior_a,
-                car_strength_prior_b = car_strength_prior_b,
-                car_degree_scale = car_degree_scale,
-                car_kappa_init = car_kappa_init,
-                standardize = standardize,
-                tie_method = tie_method,
-                constraint = constraint,
-                prox_sum0_lambda = prox_sum0_lambda,
-                ssl_kwargs...,
-                init = init,
-                progress = progress,
-            )
-        else
-            throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :hmc, :mh, :mala, :ula, or :gibbs."))
-    end
-    model_draws = posterior_beta_draws(result)
-    if !compute_metrics
-        return (result = result, draws = beta_draws_unstandardized(result.data, model_draws),
-                summary = nothing, metrics = nothing, p0 = prior_p0(prior))
-    end
-    layout = posterior_draw_layout(result, size(model_draws, 1))
-    eval_data = clinical_X === nothing ? result.data : BayesCox4Micro.joint_cox_data(result.data, clinical_X)
-    eval_draws = clinical_X === nothing ? model_draws : hcat(model_draws, posterior_clinical_draws(result))
-    loglik = posterior_event_loglik(eval_data, eval_draws)
-    event_rows = findall(!=(0), result.data.event)
-    ll_event = loglik[event_rows, :]
-    loo = psis_loo_metrics(ll_event, layout.chains, layout.draws)
-    names = ["beta[$j]" for j in 1:size(model_draws, 2)]
-    beta_map_model = posterior_beta_map(result)
-    draws = beta_draws_unstandardized(result.data, model_draws)
-    beta_map = beta_vector_unstandardized(result.data, beta_map_model)
-    summary = posterior_summary(draws; names = names, map = beta_map)
-    beta_mean_model = vec(mean(eval_draws; dims = 1))
-    beta_median_model = [median(view(eval_draws, :, j)) for j in 1:size(eval_draws, 2)]
-    eval_map = vec(eval_draws[argmax(posterior_logposterior_draws(result)), :])
-    metrics_mean = fit_metrics(eval_data, eval_draws, beta_mean_model; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
-    metrics_median = fit_metrics(eval_data, eval_draws, beta_median_model; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
-    metrics_map = fit_metrics(eval_data, eval_draws, eval_map; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
-    diagnostics = sampler_diagnostics(result)
-    metrics = DataFrame(
-        estimate = ["mean", "median", "MAP"],
-        loglik = [metrics_mean.loglik, metrics_median.loglik, metrics_map.loglik],
-        LPML = [metrics_mean.LPML, metrics_median.LPML, metrics_map.LPML],
-        AIC = [metrics_mean.AIC, metrics_median.AIC, metrics_map.AIC],
-        BIC = [metrics_mean.BIC, metrics_median.BIC, metrics_map.BIC],
-        WAIC_pw1 = [metrics_mean.WAIC_pw1, metrics_median.WAIC_pw1, metrics_map.WAIC_pw1],
-        WAIC_pw2 = [metrics_mean.WAIC_pw2, metrics_median.WAIC_pw2, metrics_map.WAIC_pw2],
-        DIC = [metrics_mean.DIC, metrics_median.DIC, metrics_map.DIC],
-        ELPD_LOO = [metrics_mean.ELPD_LOO, metrics_median.ELPD_LOO, metrics_map.ELPD_LOO],
-        ELPD_LOO_SE = [metrics_mean.ELPD_LOO_SE, metrics_median.ELPD_LOO_SE, metrics_map.ELPD_LOO_SE],
-        PLOO = [metrics_mean.PLOO, metrics_median.PLOO, metrics_map.PLOO],
-        PLOO_SE = [metrics_mean.PLOO_SE, metrics_median.PLOO_SE, metrics_map.PLOO_SE],
-        LOOIC = [metrics_mean.LOOIC, metrics_median.LOOIC, metrics_map.LOOIC],
-        LOOIC_SE = [metrics_mean.LOOIC_SE, metrics_median.LOOIC_SE, metrics_map.LOOIC_SE],
-        ParetoK_max = [metrics_mean.ParetoK_max, metrics_median.ParetoK_max, metrics_map.ParetoK_max],
-        ParetoK_bad = [metrics_mean.ParetoK_bad, metrics_median.ParetoK_bad, metrics_map.ParetoK_bad],
-        PSIS_LOO = [metrics_mean.PSIS_LOO, metrics_median.PSIS_LOO, metrics_map.PSIS_LOO],
-        Cindex = [metrics_mean.Cindex, metrics_median.Cindex, metrics_map.Cindex],
-        warmup_seconds = fill(diagnostics.warmup_seconds, 3),
-        sample_seconds = fill(diagnostics.sample_seconds, 3),
-        total_seconds = fill(diagnostics.total_seconds, 3),
-        allocated_mb = fill(diagnostics.allocated_bytes / 2.0^20, 3),
-        gc_seconds = fill(diagnostics.gc_seconds, 3),
-        gc_percent = fill(diagnostics.gc_percent, 3),
-    )
-    return (result = result, draws = draws, summary = summary, metrics = metrics, p0 = prior_p0(prior))
 end
 
 function _plot_path_with_ext(path::AbstractString, ext::AbstractString)
@@ -1466,7 +735,7 @@ function _coefficient_diagnostic_title(summary::DataFrame, estimate::Symbol, est
     truthv = Float64.(truth)
     length(truthv) == length(estimates) ||
         throw(DimensionMismatch("truth length must match summary row count."))
-    mse = mean((Float64.(estimates) .- truthv) .^ 2)
+    mse = coefficient_mse(truthv, Float64.(estimates))
     fd = false_discovery(truthv, summary)
     estimate_name = estimate == :map ? "MAP" : String(estimate)
     return @sprintf(
@@ -1652,7 +921,7 @@ function metrics_plot(metrics::DataFrame, path::AbstractString; title = "Model m
     plot_rows = copy(metrics)
     plot_rows.prior = string.(plot_rows.prior)
     plot_rows.estimate = string.(plot_rows.estimate)
-    for col in (:prior, :estimate, :WAIC_pw1, :LOOIC, :LPML, :Cindex)
+    for col in (:prior, :estimate, :WAIC_pw1, :LOOIC, :NLPML, :Cindex)
         col in propertynames(plot_rows) ||
             throw(ArgumentError("metrics table does not contain required column $col."))
     end
@@ -1663,7 +932,7 @@ function metrics_plot(metrics::DataFrame, path::AbstractString; title = "Model m
     panels = (
         _metric_panel_plot(plot_rows, :WAIC_pw1; title = "WAIC"),
         _metric_panel_plot(plot_rows, :LOOIC; title = "LOOIC"),
-        _metric_panel_plot(plot_rows, :LPML; title = "LPML"),
+        _metric_panel_plot(plot_rows, :NLPML; title = "NLPML"),
         _metric_panel_plot(plot_rows, :Cindex; title = "Training C-index"),
     )
     has_test = :Cindex_test in propertynames(plot_rows)
@@ -1780,16 +1049,6 @@ const HMC_SAMPLER_METADATA_KEYS = [
     "hmc_n_leapfrog", "hmc_step_size", "noncentered"
 ]
 
-const MALA_SAMPLER_METADATA_KEYS = [
-    "mala_step_size", "mala_target_accept", "mala_adapt_every",
-    "mala_min_step", "mala_max_step", "mala_precondition",
-    "mala_precondition_mode", "mala_precondition_diag",
-    "mala_metric_ridge", "mala_metric_max_cholesky_tries",
-    "mala_stepsize_schedule", "mala_sgld_c0", "mala_sgld_target_accept",
-    "mala_sgld_accept_low", "mala_sgld_accept_high", "mala_sgld_adapt_c0",
-    "mala_sgld_adapt_every", "mala_sgld_c0_min", "mala_sgld_c0_max"
-]
-
 const PROX_BLOCK_SAMPLER_METADATA_KEYS = [
     "prox_block_step_size", "prox_block_min_step_size",
     "prox_block_max_step_size", "prox_block_adapt_every",
@@ -1854,8 +1113,6 @@ function _relevant_sampler_keys(sampler::AbstractString)
     keys = copy(COMMON_SAMPLER_METADATA_KEYS)
     if sampler in ("nuts", "hmc")
         append!(keys, HMC_SAMPLER_METADATA_KEYS)
-    elseif sampler == "mala"
-        append!(keys, MALA_SAMPLER_METADATA_KEYS)
     elseif sampler == "prox_block"
         append!(keys, PROX_BLOCK_SAMPLER_METADATA_KEYS)
     end
@@ -2017,17 +1274,12 @@ function saved_beta_draws_and_layout(run_dir::AbstractString, p::Integer)
 end
 
 function _diagnostic_number(run_dir::AbstractString, key::AbstractString, default = NaN)
-    path = joinpath(run_dir, "diagnostics.json")
+    path = joinpath(run_dir, "diagnostics_summary.csv")
     file_complete(path) || return default
-    try
-        diag = JSON.parsefile(path)
-        haskey(diag, key) || return default
-        value = diag[key]
-        value isa Number && return Float64(value)
-        value isa AbstractString && return parse(Float64, value)
-    catch
-    end
-    return default
+    table = read_diagnostics(run_dir; category = "runtime")
+    col = Symbol(key)
+    isempty(table) || !(col in propertynames(table)) ? default :
+        (value = first(table[!, col]); value isa Number ? Float64(value) : default)
 end
 
 function metrics_from_saved_samples(run_dir::AbstractString, sim, summary::DataFrame)
@@ -2041,81 +1293,12 @@ function metrics_from_saved_samples(run_dir::AbstractString, sim, summary::DataF
         standardize = false,
         tie_method = tie_method,
     )
-    loglik = posterior_event_loglik(data, draws)
-    event_rows = findall(!=(0), data.event)
-    ll_event = loglik[event_rows, :]
-    loo = psis_loo_metrics(ll_event, layout.chains, layout.draws)
-    beta_mean = Float64.(summary[!, :mean])
-    beta_median = Float64.(summary[!, :median])
-    beta_map = Float64.(summary[!, :map])
-    metrics_mean = fit_metrics(data, draws, beta_mean; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
-    metrics_median = fit_metrics(data, draws, beta_median; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
-    metrics_map = fit_metrics(data, draws, beta_map; chains = layout.chains, draws_per_chain = layout.draws, ll_event = ll_event, loo = loo)
-    return DataFrame(
-        estimate = ["mean", "median", "MAP"],
-        loglik = [metrics_mean.loglik, metrics_median.loglik, metrics_map.loglik],
-        LPML = [metrics_mean.LPML, metrics_median.LPML, metrics_map.LPML],
-        AIC = [metrics_mean.AIC, metrics_median.AIC, metrics_map.AIC],
-        BIC = [metrics_mean.BIC, metrics_median.BIC, metrics_map.BIC],
-        WAIC_pw1 = [metrics_mean.WAIC_pw1, metrics_median.WAIC_pw1, metrics_map.WAIC_pw1],
-        WAIC_pw2 = [metrics_mean.WAIC_pw2, metrics_median.WAIC_pw2, metrics_map.WAIC_pw2],
-        DIC = [metrics_mean.DIC, metrics_median.DIC, metrics_map.DIC],
-        ELPD_LOO = [metrics_mean.ELPD_LOO, metrics_median.ELPD_LOO, metrics_map.ELPD_LOO],
-        ELPD_LOO_SE = [metrics_mean.ELPD_LOO_SE, metrics_median.ELPD_LOO_SE, metrics_map.ELPD_LOO_SE],
-        PLOO = [metrics_mean.PLOO, metrics_median.PLOO, metrics_map.PLOO],
-        PLOO_SE = [metrics_mean.PLOO_SE, metrics_median.PLOO_SE, metrics_map.PLOO_SE],
-        LOOIC = [metrics_mean.LOOIC, metrics_median.LOOIC, metrics_map.LOOIC],
-        LOOIC_SE = [metrics_mean.LOOIC_SE, metrics_median.LOOIC_SE, metrics_map.LOOIC_SE],
-        ParetoK_max = [metrics_mean.ParetoK_max, metrics_median.ParetoK_max, metrics_map.ParetoK_max],
-        ParetoK_bad = [metrics_mean.ParetoK_bad, metrics_median.ParetoK_bad, metrics_map.ParetoK_bad],
-        PSIS_LOO = [metrics_mean.PSIS_LOO, metrics_median.PSIS_LOO, metrics_map.PSIS_LOO],
-        Cindex = [metrics_mean.Cindex, metrics_median.Cindex, metrics_map.Cindex],
-        warmup_seconds = fill(_diagnostic_number(run_dir, "warmup_seconds", NaN), 3),
-        sample_seconds = fill(_diagnostic_number(run_dir, "sample_seconds", NaN), 3),
-        total_seconds = fill(_diagnostic_number(run_dir, "total_seconds", NaN), 3),
-        allocated_mb = fill(_diagnostic_number(run_dir, "allocated_mb", NaN), 3),
-        gc_seconds = fill(_diagnostic_number(run_dir, "gc_seconds", NaN), 3),
-        gc_percent = fill(_diagnostic_number(run_dir, "gc_percent", NaN), 3),
-    )
-end
-
-function annotate_simulation_metrics(metrics::DataFrame, sim, summary::DataFrame; rep, n, p, nonzero, p0, baseline, prior)
-    out = copy(metrics)
-    mse = Dict(
-        "mean" => mean((Float64.(summary[!, :mean]) .- sim.beta) .^ 2),
-        "median" => mean((Float64.(summary[!, :median]) .- sim.beta) .^ 2),
-        "MAP" => mean((Float64.(summary[!, :map]) .- sim.beta) .^ 2),
-    )
-    out[!, :prior] = fill(prior, nrow(out))
-    out[!, :rep] = fill(rep, nrow(out))
-    out[!, :n] = fill(n, nrow(out))
-    out[!, :p] = fill(p, nrow(out))
-    out[!, :nonzero_count] = fill(nonzero, nrow(out))
-    out[!, :p0] = fill(p0, nrow(out))
-    out[!, :baseline] = fill(string(baseline), nrow(out))
-    out[!, :scenario] = fill(string(get(sim, :scenario, :baseline)), nrow(out))
-    out[!, :MSE] = [get(mse, string(e), NaN) for e in out.estimate]
-    add_simulation_coverage!(out, summary; beta = sim.beta)
-    return out
-end
-
-function simulation_false_discovery_table(sim, summary::DataFrame; rep, n, p, nonzero, p0, baseline, prior)
-    fd = false_discovery(sim.beta, summary)
-    return DataFrame(
-        rep = [rep],
-        n = [n],
-        p = [p],
-        nonzero_count = [nonzero],
-        p0 = [p0],
-        baseline = [string(baseline)],
-        scenario = [string(get(sim, :scenario, :baseline))],
-        prior = [prior],
-        FP = [fd.FP],
-        FN = [fd.FN],
-        TP = [fd.TP],
-        TN = [fd.TN],
-        FDR = [fd.FDR],
-    )
+    estimates = (mean = Float64.(summary.mean), median = Float64.(summary.median), MAP = Float64.(summary.map))
+    metrics = posterior_fit_metrics(data, draws, estimates; chains = layout.chains, draws_per_chain = layout.draws)
+    for key in ("warmup_seconds", "sample_seconds", "total_seconds", "allocated_mb", "gc_seconds", "gc_percent")
+        metrics[!, Symbol(key)] = fill(_diagnostic_number(run_dir, key), nrow(metrics))
+    end
+    return metrics
 end
 
 function load_or_recover_simulation_run(
@@ -2163,5 +1346,3 @@ function load_or_recover_simulation_run(
     mark_simulation_run_complete(run_dir)
     return (summary = summary, metrics = metrics, false_discovery = fd)
 end
-
-include(joinpath(@__DIR__, "loo_evaluation.jl"))

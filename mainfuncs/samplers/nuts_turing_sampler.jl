@@ -617,7 +617,7 @@ function _sample_ssl_prox_nuts_gibbs(
         "prox-sslasso with Turing NUTS-Gibbs is disabled because the previous " *
         "implementation used Turing.NUTS(0) single-draw block updates without a " *
         "valid persistent block state. Use nuts_backend=:explicit with the new " *
-        "block NUTS kernel, or use sampler=:hmc/:mala.",
+        "block NUTS kernel, or use sampler=:hmc.",
     ))
 end
 
@@ -645,6 +645,6 @@ function _sample_ssl_prox_nuts_gibbs_one(
         "prox-sslasso with Turing NUTS-Gibbs is disabled because the previous " *
         "implementation used Turing.NUTS(0) single-draw block updates without a " *
         "valid persistent block state. Use nuts_backend=:explicit with the new " *
-        "block NUTS kernel, or use sampler=:hmc/:mala.",
+        "block NUTS kernel, or use sampler=:hmc.",
     ))
 end

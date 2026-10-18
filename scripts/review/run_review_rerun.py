@@ -140,8 +140,7 @@ def verify(task, outdir):
         for key, value in expected.items():
             if meta.get(key) != value:
                 raise ValueError(f"{path}: {key}: {meta.get(key)!r} != {value!r}")
-        for name in ("metrics.csv", "posterior_summary.csv", "samples_wide.csv", "diagnostics.json",
-                     "rank_diagnostics.csv", "transition_summary.csv", "zero_sum_summary.csv"):
+        for name in ("metrics.csv", "posterior_summary.csv", "samples_wide.csv", "diagnostics_summary.csv"):
             file = path.parent / name
             if not file.is_file() or file.stat().st_size == 0:
                 raise ValueError(f"missing or empty {file}")

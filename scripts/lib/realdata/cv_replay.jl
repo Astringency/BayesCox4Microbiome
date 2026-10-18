@@ -4,7 +4,7 @@
 using Pkg
 Pkg.activate(normpath(joinpath(@__DIR__, "..", "..", "..")))
 isdefined(@__MODULE__, :parse_cli_args) || include(joinpath(@__DIR__, "..", "..", "analysis_common.jl"))
-isdefined(@__MODULE__, :evaluate_nested_cindex) || include(joinpath(@__DIR__, "..", "..", "tune_hyperparams_cindex.jl"))
+
 include(joinpath(@__DIR__, "replay_common.jl"))
 
 const ROOT = normpath(joinpath(@__DIR__, "..", "..", ".."))

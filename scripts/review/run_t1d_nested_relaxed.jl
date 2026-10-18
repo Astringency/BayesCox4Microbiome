@@ -1,7 +1,8 @@
 #!/usr/bin/env julia
+using BayesCox4Micro: _divergence_count, _json_ready, _kfold_indices, _select_inner_cindex, _validation_cindices, _validation_design_matrix, _write_tuning_json
 # Reproducible nested follow-up: saved common splits, training-only selection.
 include(joinpath(@__DIR__, "..", "analysis_common.jl"))
-include(joinpath(@__DIR__, "..", "tune_hyperparams_cindex.jl"))
+
 using SHA, Dates
 BLAS.set_num_threads(1)
 
@@ -18,8 +19,7 @@ function nested_decode(raw)
 end
 
 function continuous_quality(result, out)
-    d = BayesCox4Micro.rank_convergence_diagnostics(samples_wide_dataframe(result))
-    write_table(joinpath(out,"rank_diagnostics.csv"),d)
+    d = BayesCox4Micro.convergence_diagnostics(samples_wide_dataframe(result))
     c = d[.!startswith.(String.(d.parameters), "gamma["), :]
     valid = all(x -> !ismissing(x) && isfinite(x), Matrix(c[:,[:rhat,:ess_bulk,:ess_tail]]))
     rh = valid ? maximum(c.rhat) : Inf

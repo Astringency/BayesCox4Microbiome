@@ -1,10 +1,10 @@
 module ZeroAbundancePreprocessingTests
+using BayesCox4Micro: _validation_design_matrix
 
 using Test
 using BayesCox4Micro
 using Statistics
 
-include(joinpath(@__DIR__, "..", "scripts", "validation_common.jl"))
 
 module SavedSummary
 include(joinpath(@__DIR__, "..", "scripts", "summarize_realdata_convergence.jl"))

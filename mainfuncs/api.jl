@@ -328,7 +328,7 @@ function _validate_prox_prior_sampler(prior::AbstractCoxPrior, sampler::Symbol)
     _is_proximal_l1_prior(prior) || return nothing
     if sampler == :mh
         throw(ArgumentError(
-            "proximal L1 priors are not implemented for sampler=:mh; use :nuts, :hmc, :mala, :ula, " *
+            "proximal L1 priors are not implemented for sampler=:mh; use :nuts, :hmc, " *
             "or :gibbs for prox-sslasso.",
         ))
     elseif sampler == :gibbs && !(prior isa SpikeSlabLassoPrior)
@@ -609,66 +609,6 @@ function sample_bayes_cox(
             timed.gctime,
             gc_percent,
         )
-    elseif effective_sampler == :mala
-        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts or :hmc."))
-        timed = @timed _sample_mala_chains(
-            data,
-            prior,
-            chain_count;
-            rng = rng,
-            multichains = multichains,
-            car_weights = resolved_car_weights,
-            use_car = use_car,
-            car_precision = car_precision,
-            sample_car_strength = sample_car_strength,
-            car_strength_prior_a = car_strength_prior_a,
-            car_strength_prior_b = car_strength_prior_b,
-            car_degree_scale = car_degree_scale,
-            car_kappa_init = car_kappa_init,
-            kwargs...,
-        )
-        samples = timed.value
-        warmup_seconds = missing
-        sample_seconds = missing
-        gc_percent = timed.time > 0 ? 100 * timed.gctime / timed.time : NaN
-        diagnostics = SamplingDiagnostics(
-            warmup_seconds,
-            sample_seconds,
-            timed.time,
-            Int64(timed.bytes),
-            timed.gctime,
-            gc_percent,
-        )
-    elseif effective_sampler == :ula
-        noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts or :hmc."))
-        timed = @timed _sample_ula_chains(
-            data,
-            prior,
-            chain_count;
-            rng = rng,
-            multichains = multichains,
-            car_weights = resolved_car_weights,
-            use_car = use_car,
-            car_precision = car_precision,
-            sample_car_strength = sample_car_strength,
-            car_strength_prior_a = car_strength_prior_a,
-            car_strength_prior_b = car_strength_prior_b,
-            car_degree_scale = car_degree_scale,
-            car_kappa_init = car_kappa_init,
-            kwargs...,
-        )
-        samples = timed.value
-        warmup_seconds = missing
-        sample_seconds = missing
-        gc_percent = timed.time > 0 ? 100 * timed.gctime / timed.time : NaN
-        diagnostics = SamplingDiagnostics(
-            warmup_seconds,
-            sample_seconds,
-            timed.time,
-            Int64(timed.bytes),
-            timed.gctime,
-            gc_percent,
-        )
     elseif effective_sampler == :gibbs
         noncentered && throw(ArgumentError("noncentered=true is currently supported only for sampler=:nuts or :hmc."))
         prior isa SpikeSlabLassoPrior && use_car && resolved_car_weights !== nothing &&
@@ -716,7 +656,7 @@ function sample_bayes_cox(
             gc_percent,
         )
     else
-        throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :hmc, :mh, :mala, :ula, or :gibbs."))
+        throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :hmc, :mh, or :gibbs."))
     end
     return CoxSamplerResult(samples, data, prior, effective_sampler, diagnostics)
 end
@@ -780,76 +720,6 @@ function _sample_mh_chains(
         for c in 1:chains
             @info "Running MH chain $c/$chains"
             samples[c] = _sample_mh(data, prior; rng = rngs[c], progress = progress, kwargs...)
-        end
-    end
-    return MultiMHSamples(samples)
-end
-
-function _sample_mala_chains(
-    data::CoxPreparedData,
-    prior::AbstractCoxPrior,
-    chains::Integer;
-    rng::AbstractRNG,
-    multichains::Bool = false,
-    progress::Bool = true,
-    kwargs...,
-)
-    chains == 1 && return _sample_mala(data, prior; rng = rng, progress = progress, kwargs...)
-    samples = Vector{MHSamples}(undef, chains)
-    rngs = [_independent_rng(rng) for _ in 1:chains]
-    if multichains
-        _reserve_chain_progress_lines(chains, progress)
-        Threads.@threads for c in 1:chains
-            @info "Running MALA chain $c/$chains"
-            samples[c] = _sample_mala(
-                data,
-                prior;
-                rng = rngs[c],
-                progress = progress,
-                progress_desc = _chain_progress_desc("MALA sampling", c, chains),
-                progress_offset = _chain_progress_offset(c, chains),
-                kwargs...,
-            )
-        end
-    else
-        for c in 1:chains
-            @info "Running MALA chain $c/$chains"
-            samples[c] = _sample_mala(data, prior; rng = rngs[c], progress = progress, kwargs...)
-        end
-    end
-    return MultiMHSamples(samples)
-end
-
-function _sample_ula_chains(
-    data::CoxPreparedData,
-    prior::AbstractCoxPrior,
-    chains::Integer;
-    rng::AbstractRNG,
-    multichains::Bool = false,
-    progress::Bool = true,
-    kwargs...,
-)
-    chains == 1 && return _sample_ula(data, prior; rng = rng, progress = progress, kwargs...)
-    samples = Vector{MHSamples}(undef, chains)
-    rngs = [_independent_rng(rng) for _ in 1:chains]
-    if multichains
-        _reserve_chain_progress_lines(chains, progress)
-        Threads.@threads for c in 1:chains
-            @info "Running ULA chain $c/$chains"
-            samples[c] = _sample_ula(
-                data,
-                prior;
-                rng = rngs[c],
-                progress = progress,
-                progress_desc = _chain_progress_desc("ULA sampling", c, chains),
-                progress_offset = _chain_progress_offset(c, chains),
-                kwargs...,
-            )
-        end
-    else
-        for c in 1:chains
-            @info "Running ULA chain $c/$chains"
-            samples[c] = _sample_ula(data, prior; rng = rngs[c], progress = progress, kwargs...)
         end
     end
     return MultiMHSamples(samples)
@@ -1170,31 +1040,373 @@ function sslasso_inclusion_probabilities(result::CoxSamplerResult)
     return vec(mean(out; dims=1))
 end
 
-function concordance_index(
-    time::AbstractVector{<:Real},
-    event::AbstractVector,
-    risk_score::AbstractVector{<:Real},
+function prior_from_name(
+    name::AbstractString,
+    X::AbstractMatrix,
+    time::AbstractVector,
+    event::AbstractVector;
+    p0 = nothing,
+    p0_alpha::Real = 0.05,
+    realdata::Bool = false,
+    rhs_slab_df::Real = 4.0,
+    rhs_slab_s2::Real = 2.0,
+    hs_tau_scale::Real = 1.0,
+    hs_local_scale::Real = 1.0,
+    rhs_tau_scale::Real = 1.0,
+    rhs_local_scale::Real = 1.0,
+    rhs_pseudo_sigma_df::Real = 3.0,
+    rhs_pseudo_sigma_scale::Real = 10.0,
+    lasso_lambda = nothing,
+    lasso_lambda2_shape::Real = 1.0,
+    lasso_lambda2_rate::Real = 0.1,
+    sslasso_spike_scale = nothing,
+    sslasso_slab_scale = nothing,
+    sslasso_theta_a::Real = 1.0,
+    sslasso_theta_b::Real = 1.0,
 )
-    n = length(time)
-    length(event) == n || throw(DimensionMismatch("length(event) must match length(time)."))
-    length(risk_score) == n || throw(DimensionMismatch("length(risk_score) must match length(time)."))
-    e = [Int(v) for v in event]
-    concordant = 0.0
-    comparable = 0.0
-    @inbounds for i in 1:n
-        if e[i] != 0
-            for j in 1:n
-                if time[i] < time[j]
-                    comparable += 1
-                    if risk_score[i] > risk_score[j]
-                        concordant += 1
-                    elseif risk_score[i] == risk_score[j]
-                        concordant += 0.5
-                    end
-                end
-            end
-        end
+    return cox_paper_prior(
+        name;
+        p0 = p0,
+        X = X,
+        time = time,
+        event = event,
+        p0_alpha = p0_alpha,
+        realdata = realdata,
+        rhs_slab_df = rhs_slab_df,
+        rhs_slab_s2 = rhs_slab_s2,
+        hs_tau_scale = hs_tau_scale,
+        hs_local_scale = hs_local_scale,
+        rhs_tau_scale = rhs_tau_scale,
+        rhs_local_scale = rhs_local_scale,
+        rhs_pseudo_sigma_df = rhs_pseudo_sigma_df,
+        rhs_pseudo_sigma_scale = rhs_pseudo_sigma_scale,
+        lasso_lambda = lasso_lambda,
+        lasso_lambda2_shape = lasso_lambda2_shape,
+        lasso_lambda2_rate = lasso_lambda2_rate,
+        sslasso_spike_scale = sslasso_spike_scale,
+        sslasso_slab_scale = sslasso_slab_scale,
+        sslasso_theta_a = sslasso_theta_a,
+        sslasso_theta_b = sslasso_theta_b,
+    )
+end
+
+prior_p0(prior) = hasproperty(prior, :p0) ? getproperty(prior, :p0) : missing
+
+function posterior_summary(
+    draws::AbstractMatrix;
+    names = ["beta[$j]" for j in 1:size(draws, 2)],
+    alpha::Real = 0.05,
+    map = nothing,
+)
+    p = size(draws, 2)
+    lower_p = alpha / 2
+    upper_p = 1 - alpha / 2
+    beta_map = map === nothing ? fill(NaN, p) : collect(Float64, map)
+    length(beta_map) == p || throw(DimensionMismatch("MAP estimate length must match beta dimension."))
+    return DataFrame(
+        variable = names,
+        mean = vec(mean(draws; dims = 1)),
+        median = [median(view(draws, :, j)) for j in 1:p],
+        map = beta_map,
+        lower = [quantile(view(draws, :, j), lower_p) for j in 1:p],
+        upper = [quantile(view(draws, :, j), upper_p) for j in 1:p],
+    )
+end
+
+function beta_draws_unstandardized(data::CoxPreparedData, draws::AbstractMatrix)
+    size(draws, 2) == length(data.col_scale) ||
+        throw(DimensionMismatch("draw columns must match the number of covariates."))
+    data.standardize || return Matrix{Float64}(draws)
+    return Matrix{Float64}(draws) ./ reshape(data.col_scale, 1, :)
+end
+
+function beta_vector_unstandardized(data::CoxPreparedData, beta::AbstractVector)
+    length(beta) == length(data.col_scale) ||
+        throw(DimensionMismatch("beta length must match the number of covariates."))
+    data.standardize || return collect(Float64, beta)
+    return collect(Float64, beta) ./ data.col_scale
+end
+
+function fit_and_evaluate(
+    X::AbstractMatrix,
+    time::AbstractVector,
+    event::AbstractVector;
+    prior_name::AbstractString = "cox-rhs",
+    sampler::Symbol = :nuts,
+    nuts_backend::Symbol = :turing,
+    n_samples::Integer = 1000,
+    warmup::Integer = 500,
+    thin::Integer = 1,
+    chains::Integer = 4,
+    multichains::Bool = false,
+    target_accept::Real = 0.8,
+    max_depth::Integer = 10,
+    hmc_n_leapfrog::Integer = 10,
+    hmc_step_size = nothing,
+    noncentered::Bool = false,
+    seed::Integer = 1,
+    use_car::Bool = false,
+    car_weights = nothing,
+    car_distance = :bray,
+    car_weight_quantile::Real = 0.75,
+    car_precision::Real = 1.0,
+    sample_car_strength::Bool = false,
+    car_strength_prior_a::Real = 1.0,
+    car_strength_prior_b::Real = 1.0,
+    car_degree_scale::Symbol = :mean_active,
+    car_kappa_init::Real = 0.5,
+    p0 = nothing,
+    p0_alpha::Real = 0.05,
+    constraint::Symbol = :soft_center,
+    prox_sum0_lambda::Real = 1e-3,
+    prox_l1_lambda::Real = 1e-3,
+    prox_root_tol::Real = 1e-10,
+    prox_root_maxiter::Integer = 100,
+    prox_block_step_size = nothing,
+    prox_block_min_step_size::Real = 1e-8,
+    prox_block_max_step_size::Real = 1.0,
+    prox_block_adapt_every::Integer = 50,
+    prox_block_divergence_threshold::Real = 1000.0,
+    prox_block_metric::Symbol = :unit_diag,
+    realdata::Bool = false,
+    clinical_X = nothing,
+    clinical_names = clinical_X === nothing ? String[] : ["clinical[$j]" for j in axes(clinical_X, 2)],
+    clinical_prior_df::Real = 3.0,
+    clinical_prior_scale::Real = 2.5,
+    standardize::Bool = false,
+    tie_method::Symbol = :efron,
+    rhs_slab_df::Real = 4.0,
+    rhs_slab_s2::Real = 2.0,
+    hs_tau_scale::Real = 1.0,
+    hs_local_scale::Real = 1.0,
+    rhs_tau_scale::Real = 1.0,
+    rhs_local_scale::Real = 1.0,
+    rhs_pseudo_sigma_df::Real = 3.0,
+    rhs_pseudo_sigma_scale::Real = 10.0,
+    lasso_lambda = nothing,
+    lasso_lambda2_shape::Real = 1.0,
+    lasso_lambda2_rate::Real = 0.1,
+    sslasso_spike_scale = nothing,
+    sslasso_slab_scale = nothing,
+    sslasso_theta_a::Real = 1.0,
+    sslasso_theta_b::Real = 1.0,
+    alpha_prior_shape = nothing,
+    alpha_prior_scale = nothing,
+    alpha_prior_kind = :invgamma,
+    init::Symbol = :zero,
+    progress::Bool = true,
+    compute_metrics::Bool = true,
+)
+    if realdata && prior_name in ("prox-lasso", "prox-sslasso") && alpha_prior_scale === nothing
+        alpha_prior_scale = Float64(size(X, 2) + (clinical_X === nothing ? 0 : size(clinical_X, 2)))
     end
-    comparable > 0 || return NaN
-    return concordant / comparable
+    prior = prior_from_name(
+        prior_name,
+        X,
+        time,
+        event;
+        p0 = p0,
+        p0_alpha = p0_alpha,
+        realdata = realdata,
+        rhs_slab_df = rhs_slab_df,
+        rhs_slab_s2 = rhs_slab_s2,
+        hs_tau_scale = hs_tau_scale,
+        hs_local_scale = hs_local_scale,
+        rhs_tau_scale = rhs_tau_scale,
+        rhs_local_scale = rhs_local_scale,
+        rhs_pseudo_sigma_df = rhs_pseudo_sigma_df,
+        rhs_pseudo_sigma_scale = rhs_pseudo_sigma_scale,
+        lasso_lambda = lasso_lambda,
+        lasso_lambda2_shape = lasso_lambda2_shape,
+        lasso_lambda2_rate = lasso_lambda2_rate,
+        sslasso_spike_scale = sslasso_spike_scale,
+        sslasso_slab_scale = sslasso_slab_scale,
+        sslasso_theta_a = sslasso_theta_a,
+        sslasso_theta_b = sslasso_theta_b,
+    )
+    explicit_nuts_kwargs =
+        sampler == :nuts_explicit || (sampler == :nuts && nuts_backend == :explicit) ? (
+            max_depth = max_depth,
+            prox_block_step_size = prox_block_step_size,
+            prox_block_min_step_size = prox_block_min_step_size,
+            prox_block_max_step_size = prox_block_max_step_size,
+            prox_block_adapt_every = prox_block_adapt_every,
+            prox_block_divergence_threshold = prox_block_divergence_threshold,
+            prox_block_metric = prox_block_metric,
+        ) : NamedTuple()
+    result =
+        if clinical_X !== nothing
+            sampler == :hmc || throw(ArgumentError("joint clinical fitting currently requires HMC"))
+            sample_clinical_cox(X, time, event, clinical_X;
+                prior, clinical_names, clinical_prior_df, clinical_prior_scale,
+                n_samples, warmup, thin, chains, multichains, seed, target_accept,
+                hmc_n_leapfrog, hmc_step_size, noncentered, constraint, prox_sum0_lambda,
+                standardize, tie_method, use_car,
+                car_weights, car_distance, car_weight_quantile, car_precision, sample_car_strength,
+                car_strength_prior_a, car_strength_prior_b, car_degree_scale, car_kappa_init,
+                prox_l1_lambda, alpha_prior_shape, alpha_prior_scale, alpha_prior_kind,
+                prox_root_tol, prox_root_maxiter, prox_block_step_size, prox_block_min_step_size,
+                prox_block_max_step_size, prox_block_adapt_every, prox_block_divergence_threshold,
+                prox_block_metric, init, progress)
+        elseif sampler in (:nuts, :nuts_turing, :nuts_explicit)
+            sample_bayes_cox(
+                X,
+                time,
+                event;
+                prior = prior,
+                sampler = sampler,
+                nuts_backend = nuts_backend,
+                n_samples = n_samples,
+                warmup = warmup,
+                thin = thin,
+                chains = chains,
+                multichains = multichains,
+                target_accept = target_accept,
+                noncentered = noncentered,
+                seed = seed,
+                use_car = use_car,
+                car_weights = car_weights,
+                car_distance = car_weights === nothing ? car_distance : nothing,
+                car_weight_quantile = car_weight_quantile,
+                car_precision = car_precision,
+                sample_car_strength = sample_car_strength,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_degree_scale = car_degree_scale,
+                car_kappa_init = car_kappa_init,
+                standardize = standardize,
+                tie_method = tie_method,
+                constraint = constraint,
+                prox_sum0_lambda = prox_sum0_lambda,
+                prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = alpha_prior_shape,
+                alpha_prior_scale = alpha_prior_scale,
+                alpha_prior_kind = alpha_prior_kind,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
+                init = init,
+                progress = progress,
+                explicit_nuts_kwargs...,
+            )
+        elseif sampler == :hmc
+            sample_bayes_cox(
+                X,
+                time,
+                event;
+                prior = prior,
+                sampler = sampler,
+                n_samples = n_samples,
+                warmup = warmup,
+                thin = thin,
+                chains = chains,
+                multichains = multichains,
+                target_accept = target_accept,
+                hmc_n_leapfrog = hmc_n_leapfrog,
+                hmc_step_size = hmc_step_size,
+                noncentered = noncentered,
+                seed = seed,
+                use_car = use_car,
+                car_weights = car_weights,
+                car_distance = car_weights === nothing ? car_distance : nothing,
+                car_weight_quantile = car_weight_quantile,
+                car_precision = car_precision,
+                sample_car_strength = sample_car_strength,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_degree_scale = car_degree_scale,
+                car_kappa_init = car_kappa_init,
+                standardize = standardize,
+                tie_method = tie_method,
+                constraint = constraint,
+                prox_sum0_lambda = prox_sum0_lambda,
+                prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = alpha_prior_shape,
+                alpha_prior_scale = alpha_prior_scale,
+                alpha_prior_kind = alpha_prior_kind,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
+                prox_block_step_size = prox_block_step_size,
+                prox_block_min_step_size = prox_block_min_step_size,
+                prox_block_max_step_size = prox_block_max_step_size,
+                prox_block_adapt_every = prox_block_adapt_every,
+                prox_block_divergence_threshold = prox_block_divergence_threshold,
+                prox_block_metric = prox_block_metric,
+                init = init,
+                progress = progress,
+            )
+        elseif sampler == :mh
+            sample_bayes_cox(
+                X,
+                time,
+                event;
+                prior = prior,
+                sampler = sampler,
+                n_samples = n_samples,
+                warmup = warmup,
+                thin = thin,
+                chains = chains,
+                multichains = multichains,
+                target_accept = target_accept,
+                seed = seed,
+                use_car = use_car,
+                car_weights = car_weights,
+                car_distance = car_weights === nothing ? car_distance : nothing,
+                car_weight_quantile = car_weight_quantile,
+                car_precision = car_precision,
+                sample_car_strength = sample_car_strength,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_degree_scale = car_degree_scale,
+                car_kappa_init = car_kappa_init,
+                standardize = standardize,
+                tie_method = tie_method,
+                constraint = constraint,
+                prox_sum0_lambda = prox_sum0_lambda,
+                init = init,
+                progress = progress,
+            )
+        elseif sampler == :gibbs
+            ssl_kwargs = prior isa SpikeSlabLassoPrior ? (
+                prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = alpha_prior_shape,
+                alpha_prior_scale = alpha_prior_scale,
+                alpha_prior_kind = alpha_prior_kind,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
+            ) : NamedTuple()
+            sample_bayes_cox(
+                X,
+                time,
+                event;
+                prior = prior,
+                sampler = sampler,
+                n_samples = n_samples,
+                warmup = warmup,
+                thin = thin,
+                chains = chains,
+                multichains = multichains,
+                target_accept = target_accept,
+                seed = seed,
+                use_car = use_car,
+                car_weights = car_weights,
+                car_distance = car_weights === nothing ? car_distance : nothing,
+                car_weight_quantile = car_weight_quantile,
+                car_precision = car_precision,
+                sample_car_strength = sample_car_strength,
+                car_strength_prior_a = car_strength_prior_a,
+                car_strength_prior_b = car_strength_prior_b,
+                car_degree_scale = car_degree_scale,
+                car_kappa_init = car_kappa_init,
+                standardize = standardize,
+                tie_method = tie_method,
+                constraint = constraint,
+                prox_sum0_lambda = prox_sum0_lambda,
+                ssl_kwargs...,
+                init = init,
+                progress = progress,
+            )
+        else
+            throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :hmc, :mh, or :gibbs."))
+    end
+    return evaluate_fit(result; clinical_X, compute_metrics)
 end

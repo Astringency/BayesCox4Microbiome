@@ -3,6 +3,7 @@
 using Pkg
 const T1D_LOO_ROOT = normpath(joinpath(@__DIR__, "..", "..", ".."))
 Base.active_project() == joinpath(T1D_LOO_ROOT, "Project.toml") || Pkg.activate(T1D_LOO_ROOT)
+using BayesCox4Micro: _loo_atomic_json, _loo_checkpoint_manifest
 isdefined(@__MODULE__, :parse_cli_args) || include(joinpath(@__DIR__, "..", "..", "analysis_common.jl"))
 include(joinpath(@__DIR__, "replay_common.jl"))
 
@@ -95,7 +96,7 @@ function t1d_loo_main(args = ARGS)
         @info "Fitting full T1D data for fixed-risk reference diagnostics" method constraint
         fit = fit_and_evaluate(X, time, event; kwargs...)
         fixed_metrics = copy(fit.metrics)
-        fixed_metrics.NLPML = fixed_metrics.LPML
+
         fixed_metrics.loo_mode .= "fixed_risk"
         fixed_metrics.score_target .= "event_attribution_fixed_risk"
         CSV.write(joinpath(model_dir, "fixed_risk_metrics.csv"), fixed_metrics)

@@ -25,7 +25,7 @@ for row in focus:
     nz=[dict(variable=r['variable'],true_beta=r['true_beta']) for r in read(src/'posterior_summary.csv') if float(r['true_beta'])!=0]
     assert len(nz)==6
     supports.append(tuple(r['variable'] for r in nz));lookup={r['variable']:r['true_beta'] for r in nz}
-    diags.extend([dict(d,true_beta=lookup[d['parameters']],replicate=rep) for d in read(src/'rank_diagnostics.csv') if d['parameters'] in lookup])
+    diags.extend([dict(d,true_beta=lookup[d['parameters']],replicate=rep) for d in read(src/'diagnostics_summary.csv') if d['category'] == 'convergence' and d['parameters'] in lookup])
     truths.extend([dict(r,replicate=rep) for r in nz])
     if rep==1:
         p=src/'samples_wide.csv';source(p);cols=['chain','iter']+list(lookup)

@@ -4,7 +4,7 @@ using DataFrames
 using Statistics
 using BayesCox4Micro
 
-if !isdefined(@__MODULE__, :annotate_simulation_metrics)
+if !isdefined(@__MODULE__, :load_or_recover_simulation_run)
     include(joinpath(@__DIR__, "..", "scripts", "analysis_common.jl"))
 end
 
@@ -111,6 +111,9 @@ end
         @test direct.coverage_95_all_mean == agg.coverage_95_all_mean
 
         outputs = CoverageSummaryReaders.summarize_root(root)
+        @test haskey(outputs, "diagnostics_summary")
+        @test !isfile(joinpath(root, "sampling_diagnostics_summary.csv"))
+        @test !isfile(joinpath(root, "parameter_mcmc_diagnostics_summary.csv"))
         for key in ("model_metrics_summary", "simulation_results_summary")
             saved = CSV.read(outputs[key], DataFrame)
             @test saved.coverage_95_all_mean == fill(0.75, 3)

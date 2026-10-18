@@ -26,7 +26,7 @@ for j in jobs
     eval_data=j["adjusted"] ? BayesCox4Micro.joint_cox_data(data,clinical) : data
     ll=posterior_event_loglik(eval_data,beta)[findall(!=(0),event),:]
     metrics=fit_metrics(eval_data,beta,vec(mean(beta;dims=1));chains=4,draws_per_chain=div(nrow(wide),4),ll_event=ll)
-    tab=DataFrame([metrics]);tab.NLPML=tab.LPML
+    tab=DataFrame([metrics])
     tab.scoring_target=fill("event identity conditional on fixed full-data risk sets",1)
     write_table(joinpath(out,"training_metrics.csv"),tab)
     features=posterior_summary(beta;names=labels)
@@ -38,7 +38,7 @@ for j in jobs
     insertcols!(design,1,:subject_index=>collect(eachindex(time)),:time=>time,:status=>event)
     write_table(joinpath(out,"ph_design.csv"),design)
     write_table(joinpath(out,"ph_coefficients.csv"),DataFrame(feature_id=labels,posterior_mean=vec(mean(beta;dims=1))))
-    for name in ("rank_diagnostics.csv","transition_summary.csv","selection_mixing.csv","zero_sum_summary.csv")
+    for name in ("diagnostics_summary.csv",)
         cp(joinpath(j["run"],name),joinpath(out,name);force=true)
     end
     open(joinpath(out,"complete.json"),"w") do io

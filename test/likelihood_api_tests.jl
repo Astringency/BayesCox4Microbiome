@@ -11,7 +11,7 @@ using BayesCox4Micro
     X = [0.2 0.8; 0.4 0.6; 0.7 0.3; 0.5 0.5]
     time, event = [1., 2., 2., 4.], [1, 1, 0, 1]
     data = prepare_cox_data(X, time, event)
-    for sampler in (:mh, :mala, :ula, :gibbs, :hmc, :nuts, :nuts_explicit, :nuts_turing)
+    for sampler in (:mh, :gibbs, :hmc, :nuts, :nuts_explicit, :nuts_turing)
         for removed in ((approx = false,), (approx = true,), (approx_point = :zero,))
             @test_throws MethodError sample_bayes_cox(data;
                 sampler, chains = 1, n_samples = 1, warmup = 0, progress = false, removed...)

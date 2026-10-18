@@ -1,4 +1,5 @@
 module T1DPartitionTests
+using BayesCox4Micro: _write_tuning_json
 using Test
 include(joinpath(@__DIR__,"..","scripts","lib","realdata","t1d_review.jl"))
 

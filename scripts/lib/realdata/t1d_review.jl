@@ -1,7 +1,7 @@
+using BayesCox4Micro: _cindex_candidate_configs, _cindex_fit_kwargs, _dict_rows_dataframe, _finite_number, _fit_diagnostics, _json_ready, _kfold_indices, _loo_atomic_json, _loo_checkpoint_manifest, _nested_cindex_summary, _select_inner_cindex, _tuning_dict, _validation_cindices, _write_nested_table, _write_tuning_json
 # T1D review: clinical design, nested CV, candidate partitions and final posterior.
 const PARTITION_CODE_ROOT = normpath(joinpath(@__DIR__, "..", "..", ".."))
 isdefined(@__MODULE__, :parse_cli_args) || include(joinpath(PARTITION_CODE_ROOT,"scripts","analysis_common.jl"))
-isdefined(@__MODULE__, :evaluate_nested_cindex) || include(joinpath(PARTITION_CODE_ROOT,"scripts","tune_hyperparams_cindex.jl"))
 
 function t1d_review_main()
     args=parse_cli_args()
@@ -328,7 +328,7 @@ function main_final_revision()
     fit.summary.variable=spec["component_cols"]
     write_table(joinpath(source,"coefficients.csv"),fit.summary)
     metrics=fit.metrics
-    metrics.NLPML=metrics.LPML
+
     metrics.scoring_target=fill("event identity conditional on fixed full-data risk sets",nrow(metrics))
     metrics.LOO_method=fill("PSIS; no subject deletion or risk-set reconstruction",nrow(metrics))
     write_table(joinpath(source,"training_metrics.csv"),metrics)

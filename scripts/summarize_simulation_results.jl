@@ -1,4 +1,5 @@
 #!/usr/bin/env julia
+using BayesCox4Micro: simulation_coverage_summary_specs, add_simulation_coverage!, read_diagnostics
 
 using CSV
 using DataFrames
@@ -6,7 +7,6 @@ using Dates
 using JSON
 using Statistics
 
-include(joinpath(@__DIR__, "simulation_coverage.jl"))
 
 const DEFAULT_ROOT = joinpath("results", "simulation")
 
@@ -220,11 +220,14 @@ function collect_sampling_diagnostics(root::AbstractString, run_dirs::Vector{Str
     rows = DataFrame()
     for run_dir in run_dirs
         ctx = run_context(root, run_dir)
-        diag = safe_read_json(joinpath(run_dir, "diagnostics.json"))
+        table = safe_read_csv(joinpath(run_dir, "diagnostics_summary.csv"))
+        costs = isempty(table) ? DataFrame() : table[table.category .== "runtime", :]
+        diag = isempty(costs) ? Dict{String,Any}() :
+            Dict(String(k) => v for (k,v) in pairs(first(eachrow(costs))) if !ismissing(v))
         row = merge(copy(ctx), diag)
         row["has_sampling_output"] = has_sampling_output(run_dir)
         row["has_metric_output"] = has_metric_output(run_dir)
-        row["has_parameter_diagnostics"] = file_complete(joinpath(run_dir, "diagnose", "diagnostics_summary.csv"))
+        row["has_parameter_diagnostics"] = file_complete(joinpath(run_dir, "diagnostics_summary.csv"))
         row["is_complete"] = row["has_sampling_output"] && row["has_metric_output"]
         append!(rows, row_dataframe(row); cols = :union)
     end
@@ -277,9 +280,10 @@ end
 function collect_parameter_diagnostics(root::AbstractString, run_dirs::Vector{String})
     rows = DataFrame()
     for run_dir in run_dirs
-        path = joinpath(run_dir, "diagnose", "diagnostics_summary.csv")
+        path = joinpath(run_dir, "diagnostics_summary.csv")
         diag = safe_read_csv(path)
         isempty(diag) && continue
+        diag = diag[diag.category .== "convergence", :]
         ctx = run_context(root, run_dir)
         add_context_columns!(diag, ctx)
         param_col =
@@ -377,9 +381,9 @@ function summarize_model_metrics(rows::DataFrame)
     isempty(rows) && return DataFrame()
     group_cols = [c for c in [:root, :n, :p, :nonzero_count, :p0, :baseline, :scenario, :car_graph, :constraint, :prox_sum0_lambda, :weak_multiplier, :null_correlation, :depth_median, :depth_log_sd, :baseline_rate, :baseline_scale, :baseline_shape, :censoring_distribution, :censoring_upper, :prior, :sampler, :estimate] if c in propertynames(rows)]
     specs = Any[:run_dir => count_unique_nonmissing => :run_count]
-    mean_sd_cols = (:MSE, :loglik, :LPML, :AIC, :BIC, :WAIC_pw1, :WAIC_pw2, :DIC,
+    mean_sd_cols = (:MSE, :loglik, :NLPML, :AIC, :BIC, :WAIC_pw1, :WAIC_pw2, :DIC,
         :ELPD_LOO, :ELPD_LOO_SE, :ELPD_Diff, :PLOO, :PLOO_SE, :LOOIC, :LOOIC_SE,
-        :PSIS_LOO, :Cindex, :Cindex_train, :Cindex_test, :FDR, :FP, :FN, :TP, :TN, :warmup_seconds,
+        :Cindex, :Cindex_train, :Cindex_test, :FDR, :FP, :FN, :TP, :TN, :warmup_seconds,
         :sample_seconds, :total_seconds, :allocated_mb, :gc_seconds, :gc_percent)
     for col in mean_sd_cols
         col in propertynames(rows) || continue
@@ -492,10 +496,12 @@ function summarize_root(root::AbstractString)
 
     remove_long_outputs(root)
 
+    sampling_summary.category = fill("runtime", nrow(sampling_summary))
+    parameter_summary.category = fill("convergence", nrow(parameter_summary))
+    diagnostics = vcat(sampling_summary, parameter_summary; cols = :union)
     outputs = Dict(
-        "sampling_diagnostics_summary" => write_table(joinpath(root, "sampling_diagnostics_summary.csv"), sampling_summary),
+        "diagnostics_summary" => write_table(joinpath(root, "diagnostics_summary.csv"), diagnostics),
         "model_metrics_summary" => write_table(joinpath(root, "model_metrics_summary.csv"), model_summary),
-        "parameter_mcmc_diagnostics_summary" => write_table(joinpath(root, "parameter_mcmc_diagnostics_summary.csv"), parameter_summary),
         "simulation_results_summary" => write_table(joinpath(root, "simulation_results_summary.csv"), overview),
     )
 

@@ -1,4 +1,190 @@
-# Included by analysis_common.jl. No fitting or file writes occur on include.
+using PosteriorStats
+using JSON
+
+# Bayesian fit criteria on the Cox event partial-likelihood scale.
+function logmeanexp(v::AbstractVector)
+    isempty(v) && throw(ArgumentError("logmeanexp requires at least one draw"))
+    m = maximum(v)
+    isinf(m) && return m
+    return m + log(mean(exp.(v .- m)))
+end
+
+function posterior_event_loglik(data::CoxPreparedData, draws::AbstractMatrix)
+    n = length(data.event)
+    s = size(draws, 1)
+    out = Matrix{Float64}(undef, n, s)
+    for r in 1:s
+        out[:, r] .= cox_loglik_events(data, view(draws, r, :))
+    end
+    return out
+end
+
+function posterior_draw_layout(result, n_total::Integer)
+    if result.samples isa MHSamples
+        return (chains = 1, draws = n_total)
+    elseif result.samples isa MultiMHSamples
+        n_chain = length(result.samples.chains)
+        n_iter = size(result.samples.chains[1].draws, 1)
+        return (chains = n_chain, draws = n_iter)
+    end
+    try
+        value = getfield(result.samples, :value)
+        n_iter, _, n_chain = size(value)
+        if n_iter * n_chain == n_total
+            return (chains = n_chain, draws = n_iter)
+        end
+    catch
+    end
+    return (chains = 1, draws = n_total)
+end
+
+function _loo_loglik_array(ll_event::AbstractMatrix, n_chains::Integer, n_draws::Integer)
+    n_events, n_total = size(ll_event)
+    n_chains * n_draws == n_total ||
+        throw(DimensionMismatch("LOO chain/draw layout does not match log-likelihood samples."))
+    out = Array{Float64}(undef, n_draws, n_chains, n_events)
+    @inbounds for c in 1:n_chains
+        offset = (c - 1) * n_draws
+        for d in 1:n_draws
+            out[d, c, :] .= view(ll_event, :, offset + d)
+        end
+    end
+    return out
+end
+
+function psis_loo_metrics(ll_event::AbstractMatrix, n_chains::Integer, n_draws::Integer)
+    if n_chains * n_draws < 26 || isempty(ll_event)
+        return (
+            ELPD_LOO = NaN,
+            ELPD_LOO_SE = NaN,
+            PLOO = NaN,
+            PLOO_SE = NaN,
+            LOOIC = NaN,
+            LOOIC_SE = NaN,
+            ParetoK_max = NaN,
+            ParetoK_bad = missing,
+        )
+    end
+    try
+        loo_result = PosteriorStats.loo(_loo_loglik_array(ll_event, n_chains, n_draws))
+        estimates = loo_result.estimates
+        pareto_k = vec(collect(loo_result.pointwise.pareto_shape))
+        looic = -2 * estimates.elpd
+        return (
+            ELPD_LOO = estimates.elpd,
+            ELPD_LOO_SE = estimates.se_elpd,
+            PLOO = estimates.p,
+            PLOO_SE = estimates.se_p,
+            LOOIC = looic,
+            LOOIC_SE = 2 * estimates.se_elpd,
+            ParetoK_max = maximum(pareto_k),
+            ParetoK_bad = count(>(0.7), pareto_k),
+        )
+    catch err
+        @warn "PSIS-LOO calculation failed; LOO metrics will be NaN." exception=(err, catch_backtrace())
+        return (
+            ELPD_LOO = NaN,
+            ELPD_LOO_SE = NaN,
+            PLOO = NaN,
+            PLOO_SE = NaN,
+            LOOIC = NaN,
+            LOOIC_SE = NaN,
+            ParetoK_max = NaN,
+            ParetoK_bad = missing,
+        )
+    end
+end
+
+"""Bayesian fit criteria for a units-by-draws log-likelihood matrix.
+WAIC, AIC, BIC, DIC and NLPML use the smaller-is-better convention.
+`deviance_at_mean` is -2 log likelihood at the posterior mean parameters.
+For Cox models the units are events conditional on fixed full-data risk sets;
+use `evaluate_cox_loo(mode=:subject_refit)` for subject-deletion refitting.
+"""
+function bayesian_fit_metrics(event_loglik::AbstractMatrix;
+    point_loglik::Real, n_parameters::Integer, n_observations::Integer,
+    deviance_at_mean::Real = -2 * point_loglik,
+    chains::Integer = 1, draws_per_chain::Integer = div(size(event_loglik, 2), chains),
+    loo = nothing)
+    chains > 0 && draws_per_chain > 0 || throw(ArgumentError("positive chain/draw counts required"))
+    chains * draws_per_chain == size(event_loglik, 2) || throw(DimensionMismatch("chain/draw layout mismatch"))
+    n_parameters >= 0 && n_observations > 0 || throw(ArgumentError("invalid model dimensions"))
+    loo_metrics = loo === nothing ? psis_loo_metrics(event_loglik, chains, draws_per_chain) : loo
+    lppd = [logmeanexp(view(event_loglik, i, :)) for i in axes(event_loglik, 1)]
+    mean_ll = vec(mean(event_loglik; dims = 2))
+    pw1 = 2 * sum(lppd .- mean_ll)
+    pw2 = size(event_loglik, 2) > 1 ? sum(var(view(event_loglik, i, :)) for i in axes(event_loglik, 1); init = 0.0) : NaN
+    nlpml = sum(logmeanexp(-view(event_loglik, i, :)) for i in axes(event_loglik, 1); init = 0.0)
+    mean_deviance = -2 * mean(vec(sum(event_loglik; dims = 1)))
+    return merge((
+        loglik = Float64(point_loglik), NLPML = nlpml,
+        AIC = -2 * point_loglik + 2 * n_parameters,
+        BIC = -2 * point_loglik + log(n_observations) * n_parameters,
+        WAIC_pw1 = -2 * sum(lppd) + 2 * pw1,
+        WAIC_pw2 = -2 * sum(lppd) + 2 * pw2,
+        DIC = 2 * mean_deviance - deviance_at_mean,
+    ), (; (key => getproperty(loo_metrics, key) for key in
+        (:ELPD_LOO, :ELPD_LOO_SE, :PLOO, :PLOO_SE, :LOOIC, :LOOIC_SE, :ParetoK_max, :ParetoK_bad))...))
+end
+
+function fit_metrics(data::CoxPreparedData, draws::AbstractMatrix, beta_hat::AbstractVector;
+    chains::Integer = 1, draws_per_chain::Integer = div(size(draws, 1), chains),
+    ll_event = nothing, loo = nothing)
+    event_loglik = ll_event === nothing ? posterior_event_loglik(data, draws)[findall(!=(0), data.event), :] : ll_event
+    criteria = bayesian_fit_metrics(event_loglik;
+        point_loglik = cox_logpartiallikelihood(data, beta_hat),
+        n_parameters = length(beta_hat), n_observations = length(data.time),
+        deviance_at_mean = -2 * cox_logpartiallikelihood(data, vec(mean(draws; dims = 1))),
+        chains, draws_per_chain, loo)
+    return merge(criteria, (Cindex = concordance_index(data.time, data.event, data.z * beta_hat),))
+end
+
+"""Evaluate named coefficient estimates, sharing posterior likelihood and PSIS work."""
+function posterior_fit_metrics(data::CoxPreparedData, draws::AbstractMatrix, estimates;
+    chains::Integer = 1, draws_per_chain::Integer = div(size(draws, 1), chains))
+    ll_event = posterior_event_loglik(data, draws)[findall(!=(0), data.event), :]
+    loo = psis_loo_metrics(ll_event, chains, draws_per_chain)
+    return DataFrame([merge((estimate = string(name),), fit_metrics(data, draws, beta;
+        chains, draws_per_chain, ll_event, loo)) for (name, beta) in pairs(estimates)])
+end
+
+"""Evaluate a sampler result on its model scale and summarize coefficients on their original scale."""
+function evaluate_fit(result::CoxSamplerResult; clinical_X = nothing, compute_metrics::Bool = true)
+    model_draws = posterior_beta_draws(result)
+    draws = beta_draws_unstandardized(result.data, model_draws)
+    compute_metrics || return (result = result, draws = draws, summary = nothing, metrics = nothing, p0 = prior_p0(result.prior))
+    layout = posterior_draw_layout(result, size(model_draws, 1))
+    eval_data = clinical_X === nothing ? result.data : joint_cox_data(result.data, clinical_X)
+    eval_draws = clinical_X === nothing ? model_draws : hcat(model_draws, posterior_clinical_draws(result))
+    beta_map = beta_vector_unstandardized(result.data, posterior_beta_map(result))
+    summary = posterior_summary(draws; map = beta_map)
+    estimates = (mean = vec(mean(eval_draws; dims = 1)),
+        median = [median(view(eval_draws, :, j)) for j in axes(eval_draws, 2)],
+        MAP = vec(eval_draws[argmax(posterior_logposterior_draws(result)), :]))
+    metrics = posterior_fit_metrics(eval_data, eval_draws, estimates; chains = layout.chains, draws_per_chain = layout.draws)
+    for (key, value) in sampling_diagnostics_dict(result.diagnostics)
+        metrics[!, Symbol(key)] = fill(value, nrow(metrics))
+    end
+    return (result = result, draws = draws, summary = summary, metrics = metrics, p0 = prior_p0(result.prior))
+end
+
+function add_elpd_diffs!(metrics::DataFrame; group_cols = Symbol[])
+    :ELPD_LOO in propertynames(metrics) || return metrics
+    :ELPD_Diff in propertynames(metrics) || (metrics.ELPD_Diff = fill(NaN, nrow(metrics)))
+    valid_group_cols = [c for c in group_cols if c in propertynames(metrics)]
+    groups = isempty(valid_group_cols) ? [metrics] : groupby(metrics, valid_group_cols)
+    for group in groups
+        vals = collect(skipmissing(group.ELPD_LOO))
+        vals = vals[isfinite.(vals)]
+        isempty(vals) && continue
+        best = maximum(vals)
+        rows = group isa SubDataFrame ? parentindices(group)[1] : axes(group, 1)
+        metrics[rows, :ELPD_Diff] .= group.ELPD_LOO .- best
+    end
+    return metrics
+end
+
+
 using SHA
 using Serialization
 
@@ -57,7 +243,7 @@ function _loo_atomic_json(path, value)
 end
 
 function _loo_code_digest()
-    root = normpath(joinpath(@__DIR__, ".."))
+    root = normpath(joinpath(@__DIR__, "..", ".."))
     files = [joinpath(root, "main.jl"), joinpath(root, "Project.toml")]
     isfile(joinpath(root, "Manifest.toml")) && push!(files, joinpath(root, "Manifest.toml"))
     for subdir in ("mainfuncs", "priors", "scripts")
@@ -97,12 +283,11 @@ end
 function _loo_draw_diagnostics(result, draws)
     layout = posterior_draw_layout(result, size(draws, 1))
     layout.draws >= 4 || return (nothing, nothing)
-    arr = _loo_loglik_array(permutedims(draws), layout.chains, layout.draws)
-    stats = DataFrame(PosteriorStats.summarize(arr; kind = :diagnostics))
-    rhat = Float64.(stats.rhat)
-    ess = Float64.(stats.ess_bulk)
-    return (all(isfinite, rhat) ? maximum(rhat) : nothing,
-            all(isfinite, ess) ? minimum(ess) : nothing)
+    stats = convergence_diagnostics(result_to_chains(result))
+    stats = stats[occursin.(r"^beta\[\d+\]$", stats.parameters), :]
+    valid(values) = !isempty(values) && all(x -> x isa Real && isfinite(x), values)
+    return (valid(stats.rhat) ? maximum(stats.rhat) : nothing,
+            valid(stats.ess_bulk) ? minimum(stats.ess_bulk) : nothing)
 end
 
 function _loo_refit_fold(X, time, event, i, fit_kwargs, fit_function, diagnostics)
@@ -171,7 +356,7 @@ function evaluate_cox_loo(X::AbstractMatrix, time::AbstractVector, event::Abstra
         summary = DataFrame(mode = ["fixed_risk"], target = ["event_attribution_fixed_risk"],
             n_subjects = [n], n_units = [sum(event)], n_completed = [sum(event)], complete = [true],
             LOO_LOG_SCORE = [m.ELPD_LOO], ELPD_LOO = [m.ELPD_LOO], LOOIC = [m.LOOIC],
-            NLPML = [m.LPML], WAIC_pw1 = [m.WAIC_pw1], WAIC_pw2 = [m.WAIC_pw2],
+            NLPML = [m.NLPML], WAIC_pw1 = [m.WAIC_pw1], WAIC_pw2 = [m.WAIC_pw2],
             ParetoK_max = [m.ParetoK_max], ParetoK_bad = [m.ParetoK_bad],
             estimator = ["psis; NLPML uses unsmoothed harmonic mean"])
         return (summary = summary, pointwise = DataFrame(), full_fit = fit)
@@ -236,3 +421,10 @@ function evaluate_cox_loo(X::AbstractMatrix, time::AbstractVector, event::Abstra
     sort!(pointwise, :subject)
     return (summary = summary, pointwise = pointwise, full_fit = full_fit)
 end
+
+# Shared result-table writing for CV and tuning outputs.
+function _metrics_write_table(path::AbstractString, table)
+    mkpath(dirname(path))
+    return _write_csv(path, table)
+end
+_metrics_file_complete(path::AbstractString) = isfile(path) && filesize(path) > 0

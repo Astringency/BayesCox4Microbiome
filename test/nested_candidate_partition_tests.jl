@@ -1,6 +1,7 @@
+using BayesCox4Micro: _select_inner_cindex
 using Test
 include(joinpath(@__DIR__,"..","scripts","analysis_common.jl"))
-include(joinpath(@__DIR__,"..","scripts","tune_hyperparams_cindex.jl"))
+
 @testset "Disjoint candidate checkpoints reproduce serial selection" begin
     X=hcat(collect(1.:24.),ones(24));time=collect(1.:24.);event=ones(Int,24)
     calls=Ref(0)

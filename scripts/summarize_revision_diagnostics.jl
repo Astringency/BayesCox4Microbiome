@@ -25,7 +25,7 @@ function revision_summary_main(args = ARGS)
     priors = Set(split(get(opts, "priors", "cox-rhs,prox-sslasso"), ','))
     maxruns = parse(Int, get(opts, "max-runs", string(typemax(Int))))
     resume = lowercase(get(opts, "resume", "true")) == "true"
-    inventories, zero_tables, rank_tables, mixing_tables = DataFrame[], DataFrame[], DataFrame[], DataFrame[]
+    inventories, diagnostic_tables = DataFrame[], DataFrame[]
     counter = 0
     for (rootid, root) in enumerate(roots)
         isdir(root) || error("input root does not exist: $root")
@@ -42,16 +42,17 @@ function revision_summary_main(args = ARGS)
             samples_path = joinpath(dir, "samples_wide.csv")
             dest = joinpath(outdir, "root" * lpad(rootid, 2, '0'), relpath(dir, root))
             mkpath(dest)
-            fingerprint = Dict("schema" => 1, "source" => samples_path,
+            fingerprint = Dict("schema" => 2, "source" => samples_path,
                 "samples_bytes" => filesize(samples_path), "samples_mtime" => mtime(samples_path),
                 "metadata_mtime" => mtime(joinpath(dir, "metadata.json")))
             manifestpath = joinpath(dest, "reevaluation_manifest.json")
             complete = resume && isfile(manifestpath) && JSON.parsefile(manifestpath) == fingerprint &&
-                isfile(joinpath(dest, "rank_diagnostics.csv")) && isfile(joinpath(dest, "zero_sum_summary.csv"))
+                isfile(joinpath(dest, "diagnostics_summary.csv"))
             status, errmsg = "complete", ""
             transition_path = joinpath(dir, "transition_diagnostics.csv")
-            diag_path = joinpath(dir, "diagnostics.json")
-            diag = isfile(diag_path) ? JSON.parsefile(diag_path) : Dict()
+            diag_path = joinpath(dir, "diagnostics_summary.csv")
+            costs = isfile(diag_path) ? read_diagnostics(dir; category = "runtime") : DataFrame()
+            diag = isempty(costs) ? Dict() : Dict(String(k) => v for (k,v) in pairs(first(eachrow(costs))) if !ismissing(v))
             runtime = get(diag, "total_seconds", get(meta, "runtime", missing))
             runtime === nothing && (runtime = missing)
             id = (source = dir, method = method, constraint = get(meta, "constraint", missing),
@@ -64,19 +65,14 @@ function revision_summary_main(args = ARGS)
                 if !complete
                     wide = CSV.read(samples_path, DataFrame)
                     transitions = isfile(transition_path) ? CSV.read(transition_path, DataFrame) : DataFrame()
-                    B.save_revision_diagnostics(wide, dest; transitions = transitions)
+                    B._save_numerical_diagnostics(wide, dest; transitions, runtime = diag)
                     B._write_json(manifestpath, fingerprint)
                 end
-                for (name, tables) in (("zero_sum_summary.csv", zero_tables),
-                    ("rank_diagnostics.csv", rank_tables), ("selection_mixing.csv", mixing_tables))
-                    path = joinpath(dest, name)
-                    isfile(path) || continue
-                    df = CSV.read(path, DataFrame)
-                    for (k,v) in pairs(id)
-                        df[!, k] = fill(v === nothing ? missing : v, nrow(df))
-                    end
-                    push!(tables, df)
+                df = read_diagnostics(dest)
+                for (k,v) in pairs(id)
+                    df[!, k] = fill(v === nothing ? missing : v, nrow(df))
                 end
+                push!(diagnostic_tables, df)
             catch err
                 status, errmsg = "failed", sprint(showerror, err)
                 @warn "Historical reevaluation failed" dir exception=(err, catch_backtrace())
@@ -90,10 +86,7 @@ function revision_summary_main(args = ARGS)
             flush(stdout)
         end
     end
-    for (name, tables) in (("zero_sum_by_run.csv", zero_tables),
-        ("rank_diagnostics_all.csv", rank_tables), ("selection_mixing_all.csv", mixing_tables))
-        !isempty(tables) && CSV.write(joinpath(outdir, name), vcat(tables...; cols = :union))
-    end
+    !isempty(diagnostic_tables) && CSV.write(joinpath(outdir, "diagnostics_all.csv"), vcat(diagnostic_tables...; cols = :union))
     isempty(inventories) && error("no matching saved runs found")
     any(df -> any(==("failed"), df.status), inventories) && error("some reevaluations failed; inspect run_inventory.csv")
     println("Reevaluated $counter saved runs. No model was resampled.")

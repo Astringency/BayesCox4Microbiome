@@ -45,7 +45,7 @@ function run_probes(source, out, cases)
             metadata=Dict("source"=>source,"purpose"=>"diagnostic pilot; not a formal replication",
                           "config"=>Dict(string(k)=>string(v) for (k,v) in pairs(cfg)),
                           "warmup"=>1000,"n_samples"=>2000,"chains"=>4,"p"=>p))
-        ranks = CSV.read(joinpath(dest,"rank_diagnostics.csv"), DataFrame)
+        ranks = BayesCox4Micro.read_diagnostics(dest; category = "convergence")
         beta = ranks[startswith.(string.(ranks.parameters),"beta["),:]
         gamma = ranks[startswith.(string.(ranks.parameters),"gamma["),:]
         wide = samples_wide_dataframe(result)

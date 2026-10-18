@@ -26,8 +26,6 @@ export DIAG_DEBUG,
     CoxPreparedData,
     MHSamples,
     MultiMHSamples,
-    MALAWorkspace,
-    PreconditionedMALAWorkspace,
     ProxGradientWorkspace,
     CoxSamplerResult,
     SamplingDiagnostics,
@@ -40,7 +38,6 @@ export DIAG_DEBUG,
     car_similarity_matrix,
     car_weight_matrix,
     cox_logpartiallikelihood,
-    cox_observed_information_beta!,
     cox_score_gradient,
     cox_score_gradient!,
     CoxGradientWorkspace,
@@ -56,7 +53,6 @@ export DIAG_DEBUG,
     weighted_l1_moreau,
     logposterior,
     noncentered_logposterior,
-    observed_information!,
     logdensity,
     gradient!,
     logdensity_and_gradient!,
@@ -80,7 +76,44 @@ export DIAG_DEBUG,
     dataframe_to_chains,
     save_run_outputs,
     save_diagnostic_outputs,
-    diagnose_run
+    diagnose_run,
+    convergence_diagnostics,
+    diagnostic_table,
+    read_diagnostics,
+    fit_and_evaluate,
+    prior_from_name,
+    prior_p0,
+    posterior_summary,
+    beta_draws_unstandardized,
+    beta_vector_unstandardized,
+    logmeanexp,
+    posterior_event_loglik,
+    posterior_draw_layout,
+    psis_loo_metrics,
+    fit_metrics,
+    bayesian_fit_metrics,
+    posterior_fit_metrics,
+    evaluate_fit,
+    coefficient_mse,
+    add_elpd_diffs!,
+    check_loo_mode,
+    subject_deletion_logratios,
+    evaluate_cox_loo,
+    evaluate_nested_cindex,
+    tune_hyperparams_cindex,
+    PRIOR_PARAM_GRID_VALUES,
+    PRIOR_PARAM_GRIDS,
+    ALGORITHM_PARAM_GRID_VALUES,
+    ALGORITHM_PARAM_GRIDS,
+    TUNING_OUTPUT_FILES,
+    simulation_coverage,
+    add_simulation_coverage!,
+    simulation_coverage_summary_specs,
+    SIMULATION_COVERAGE_COLUMNS,
+    false_discovery,
+    add_simulation_test_metrics!,
+    annotate_simulation_metrics,
+    simulation_false_discovery_table
 
 include("priors/abstract.jl")
 include("priors/horseshoe.jl")
@@ -106,10 +139,7 @@ include("mainfuncs/priors/prox_spike_slab_lasso_methods.jl")
 include("mainfuncs/posterior.jl")
 include("mainfuncs/samplers/mh_sampler.jl")
 include("mainfuncs/samplers/gibbs_sampler.jl")
-include("mainfuncs/samplers/mala_precondition.jl")
-include("mainfuncs/samplers/mala_sampler.jl")
 include("mainfuncs/targets/cox_targets.jl")
-include("mainfuncs/samplers/transition_diagnostics.jl")
 include("mainfuncs/samplers/block_hmc_nuts.jl")
 include("mainfuncs/samplers/nuts_turing_sampler.jl")
 include("mainfuncs/samplers/nuts_explicit_sampler.jl")
@@ -119,6 +149,10 @@ include("mainfuncs/samplers/hmc_sampler.jl")
 include("mainfuncs/samplers/clinical_sampler.jl")
 include("mainfuncs/api.jl")
 include("mainfuncs/diagnostics/diagnostics.jl")
-include("mainfuncs/diagnostics/revision_diagnostics.jl")
+include("mainfuncs/diagnostics/specialized_diagnostics.jl")
+include("mainfuncs/diagnostics/visualization_diagnostics.jl")
+include("mainfuncs/metrics/bayesian_metrics.jl")
+include("mainfuncs/metrics/cindex_metrics.jl")
+include("mainfuncs/metrics/simulation_metrics.jl")
 
 end # module

@@ -45,22 +45,6 @@ function _alpha_prior_gradient_eta(
     return 1.0 - 2.0 * alpha2 / (scale2 + alpha2)
 end
 
-function _alpha_prior_observed_information_eta(
-    eta::Real;
-    alpha_prior_scale::Real,
-    alpha_prior_kind = :invgamma,
-)
-    kind = _normalize_alpha_prior_kind(alpha_prior_kind)
-    scale = Float64(alpha_prior_scale)
-    if kind == :invgamma
-        return scale * exp(-eta)
-    end
-    alpha = exp(clamp(Float64(eta), -700.0, 700.0))
-    alpha2 = alpha^2
-    scale2 = scale^2
-    return 4.0 * alpha2 * scale2 / (scale2 + alpha2)^2
-end
-
 function _lasso_prox_prior_logdensity(
     u::AbstractVector,
     p::Integer;
