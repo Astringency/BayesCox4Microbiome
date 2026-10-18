@@ -85,3 +85,12 @@ BCCox 已移到 `BayesCox4micro_baseline` R 项目，并自带 50 组配对 S4 �
 审计、结果汇总、表格生成和同步工具已移到 [audit/review](../../audit/review/README.md)。
 运行调度器 `run_review_rerun.py` 直接执行实验，仍保留在本目录。
 2026-10-14 已完成本轮 3300 次新拟合；本次仅整理工具和报告，不启动采样。
+
+## 2026-10-16 单次拟合诊断图
+
+当前图形入口为 `scripts/run_summary.sh --plots-only --manifest CSV --rep 1`，或 `--rep all` 逐次绘制。
+`--methods cox-rhs,prox-sslasso` 选择当前 Bayesian 模拟结果；每次拟合一个独立子目录。
+三个诊断列使用同一次拟合的全部 p 个系数，横轴为系数编号。轨迹、密度、ACF 图按非零系数逐行排列。
+`fig03_coef_sum` 仍为跨重复的系数均值之和分布，保留原样式。
+具体 197 运行命令、来源、数据和字体说明见 `results/figure_revision_20261016/README.md`。
+当前 T1D 实验协议只保留无临床调整和 Student-t 临床调整分支；临床 Cauchy 实验已移出当前报告。

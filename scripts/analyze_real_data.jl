@@ -140,7 +140,7 @@ function main()
     priors = split_strings(arg(args, "priors", "hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso"))
     sampler_kwargs = sampler_hyperparameter_kwargs(args)
     car_kwargs = car_hyperparameter_kwargs(args)
-    model_kwargs = cox_model_cli_options(args; default_pseudocount = 1e-6, default_standardize = false)
+    model_kwargs = cox_model_cli_options(args; default_standardize = false)
     diagnostic_kwargs = diagnostic_cli_options(args)
     tuning_kwargs = tuning_cli_options(args; realdata = true)
     prior_kwargs = prior_hyperparameter_kwargs(args)
@@ -177,7 +177,6 @@ function main()
     p0_alpha = model_kwargs.p0_alpha
     constraint = model_kwargs.constraint
     prox_sum0_lambda = model_kwargs.prox_sum0_lambda
-    pseudocount = model_kwargs.pseudocount
     standardize = model_kwargs.standardize
     tie_method = model_kwargs.tie_method
     diagnose = diagnostic_kwargs.diagnose
@@ -265,7 +264,6 @@ function main()
                 p0_alpha = p0_alpha,
                 constraint = constraint,
                 prox_sum0_lambda = prox_sum0_lambda,
-                pseudocount = pseudocount,
                 standardize = standardize,
                 tie_method = tie_method,
             ),
@@ -324,6 +322,10 @@ function main()
         prox_root_tol      = get(prior_kwargs_dict, :prox_root_tol, prox_root_tol)
         prox_root_maxiter  = get(prior_kwargs_dict, :prox_root_maxiter, prox_root_maxiter)
 
+        if prior in ("prox-lasso", "prox-sslasso") &&
+           get(prior_kwargs_dict, :alpha_prior_scale, nothing) === nothing
+            prior_kwargs_dict[:alpha_prior_scale] = Float64(size(X, 2))
+        end
         # Recompute prior_metadata from actual (possibly tuned) prior params
         prior_metadata = prior_hyperparameter_metadata(prior_kwargs_dict)
 
@@ -379,7 +381,6 @@ function main()
             car_strength_prior_b = car_strength_prior_b,
             car_degree_scale = car_degree_scale,
             car_kappa_init = car_kappa_init,
-            pseudocount = pseudocount,
             standardize = standardize,
             tie_method = tie_method,
             p0 = p0_value,
@@ -448,7 +449,7 @@ function main()
                 "noncentered" => noncentered,
                 "p0" => p0_value,
                 "p0_requested" => p0_requested,
-                "pseudocount" => pseudocount,
+                "zero_handling" => "half_minimum_positive",
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
                 "constraint" => string(constraint),
@@ -550,7 +551,7 @@ function main()
                 "car_kappa_init" => car_kappa_init,
                 "p0_requested" => p0_requested,
                 "p0" => p0_value,
-                "pseudocount" => pseudocount,
+                "zero_handling" => "half_minimum_positive",
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
                 "p0_alpha" => p0_alpha,

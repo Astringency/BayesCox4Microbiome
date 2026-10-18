@@ -107,7 +107,6 @@ function metadata_kwargs(meta; samples::Int, warmup::Int, chains::Int, seed::Int
         :noncentered => maybe_bool(get(meta, "noncentered", false)),
         :seed => seed,
         :use_car => maybe_bool(get(meta, "use_car", false)),
-        :pseudocount => Float64(get(meta, "pseudocount", 1e-6)),
         :standardize => maybe_bool(get(meta, "standardize", false)),
         :tie_method => Symbol(get(meta, "tie_method", "efron")),
         :p0 => get(meta, "p0", nothing),

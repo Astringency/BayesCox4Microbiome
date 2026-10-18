@@ -32,7 +32,7 @@ end
 @testset "Matrix API preserves ordinary SSLASSO initialization" begin
     X = [.2 .3 .5; .5 .1 .4; .1 .6 .3; .4 .4 .2; .3 .5 .2; .2 .6 .2]
     time, event = collect(1.:6.), [1,1,0,1,1,0]
-    data = prepare_cox_data(X, time, event; pseudocount=1e-6)
+    data = prepare_cox_data(X, time, event)
     prior = SpikeSlabLassoPrior(spike_scale=.04, slab_scale=.5)
     opts = (; prior, sampler=:nuts_explicit, init=:rand, seed=41, chains=1,
         warmup=2, n_samples=4, max_depth=3, progress=false)

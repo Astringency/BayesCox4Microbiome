@@ -153,7 +153,6 @@ const COX_MODEL_CLI_KEYS = (
     "p0-alpha",
     "constraint",
     "prox-sum0-lambda",
-    "pseudocount",
     "standardize",
     "tie-method",
 )
@@ -391,13 +390,12 @@ function prior_hyperparameter_metadata(kwargs)
     )
 end
 
-function cox_model_cli_options(args; default_pseudocount = 0.0, default_standardize = false)
+function cox_model_cli_options(args; default_standardize = false)
     return (
         p0_arg = parse_optional_p0(args; default = nothing),
         p0_alpha = arg(args, "p0-alpha", 0.05),
         constraint = Symbol(arg(args, "constraint", "soft_center")),
         prox_sum0_lambda = arg(args, "prox-sum0-lambda", 1e-3),
-        pseudocount = arg(args, "pseudocount", Float64(default_pseudocount)),
         standardize = arg(args, "standardize", Bool(default_standardize)),
         tie_method = parse_tie_method(args),
     )
@@ -749,13 +747,12 @@ function generate_simulation_test_data(n::Integer, p::Integer, nonzero::Integer;
 end
 
 function add_simulation_test_metrics!(metrics, summary, train, test;
-    pseudocount = 0.0, tie_method = :efron)
+    tie_method = :efron)
     # Saved summaries are already on the unstandardized coefficient scale.
     # Removing training centering only adds a constant to all risk scores.
     data = prepare_cox_data(train.X, train.time, train.event;
-        transform = :log, pseudocount, standardize = false, tie_method)
-    z_test = _validation_design_matrix(train.X, test.X, data;
-        requested_pseudocount = pseudocount)
+        transform = :log, standardize = false, tie_method)
+    z_test = _validation_design_matrix(train.X, test.X, data)
     metrics.Cindex_train = copy(metrics.Cindex)
     metrics.Cindex_test = [concordance_index(test.time, test.event,
         z_test * Float64.(summary[!, est == "MAP" ? :map : Symbol(est)]))
@@ -773,7 +770,6 @@ function prior_from_name(
     p0 = nothing,
     p0_alpha::Real = 0.05,
     realdata::Bool = false,
-    pseudocount::Real = realdata ? 1e-6 : 0.0,
     rhs_slab_df::Real = 4.0,
     rhs_slab_s2::Real = 2.0,
     hs_tau_scale::Real = 1.0,
@@ -798,7 +794,6 @@ function prior_from_name(
         event = event,
         p0_alpha = p0_alpha,
         realdata = realdata,
-        pseudocount = pseudocount,
         rhs_slab_df = rhs_slab_df,
         rhs_slab_s2 = rhs_slab_s2,
         hs_tau_scale = hs_tau_scale,
@@ -1104,7 +1099,6 @@ function fit_and_evaluate(
     clinical_names = clinical_X === nothing ? String[] : ["clinical[$j]" for j in axes(clinical_X, 2)],
     clinical_prior_df::Real = 3.0,
     clinical_prior_scale::Real = 2.5,
-    pseudocount = nothing,
     standardize::Bool = false,
     tie_method::Symbol = :efron,
     rhs_slab_df::Real = 4.0,
@@ -1131,7 +1125,9 @@ function fit_and_evaluate(
     approx_point::Symbol = :zero,
     compute_metrics::Bool = true,
 )
-    pseudocount_value = pseudocount === nothing ? (realdata ? 1e-6 : 0.0) : Float64(pseudocount)
+    if realdata && prior_name in ("prox-lasso", "prox-sslasso") && alpha_prior_scale === nothing
+        alpha_prior_scale = Float64(size(X, 2) + (clinical_X === nothing ? 0 : size(clinical_X, 2)))
+    end
     prior = prior_from_name(
         prior_name,
         X,
@@ -1140,7 +1136,6 @@ function fit_and_evaluate(
         p0 = p0,
         p0_alpha = p0_alpha,
         realdata = realdata,
-        pseudocount = pseudocount_value,
         rhs_slab_df = rhs_slab_df,
         rhs_slab_s2 = rhs_slab_s2,
         hs_tau_scale = hs_tau_scale,
@@ -1175,7 +1170,7 @@ function fit_and_evaluate(
                 prior, clinical_names, clinical_prior_df, clinical_prior_scale,
                 n_samples, warmup, thin, chains, multichains, seed, target_accept,
                 hmc_n_leapfrog, hmc_step_size, noncentered, constraint, prox_sum0_lambda,
-                pseudocount = pseudocount_value, standardize, tie_method, use_car,
+                standardize, tie_method, use_car,
                 car_weights, car_distance, car_weight_quantile, car_precision, sample_car_strength,
                 car_strength_prior_a, car_strength_prior_b, car_degree_scale, car_kappa_init,
                 prox_l1_lambda, alpha_prior_shape, alpha_prior_scale, alpha_prior_kind,
@@ -1208,7 +1203,6 @@ function fit_and_evaluate(
                 car_strength_prior_b = car_strength_prior_b,
                 car_degree_scale = car_degree_scale,
                 car_kappa_init = car_kappa_init,
-                pseudocount = pseudocount_value,
                 standardize = standardize,
                 tie_method = tie_method,
                 constraint = constraint,
@@ -1252,7 +1246,6 @@ function fit_and_evaluate(
                 car_strength_prior_b = car_strength_prior_b,
                 car_degree_scale = car_degree_scale,
                 car_kappa_init = car_kappa_init,
-                pseudocount = pseudocount_value,
                 standardize = standardize,
                 tie_method = tie_method,
                 constraint = constraint,
@@ -1300,7 +1293,6 @@ function fit_and_evaluate(
                     car_strength_prior_b = car_strength_prior_b,
                     car_degree_scale = car_degree_scale,
                     car_kappa_init = car_kappa_init,
-                    pseudocount = pseudocount_value,
                     standardize = standardize,
                     tie_method = tie_method,
                     constraint = constraint,
@@ -1358,7 +1350,6 @@ function fit_and_evaluate(
                     car_strength_prior_b = car_strength_prior_b,
                     car_degree_scale = car_degree_scale,
                     car_kappa_init = car_kappa_init,
-                    pseudocount = pseudocount_value,
                     standardize = standardize,
                     tie_method = tie_method,
                     constraint = constraint,
@@ -1393,7 +1384,6 @@ function fit_and_evaluate(
                 car_strength_prior_b = car_strength_prior_b,
                 car_degree_scale = car_degree_scale,
                 car_kappa_init = car_kappa_init,
-                pseudocount = pseudocount_value,
                 standardize = standardize,
                 tie_method = tie_method,
                 constraint = constraint,
@@ -1847,7 +1837,7 @@ const ALWAYS_COMPARED_METADATA_KEYS = [
     "baseline_rate", "baseline_scale", "baseline_shape",
     "censoring_distribution", "censoring_upper",
     "p0", "constraint",
-    "pseudocount", "standardize", "tie_method", "seed"
+    "standardize", "tie_method", "seed"
 ]
 
 _is_hs_family(prior::AbstractString) = occursin("hs", lowercase(prior))
@@ -1892,6 +1882,9 @@ function simulation_metadata_matches_typed(run_dir::AbstractString, expected::Ab
     # produced from a different requested starting strategy.
     if haskey(expected, "init")
         haskey(saved, "init") && metadata_value_matches(saved["init"], expected["init"]) || return false
+    end
+    if haskey(expected, "zero_handling")
+        get(saved, "zero_handling", nothing) == expected["zero_handling"] || return false
     end
     # Legacy runs are baseline only; never reuse them for a new DGP merely
     # because old metadata did not know about the new scenario keys.
@@ -2051,14 +2044,12 @@ end
 
 function metrics_from_saved_samples(run_dir::AbstractString, sim, summary::DataFrame)
     draws, layout = saved_beta_draws_and_layout(run_dir, length(sim.beta))
-    pseudocount = Float64(_metadata_number(run_dir, "pseudocount", 0.0))
     tie_method = Symbol(_metadata_string(run_dir, "tie_method", "efron"))
     data = prepare_cox_data(
         sim.X,
         sim.time,
         sim.event;
         transform = :log,
-        pseudocount = pseudocount,
         standardize = false,
         tie_method = tie_method,
     )
@@ -2172,7 +2163,6 @@ function load_or_recover_simulation_run(
 
     if test_sim !== nothing
         add_simulation_test_metrics!(metrics, summary, sim, test_sim;
-            pseudocount = Float64(_metadata_number(run_dir, "pseudocount", 0.0)),
             tie_method = Symbol(_metadata_string(run_dir, "tie_method", "efron")))
     end
     write_table(metrics_path, metrics)

@@ -27,4 +27,4 @@ elif [[ -n "$ROOT" ]]; then
   args=(--root "$ROOT" "${args[@]}")
 fi
 
-exec Rscript ./scripts/plot_simulation.R "${args[@]}"
+exec "${RSCRIPT_BIN:-Rscript}" ./scripts/plot_simulation.R "${args[@]}"

@@ -12,7 +12,7 @@ COMMON=(
     --priors "${PRIORS:-hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso,prox-lasso,prox-sslasso}" --sampler nuts --nuts-backend explicit
     --samples "${SAMPLES:-800}" --warmup "${WARMUP:-800}" --thin 1 --chains "${CHAINS:-4}" --multichains false
     --target-accept "${TARGET_ACCEPT:-0.9}" --max-depth "${MAX_DEPTH:-10}" --seed "${SEED:-20260618}" --progress true
-    --pseudocount 1e-6 --standardize false --tie-method efron --approx false --approx-point zero
+    --standardize false --tie-method efron --approx false --approx-point zero
     --diagnose false --tune_priorsparams false --tune_algparams false --use-car false
     --hs-tau-scale 1.0 --hs-local-scale 1.0 --rhs-slab-df 4.0 --rhs-slab-s2 2.0
     --rhs-tau-scale 1.0 --rhs-local-scale 1.0 --rhs-pseudo-sigma-df 3.0 --rhs-pseudo-sigma-scale 10.0

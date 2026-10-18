@@ -75,7 +75,7 @@ function t1d_prepare_specification(args = parse_cli_args())
     constraint in (:prox, :soft_center) || error("unsupported constraint")
     outdir = ensure_dir(joinpath(root, string(constraint), label, method))
     # Real-data sampling retains the existing T1D scale; simulation scale is separate.
-    samples, warmup, chains = arg(args, "samples", 800), arg(args, "warmup", 800), arg(args, "chains", 4)
+    samples, warmup, chains = arg(args, "samples", 5000), arg(args, "warmup", 4000), arg(args, "chains", 4)
     seed = arg(args, "seed", 1)
     df = CSV.read(input, DataFrame)
     C, cnames = t1d_clinical_design(df)
@@ -83,14 +83,19 @@ function t1d_prepare_specification(args = parse_cli_args())
     X, time, event = Matrix{Float64}(df[:, cols]), Float64.(df.time), Int.(df.status)
     clinical = adjusted ? C : nothing
     sampler = Dict(:sampler => :hmc, :n_samples => samples, :warmup => warmup, :chains => chains,
-        :multichains => true, :target_accept => 0.9, :hmc_n_leapfrog => arg(args, "leapfrog", 100),
+        :multichains => true, :target_accept => arg(args, "target-accept", 0.95),
+        :hmc_n_leapfrog => arg(args, "leapfrog", 300),
         :noncentered => true, :progress => false)
+    0 < sampler[:target_accept] < 1 || error("target-accept must lie strictly between 0 and 1")
+    sampler[:hmc_n_leapfrog] > 0 || error("leapfrog must be positive")
     model = Dict{Symbol,Any}(:constraint => constraint, :prox_sum0_lambda => 1e-6,
-        :pseudocount => 1e-6, :standardize => false, :p0 => nothing)
+        :standardize => false, :p0 => nothing)
     adjusted && merge!(model, Dict(:clinical_names => cnames,
         :clinical_prior_df => 3.0, :clinical_prior_scale => 2.5))
+    alpha_scale = arg(args, "alpha-prior-scale", Float64(size(X, 2) + (adjusted ? size(C, 2) : 0)))
+    alpha_scale > 0 || error("alpha-prior-scale must be positive")
     prior_kwargs = Dict{Symbol,Any}(:alpha_prior_kind => :invgamma,
-        :alpha_prior_shape => 1.0, :alpha_prior_scale => size(X, 2))
+        :alpha_prior_shape => 1.0, :alpha_prior_scale => alpha_scale)
     car = Dict(:use_car => false, :sample_car_strength => false)
     grids = deepcopy(PRIOR_PARAM_GRIDS)
     # Use the established grid; do not pick candidates from outer-fold results.
@@ -103,9 +108,12 @@ function t1d_prepare_specification(args = parse_cli_args())
         "clinical_prior_reference" => "https://doi.org/10.1214/08-AOAS191",
         "n" => length(time), "p" => size(X, 2), "n_samples" => samples, "warmup" => warmup,
         "chains" => chains, "constraint" => string(constraint), "prox_sum0_lambda" => 1e-6,
-        "pseudocount" => 1e-6, "standardize" => false, "component_cols" => cols,
+        "zero_handling" => "half_minimum_positive", "standardize" => false, "component_cols" => cols,
+        "alpha_prior_scale" => alpha_scale,
+        "alpha_scale_definition" => "fixed total coefficient count by default; clinical coefficients retain independent priors",
         "outer_folds" => outer, "inner_folds" => inner, "seed" => seed,
         "sampler" => "hmc", "hmc_n_leapfrog" => sampler[:hmc_n_leapfrog],
+        "target_accept" => sampler[:target_accept],
         "note" => "Full-data tuning scores are not test performance. Clinical covariates are outside the taxon constraint.")
     specification_path = joinpath(outdir, "analysis_specification.json")
     if isfile(specification_path)
@@ -130,13 +138,15 @@ function t1d_partition_setup(source; input = joinpath(PARTITION_CODE_ROOT, "data
     time, event = Float64.(df.time), Int.(df.status)
     clinical = adjusted ? C : nothing
     sampler = Dict(:sampler => :hmc, :n_samples => spec["n_samples"], :warmup => spec["warmup"],
-        :chains => spec["chains"], :multichains => true, :target_accept => 0.9,
+        # Legacy specifications used 0.9; new specifications persist the chosen target.
+        :chains => spec["chains"], :multichains => true, :target_accept => get(spec, "target_accept", 0.9),
         :hmc_n_leapfrog => spec["hmc_n_leapfrog"], :noncentered => true, :progress => false)
     model = Dict{Symbol,Any}(:constraint => Symbol(get(spec, "constraint", "prox")),
         :prox_sum0_lambda => get(spec, "prox_sum0_lambda", 1e-6),
-        :pseudocount => 1e-6, :standardize => false, :p0 => nothing)
+        :standardize => false, :p0 => nothing)
     adjusted && merge!(model, Dict(:clinical_names => cnames, :clinical_prior_df => 3.0, :clinical_prior_scale => 2.5))
-    prior = Dict{Symbol,Any}(:alpha_prior_kind => :invgamma, :alpha_prior_shape => 1.0, :alpha_prior_scale => size(X,2))
+    alpha_scale = get(spec, "alpha_prior_scale", size(X,2) + (adjusted ? size(C,2) : 0))
+    prior = Dict{Symbol,Any}(:alpha_prior_kind => :invgamma, :alpha_prior_shape => 1.0, :alpha_prior_scale => alpha_scale)
     car = Dict(:use_car => false, :sample_car_strength => false)
     grids = deepcopy(PRIOR_PARAM_GRIDS)
     smoke && (grids[method] = [Dict{String,Any}((method == "cox-rhs" ? "rhs_local_scale" : "sslasso_spike_scale") => 0.5)])
@@ -203,7 +213,7 @@ function run_t1d_partition(setup, stage)
     fit = fit_and_evaluate(X[train_idx,:],time[train_idx],event[train_idx];kwargs...)
     clinical_score = clinical===nothing ? NamedTuple() : (clinical_X_val=clinical[test_idx,:],)
     scores = _validation_cindices(fit,X[train_idx,:],X[test_idx,:],time[test_idx],event[test_idx];
-        requested_pseudocount=get(kwargs,:pseudocount,nothing),clinical_score...)
+        clinical_score...)
     all(e -> _finite_number(get(scores,e,missing)) !== nothing,("mean","median","MAP")) || error("nonfinite outer score")
     row = Dict{Symbol,Any}(:dataset_id=>"T1D",:constraint=>string(model[:constraint]),:prior=>method,:outer_fold=>fold,
         :n_train=>length(train_idx),:n_test=>length(test_idx),:evaluation=>"nested_cv",:status=>"success",
@@ -296,9 +306,9 @@ function main_final_revision()
         run_t1d_partition(s,"full_tuning")
     end
     selected=Dict(Symbol(k)=>v for (k,v) in JSON.parsefile(choice_file))
-    # Final sampling is longer than tuning/CV sampling; it never feeds outer scores.
-    sampler[:n_samples]=arg(args,"final-samples",5000)
-    sampler[:warmup]=arg(args,"final-warmup",2000)
+    # Preserve the declared CV budget unless a final-stage override is explicit.
+    sampler[:n_samples]=arg(args,"final-samples",sampler[:n_samples])
+    sampler[:warmup]=arg(args,"final-warmup",sampler[:warmup])
     kwargs=_cindex_fit_kwargs(method,sampler,prior,car,model,selected,size(X,2),spec["seed"])
     kwargs[:compute_metrics]=true
     clinical === nothing || (kwargs[:clinical_X]=clinical)

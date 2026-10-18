@@ -206,7 +206,7 @@ function main()
     priors = split_strings(arg(args, "priors", "hs,rhs,new-rhs,est-rhs,cox-hs,cox-rhs,lasso,sslasso"))
     sampler_kwargs = sampler_hyperparameter_kwargs(args)
     car_kwargs = car_hyperparameter_kwargs(args)
-    model_kwargs = cox_model_cli_options(args; default_pseudocount = 0.0, default_standardize = false)
+    model_kwargs = cox_model_cli_options(args; default_standardize = false)
     diagnostic_kwargs = diagnostic_cli_options(args)
     scenario_kwargs = simulation_scenario_parameters(args)
     car_graph = Symbol(arg(args, "car-graph", "abundance"))
@@ -246,7 +246,6 @@ function main()
     p0_alpha = model_kwargs.p0_alpha
     constraint = model_kwargs.constraint
     prox_sum0_lambda = model_kwargs.prox_sum0_lambda
-    pseudocount = model_kwargs.pseudocount
     standardize = model_kwargs.standardize
     tie_method = model_kwargs.tie_method
     diagnose = diagnostic_kwargs.diagnose
@@ -385,7 +384,6 @@ function main()
                     p0_alpha = p0_alpha,
                     constraint = constraint,
                     prox_sum0_lambda = prox_sum0_lambda,
-                    pseudocount = pseudocount,
                     standardize = standardize,
                     tie_method = tie_method,
                 ),
@@ -431,7 +429,6 @@ function main()
                     p0 = nothing,
                     p0_alpha = p0_alpha,
                     realdata = false,
-                    pseudocount = pseudocount,
                     prior_distribution_hyperparameter_kwargs(prior_kwargs)...,
                 )) :
                 p0_requested
@@ -545,7 +542,7 @@ function main()
                 "prox_block_adapt_every" => prox_block_adapt_every,
                 "prox_block_divergence_threshold" => prox_block_divergence_threshold,
                 "prox_block_metric" => string(prox_block_metric),
-                "pseudocount" => pseudocount,
+                "zero_handling" => "half_minimum_positive",
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
                 "seed" => sim_seed,
@@ -634,7 +631,6 @@ function main()
                 car_strength_prior_b = car_strength_prior_b,
                 car_degree_scale = car_degree_scale,
                 car_kappa_init = car_kappa_init,
-                pseudocount = pseudocount,
                 standardize = standardize,
                 tie_method = tie_method,
                 p0 = p0_value,
@@ -690,7 +686,7 @@ function main()
                 prior = prior,
             )
             add_prior_hyperparameter_columns!(metrics, prior_kwargs_dict)
-            add_simulation_test_metrics!(metrics, summary, sim, test_sim; pseudocount, tie_method)
+            add_simulation_test_metrics!(metrics, summary, sim, test_sim; tie_method)
             fd_table = simulation_false_discovery_table(
                 sim,
                 summary;
@@ -728,7 +724,7 @@ function main()
                 "p" => p,
                 "nonzero_count" => nonzero,
                 "p0" => p0_value,
-                "pseudocount" => pseudocount,
+                "zero_handling" => "half_minimum_positive",
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
                 "censoring_distribution" => string(sim.censoring_distribution),
@@ -804,7 +800,7 @@ function main()
                 "car_strength_prior_b" => car_strength_prior_b,
                 "car_degree_scale" => string(car_degree_scale),
                 "car_kappa_init" => car_kappa_init,
-                "pseudocount" => pseudocount,
+                "zero_handling" => "half_minimum_positive",
                 "standardize" => standardize,
                 "tie_method" => string(tie_method),
                 "p0_alpha" => p0_alpha,

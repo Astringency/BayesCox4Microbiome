@@ -37,7 +37,7 @@ COMMON=(
     --car-precision 1.0 --sample-car-strength true --car-strength-prior-a 1.0
     --car-strength-prior-b 1.0 --car-degree-scale mean_active --car-kappa-init 0.5
     --p0 auto --p0-alpha 0.05 --constraint "$constraint"
-    --prox-sum0-lambda 1e-6 --pseudocount 1e-6 --standardize false
+    --prox-sum0-lambda 1e-6 --standardize false
     --tie-method efron --approx false --approx-point zero
     --diagnose true --diagnose-format pdf --diagnose-top-k-beta 10
     --diagnose-max-lag 50 --tune_priorsparams false --tune_algparams false

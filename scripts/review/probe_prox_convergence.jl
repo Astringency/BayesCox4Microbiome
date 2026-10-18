@@ -37,7 +37,7 @@ function run_probes(source, out, cases)
             n_samples=2000, warmup=1000, chains=4, multichains=true, seed=Int(meta["replicate_id"]),
             target_accept=0.8, constraint=:prox, prox_sum0_lambda=cfg.prox_sum0_lambda,
             prox_l1_lambda=cfg.prox_l1_lambda, alpha_prior_shape=1., alpha_prior_scale=cfg.alpha_prior_scale,
-            alpha_prior_kind=:invgamma, progress=false, standardize=false, pseudocount=0.)
+            alpha_prior_kind=:invgamma, progress=false, standardize=false, )
         result = timed.value
         save_run_outputs(result; output_dir=dest, run_id=name, save_jld2=false, save_wide_csv=true,
             metadata=Dict("source"=>source,"purpose"=>"diagnostic pilot; not a formal replication",

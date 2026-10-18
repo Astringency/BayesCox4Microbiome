@@ -29,13 +29,13 @@ function subject_deletion_logratios(train_data::CoxPreparedData,
             for s in axes(draws, 1)]
 end
 
-function _loo_augment(train_data, X_train, X_test, time_test, event_test; requested_pseudocount)
-    z_test = _validation_design_matrix(X_train, X_test, train_data; requested_pseudocount)
+function _loo_augment(train_data, X_train, X_test, time_test, event_test)
+    z_test = _validation_design_matrix(X_train, X_test, train_data)
     time = vcat(train_data.time, Float64(time_test))
     data = CoxPreparedData(
         vcat(train_data.z, z_test), time, vcat(train_data.event, Int(event_test)),
         BayesCox4Micro._build_riskset(time), train_data.tie_method,
-        train_data.transform, train_data.pseudocount, train_data.closure,
+        train_data.transform, train_data.zero_replacement, train_data.closure,
         train_data.standardize, train_data.col_mean, train_data.col_scale,
     )
     return data
@@ -117,11 +117,7 @@ function _loo_refit_fold(X, time, event, i, fit_kwargs, fit_function, diagnostic
         throw(ArgumentError("refit must use exactly the training subjects, in input order"))
     draws = posterior_beta_draws(fit.result)
     size(draws, 1) > 0 && all(isfinite, draws) || error("nonfinite or empty posterior draws")
-    requested_pc = get(kwargs, :pseudocount, nothing)
-    # Match fit_and_evaluate's default, distinguishing additive PC from zero replacement.
-    requested_pc === nothing && (requested_pc = get(kwargs, :realdata, false) ? 1e-6 : 0.0)
-    augmented = _loo_augment(data, X[train, :], X[i:i, :], time[i], event[i];
-                             requested_pseudocount = requested_pc)
+    augmented = _loo_augment(data, X[train, :], X[i:i, :], time[i], event[i])
     logratios = subject_deletion_logratios(data, augmented, draws)
     all(isfinite, logratios) || error("nonfinite subject-deletion log partial-likelihood ratios")
     max_rhat, min_ess = diagnostics ? _loo_draw_diagnostics(fit.result, draws) : (nothing, nothing)

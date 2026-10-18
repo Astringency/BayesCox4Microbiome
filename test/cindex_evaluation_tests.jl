@@ -11,6 +11,23 @@ if !isdefined(@__MODULE__, :evaluate_nested_cindex)
     include(joinpath(@__DIR__, "..", "scripts", "tune_hyperparams_cindex.jl"))
 end
 
+@testset "zero handling is fixed in CLI and resume metadata" begin
+    @test !hasproperty(cox_model_cli_options(Dict{String,String}()), :pseudocount)
+    for value in ("0", "1e-6")
+        @test_throws ArgumentError require_known_args!(Dict("pseudocount" => value), COX_MODEL_CLI_KEYS)
+    end
+    mktempdir() do dir
+        expected = Dict("zero_handling" => "half_minimum_positive")
+        path = joinpath(dir, "metadata.json")
+        write(path, JSON.json(Dict("prior" => "cox-rhs")))
+        @test !simulation_metadata_matches_typed(dir, expected)
+        write(path, JSON.json(expected))
+        @test simulation_metadata_matches_typed(dir, expected)
+        write(path, JSON.json(Dict("zero_handling" => "additive")))
+        @test !simulation_metadata_matches_typed(dir, expected)
+    end
+end
+
 @testset "independent simulation test cohorts" begin
     for baseline in (:weibull, :exponential, :gompertz)
         train = generate_simulation_data(30, 8, 2; seed = 17, baseline, baseline_rate = 0.2)
@@ -41,8 +58,8 @@ end
     @test metrics.Cindex_test[1] == concordance_index(test.time, test.event, z * beta)
     @test metrics.Cindex_test[2] == concordance_index(test.time, test.event, z * -beta)
     @test metrics.Cindex_test[3] == 0.5
-    data = prepare_cox_data(X, train.time, train.event; standardize = true, pseudocount = 0.0)
-    zstd = _validation_design_matrix(X, test.X, data; requested_pseudocount = 0.0)
+    data = prepare_cox_data(X, train.time, train.event; standardize = true)
+    zstd = _validation_design_matrix(X, test.X, data)
     @test metrics.Cindex_test[1] == concordance_index(test.time, test.event, zstd * (beta .* data.col_scale))
 end
 
@@ -79,7 +96,7 @@ end
         push!(calls, result)
         return result
     end
-    score_mock = function(fit, xt, xv, tv, ev; requested_pseudocount)
+    score_mock = function(fit, xt, xv, tv, ev)
         @test fit.ids == Int.(xt[:, 1])
         @test isempty(intersect(fit.ids, Int.(xv[:, 1])))
         @test tv == xv[:, 1]
@@ -120,7 +137,7 @@ end
         @test_throws ArgumentError evaluate_nested_cindex(X, time, event;
             defaults..., outdir = dir, seed = 2)
     end
-    bad_outer = function(fit, xt, xv, tv, ev; requested_pseudocount)
+    bad_outer = function(fit, xt, xv, tv, ev)
         score = length(fit.ids) == 16 ? NaN : 0.7
         Dict("mean" => score, "median" => score, "MAP" => score)
     end
@@ -131,7 +148,7 @@ end
         @test ismissing(result.summary.CV_Cindex_mean[1])
         @test result.summary.n_successful_folds[1] == 0
     end
-    bad_candidate = function(fit, xt, xv, tv, ev; requested_pseudocount)
+    bad_candidate = function(fit, xt, xv, tv, ev)
         score = fit.scale == 0.5 ? NaN : 0.6
         Dict("mean" => score, "median" => score, "MAP" => score)
     end

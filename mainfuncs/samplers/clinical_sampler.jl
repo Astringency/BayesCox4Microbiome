@@ -10,7 +10,7 @@ function sample_clinical_cox(X, time, event, clinical_X;
     chains::Integer = 4, multichains::Bool = true, seed::Integer = 1,
     target_accept::Real = 0.8, hmc_n_leapfrog::Integer = 100, hmc_step_size = nothing,
     noncentered::Bool = true, constraint::Symbol = :prox, prox_sum0_lambda::Real = 1e-3,
-    pseudocount::Real = 0.0, standardize::Bool = false, tie_method::Symbol = :efron,
+    standardize::Bool = false, tie_method::Symbol = :efron,
     use_car::Bool = false, car_weights = nothing, car_distance = :bray,
     car_weight_quantile::Real = 0.99, car_precision::Real = 1.0,
     sample_car_strength::Bool = false, car_strength_prior_a::Real = 1.0,
@@ -28,7 +28,7 @@ function sample_clinical_cox(X, time, event, clinical_X;
     constraint in (:prox, :soft_center, :none) || throw(ArgumentError("unsupported clinical constraint"))
     all(startswith("clinical["), clinical_names) || throw(ArgumentError("clinical names must start with clinical["))
     prior isa SpikeSlabLassoPrior && use_car && throw(ArgumentError("Prox-SSLASSO has no CAR prior"))
-    data = prepare_cox_data(X, time, event; pseudocount, standardize, tie_method)
+    data = prepare_cox_data(X, time, event; standardize, tie_method)
     weights = !use_car ? nothing : car_weights !== nothing ? _prepare_car_weights(car_weights, size(X, 2)) :
         _car_weight_edges(car_weight_matrix(X; distance = car_distance, threshold_quantile = car_weight_quantile))
     rng = MersenneTwister(seed)

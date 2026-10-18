@@ -48,7 +48,7 @@ end
     @test s3.eta ≈ log.(s3.latent_X) * s3.beta
     @test all(>(0), s3.latent_X)
     @test all(isfinite, s3.event_time)
-    data = prepare_cox_data(s3.X, s3.time, s3.event; pseudocount = 0.0)
+    data = prepare_cox_data(s3.X, s3.time, s3.event)
     replaced = copy(s3.X)
     replacement = minimum(filter(>(0), vec(s3.X))) / 2
     replaced[replaced .== 0] .= replacement

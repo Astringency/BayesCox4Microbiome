@@ -66,25 +66,27 @@ function _standardize_columns(z::Matrix{Float64})
     return out, mu, sigma
 end
 
-"""
-    prepare_cox_data(X, time, event; transform=:log, pseudocount=0.0,
-                     closure=true, standardize=false, tie_method=:efron)
-
-Prepare microbiome covariates for the Cox partial-likelihood model.
-`transform=:log` implements the paper's elementwise log transform.
-"""
 function _check_cox_tie_method(tie_method::Symbol)
     tie_method in (:efron, :breslow) ||
         throw(ArgumentError("tie_method must be :efron or :breslow."))
     return tie_method
 end
 
+"""
+    prepare_cox_data(X, time, event; transform=:log,
+                     closure=true, standardize=false, tie_method=:efron)
+
+Prepare microbiome covariates for the Cox partial-likelihood model.
+For `transform=:log`, replace only zeros with half the minimum positive abundance
+in `X`, then optionally apply closure and take elementwise logarithms.
+The returned `zero_replacement` field records the applied replacement
+(zero when no replacement was needed).
+"""
 function prepare_cox_data(
     X::AbstractMatrix{<:Real},
     time::AbstractVector{<:Real},
     event::AbstractVector;
     transform::Symbol = :log,
-    pseudocount::Real = 0.0,
     closure::Bool = true,
     standardize::Bool = false,
     tie_method::Symbol = :efron,
@@ -104,36 +106,22 @@ function prepare_cox_data(
     count(!=(0), e) > 0 || throw(ArgumentError("at least one uncensored event is required."))
     tie = _check_cox_tie_method(tie_method)
 
-    pc = _check_nonnegative(pseudocount, "pseudocount")
     x = Matrix{Float64}(X)
     all(isfinite, x) || throw(ArgumentError("X must be finite."))
     all(>=(0), x) || throw(ArgumentError("X must be nonnegative."))
 
-    applied_pc = Float64(pc)
+    zero_replacement = 0.0
 
     z =
         if transform == :log
             x2 = copy(x)
 
-            if pc == 0
-                if any(iszero, x2)
-                    positive_vals = x2[x2 .> 0]
-
-                    isempty(positive_vals) &&
-                        throw(ArgumentError("X contains no positive values; cannot perform log transform."))
-
-                    min_positive = minimum(positive_vals)
-                    half_min = min_positive / 2
-
-                    x2[x2 .== 0.0] .= half_min
-                    applied_pc = half_min
-                else
-                    applied_pc = 0.0
-                end
-            else
-                # plus pseudocount
-                x2 .+= pc
-                applied_pc = Float64(pc)
+            if any(iszero, x2)
+                positive_vals = x2[x2 .> 0]
+                isempty(positive_vals) &&
+                    throw(ArgumentError("X contains no positive values; cannot perform log transform."))
+                zero_replacement = minimum(positive_vals) / 2
+                x2[x2 .== 0.0] .= zero_replacement
             end
 
             if closure
@@ -164,7 +152,7 @@ function prepare_cox_data(
         _build_riskset(t),
         tie,
         transform,
-        applied_pc,
+        zero_replacement,
         closure,
         standardize,
         mu,

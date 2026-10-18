@@ -109,7 +109,6 @@ function estimate_p0_univariate_cox(
     time::AbstractVector{<:Real},
     event::AbstractVector;
     transform::Symbol = :log,
-    pseudocount::Real = 1e-6,
     closure::Bool = true,
     standardize::Bool = false,
     kwargs...,
@@ -119,7 +118,6 @@ function estimate_p0_univariate_cox(
         time,
         event;
         transform = transform,
-        pseudocount = pseudocount,
         closure = closure,
         standardize = standardize,
     )
@@ -133,7 +131,6 @@ function _resolve_p0(
     time,
     event;
     transform::Symbol = :log,
-    pseudocount::Real = 1e-6,
     closure::Bool = true,
     p0_alpha::Real = 0.05,
     p0_min::Integer = 1,
@@ -149,7 +146,6 @@ function _resolve_p0(
         time,
         event;
         transform = transform,
-        pseudocount = pseudocount,
         closure = closure,
         alpha = p0_alpha,
         min_p0 = p0_min,
@@ -179,7 +175,6 @@ function cox_paper_prior(
     event = nothing,
     realdata::Bool = false,
     transform::Symbol = :log,
-    pseudocount::Real = 1e-6,
     closure::Bool = true,
     cox_estimate_tol::Real = 1e-4,
     cox_estimate_l2_cost::Real = 1.0,
@@ -217,7 +212,6 @@ function cox_paper_prior(
         time,
         event;
         transform = transform,
-        pseudocount = pseudocount,
         closure = closure,
         p0_alpha = p0_alpha,
         p0_min = p0_min,
@@ -263,7 +257,6 @@ function cox_paper_prior(
             time,
             event;
             transform = transform,
-            pseudocount = pseudocount,
             closure = closure,
             standardize = false,
         )
@@ -352,7 +345,6 @@ function sample_bayes_cox(
     sampler::Symbol = :nuts,
     nuts_backend::Symbol = :turing,
     transform::Symbol = :log,
-    pseudocount::Real = 1e-6,
     closure::Bool = true,
     standardize::Bool = false,
     tie_method::Symbol = :efron,
@@ -393,7 +385,6 @@ function sample_bayes_cox(
         time,
         event;
         transform = transform,
-        pseudocount = pseudocount,
         closure = closure,
         standardize = standardize,
         tie_method = tie_method,

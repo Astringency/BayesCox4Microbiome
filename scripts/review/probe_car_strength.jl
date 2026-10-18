@@ -37,7 +37,7 @@ function run_probe(plan_path, job_id)
             n_samples=5000, warmup=2000, thin=1, chains=4, multichains=true,
             noncentered=true, seed=Int(meta["seed"]), target_accept=.8,
             constraint=:prox, prox_sum0_lambda=.001, standardize=false,
-            pseudocount=0., tie_method=:efron, use_car=true,
+            tie_method=:efron, use_car=true,
             car_weights=weights, sample_car_strength=false,
             car_precision=kappa/degree, progress=false)
         result = timed.value

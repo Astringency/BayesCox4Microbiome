@@ -12,7 +12,7 @@ struct CoxPreparedData
     risk::CoxRiskSet
     tie_method::Symbol
     transform::Symbol
-    pseudocount::Float64
+    zero_replacement::Float64
     closure::Bool
     standardize::Bool
     col_mean::Vector{Float64}

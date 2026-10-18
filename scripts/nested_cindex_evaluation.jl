@@ -10,9 +10,10 @@ function _cindex_candidate_configs(prior, sampler_kwargs;
     return configs
 end
 
-function _cindex_fit_kwargs(prior, sampler, prior_kwargs, car, model, config, p, seed)
+function _cindex_fit_kwargs(prior, sampler, prior_kwargs, car, model, config, p, seed;
+    clinical_columns = 0)
     kwargs = _actual_fit_kwargs(prior, sampler, prior_kwargs, car, model, config;
-        p, realdata = true)
+        p, realdata = true, clinical_columns)
     kwargs[:seed] = seed
     kwargs[:compute_metrics] = false
     # Explicit p0 remains fixed; auto p0 is recalculated by each training fit.
@@ -58,7 +59,8 @@ function _select_inner_cindex(X, time, event; prior, configs, base_sampler_kwarg
             try
                 kwargs = _cindex_fit_kwargs(prior, base_sampler_kwargs, base_prior_kwargs,
                     base_car_kwargs, base_model_kwargs, config, size(X, 2),
-                    seed + 10_000 * config_index + fold)
+                    seed + 10_000 * config_index + fold;
+                    clinical_columns = clinical_X === nothing ? 0 : size(clinical_X, 2))
                 clinical_X !== nothing && (kwargs[:clinical_X] = clinical_X[train_idx, :])
                 fit = fit_function(X[train_idx, :], time[train_idx], event[train_idx]; kwargs...)
                 if hasproperty(fit, :result) && fit.result isa CoxSamplerResult
@@ -68,7 +70,7 @@ function _select_inner_cindex(X, time, event; prior, configs, base_sampler_kwarg
                 end
                 clinical_score_kwargs = clinical_X === nothing ? NamedTuple() : (clinical_X_val = clinical_X[val_idx, :],)
                 vc = score_function(fit, X[train_idx, :], X[val_idx, :], time[val_idx], event[val_idx];
-                    requested_pseudocount = get(kwargs, :pseudocount, nothing), clinical_score_kwargs...)
+                    clinical_score_kwargs...)
                 c = _finite_number(get(vc, "mean", missing))
                 c === nothing && error("inner validation fold has no finite C-index")
                 row[:status] = "success"
@@ -261,7 +263,8 @@ function evaluate_nested_cindex(X, time, event; priors, base_sampler_kwargs,
                 _write_tuning_json(joinpath(fold_dir, "selected_config.json"), inner.config)
                 kwargs = _cindex_fit_kwargs(prior, base_sampler_kwargs, base_prior_kwargs,
                     base_car_kwargs, base_model_kwargs, inner.config, size(X, 2),
-                    seed + 1_000_000 * fold + 999_999)
+                    seed + 1_000_000 * fold + 999_999;
+                    clinical_columns = clinical_X === nothing ? 0 : size(clinical_X, 2))
                 clinical_X !== nothing && (kwargs[:clinical_X] = clinical_X[train_idx, :])
                 fit = fit_function(X[train_idx, :], time[train_idx], event[train_idx]; kwargs...)
                 if hasproperty(fit, :result) && fit.result isa CoxSamplerResult
@@ -280,7 +283,7 @@ function evaluate_nested_cindex(X, time, event; priors, base_sampler_kwargs,
                 end
                 clinical_score_kwargs = clinical_X === nothing ? NamedTuple() : (clinical_X_val = clinical_X[test_idx, :],)
                 vc = score_function(fit, X[train_idx, :], X[test_idx, :], time[test_idx], event[test_idx];
-                    requested_pseudocount = get(kwargs, :pseudocount, nothing), clinical_score_kwargs...)
+                    clinical_score_kwargs...)
                 for estimate in ("mean", "median", "MAP")
                     c = _finite_number(get(vc, estimate, missing))
                     c === nothing && error("outer test fold has no finite $estimate C-index")

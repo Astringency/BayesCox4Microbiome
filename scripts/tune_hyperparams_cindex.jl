@@ -102,14 +102,12 @@ const PRIOR_PARAM_GRID_VALUES = Dict{String,Vector{Pair{String,Any}}}(
     "prox-lasso" => Pair{String,Any}[
         "prox_l1_lambda" => [1e-5, 1e-4, 1e-3],
         "alpha_prior_shape" => [1.0],
-        "alpha_prior_scale" => [22.0],
     ],
     "prox-sslasso" => Pair{String,Any}[
         "sslasso_spike_scale" => [0.04, 0.1, 0.5, 1.0, 2.0],
         "sslasso_slab_scale" => [0.5, 1.0, 2.0, 5.0, 10.0],
         "prox_l1_lambda" => [1e-5, 1e-4, 1e-3],
         "alpha_prior_shape" => [1.0],
-        "alpha_prior_scale" => [22.0],
     ],
 )
         # "alpha_prior_shape" => [0.1, 0.5, 1.0],
@@ -339,6 +337,7 @@ function _actual_fit_kwargs(
     override_kwargs;
     p::Integer,
     realdata::Bool,
+    clinical_columns::Integer = 0,
 )
     kwargs = _merge_tuning_kwargs(
         base_sampler_kwargs,
@@ -349,6 +348,12 @@ function _actual_fit_kwargs(
     )
     kwargs[:prior_name] = prior
     kwargs[:realdata] = realdata
+    # Alpha's scale is a fixed model setting, not a tuning-grid override.
+    # Preserve an explicit value; otherwise count taxon and clinical coefficients.
+    if realdata && prior in ("prox-lasso", "prox-sslasso") &&
+       get(kwargs, :alpha_prior_scale, nothing) === nothing
+        kwargs[:alpha_prior_scale] = Float64(p + clinical_columns)
+    end
     use_car = Bool(get(kwargs, :use_car, false))
     actual_use_car = use_car && occursin("hs", lowercase(prior))
     kwargs[:use_car] = actual_use_car
@@ -375,13 +380,12 @@ function _kfold_indices(event::AbstractVector; k::Integer, seed::Integer)
     return sort!.(folds)
 end
 
-function _validation_cindices(fit, X_train, X_val, time_val, event_val; requested_pseudocount,
+function _validation_cindices(fit, X_train, X_val, time_val, event_val;
     clinical_X_val = nothing)
     z_val = _validation_design_matrix(
         X_train,
         X_val,
-        fit.result.data;
-        requested_pseudocount = requested_pseudocount,
+        fit.result.data,
     )
     model_draws = posterior_beta_draws(fit.result)
     beta_mean = vec(mean(model_draws; dims = 1))
@@ -526,6 +530,17 @@ function _chain_diagnostics(result)
 end
 
 function _divergence_count(result)
+    if result.samples isa Union{MHSamples,MultiMHSamples}
+        chains = result.samples isa MHSamples ? [result.samples] : result.samples.chains
+        total = 0
+        for chain in chains
+            retained = [r for r in chain.transitions if r.phase == "sample"]
+            isempty(retained) && return missing
+            any(r -> ismissing(r.divergent), retained) && return missing
+            total += count(r -> r.divergent, retained)
+        end
+        return total
+    end
     wide = try
         samples_wide_dataframe(result)
     catch
@@ -680,8 +695,7 @@ function _run_prior_tuning(
                         X[train_idx, :],
                         X[val_idx, :],
                         time[val_idx],
-                        event[val_idx];
-                        requested_pseudocount = get(fit_kwargs, :pseudocount, nothing),
+                        event[val_idx],
                     )
                     for r in eachrow(fit.metrics)
                         estimate = string(r[:estimate])

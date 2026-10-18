@@ -10,6 +10,8 @@ using Statistics
 
 const B = BayesCox4Micro
 
+include("data_preprocessing_tests.jl")
+
 @testset "sum-to-zero Moreau helpers" begin
     beta = [1.0, -2.0, 4.0, 0.5]
     proj = project_sum0(beta)
@@ -978,3 +980,5 @@ include("sslasso_gamma_reference_tests.jl")
 include("sslasso_initialization_tests.jl")
 include("simulation_initialization_resume_tests.jl")
 include("t1d_partition_tests.jl")
+include("realdata_alpha_scale_tests.jl")
+include("tuning_transition_diagnostics_tests.jl")

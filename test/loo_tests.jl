@@ -12,7 +12,7 @@ end
     X = reshape([0.0, 1.0, 2.0], :, 1)
     t, e = [1.0, 2.0, 3.0], [1, 1, 0]
     train = prepare_cox_data(X[1:2, :], t[1:2], e[1:2]; transform = :none)
-    augmented = _loo_augment(train, X[1:2, :], X[3:3, :], t[3], e[3]; requested_pseudocount = 0.0)
+    augmented = _loo_augment(train, X[1:2, :], X[3:3, :], t[3], e[3])
     draws = reshape([-0.5, 0.0, 0.5, 1.0], :, 1)
     ratios = subject_deletion_logratios(train, augmented, draws)
     for (s, b) in enumerate(vec(draws))
@@ -34,13 +34,13 @@ end
     draws = reshape([-1.0, 0.0, 0.5, 1.5], :, 1)
     function score(order)
         train = prepare_cox_data(X[order, :], t[order], e[order]; transform = :none)
-        aug = _loo_augment(train, X[order, :], X[4:4, :], t[4], e[4]; requested_pseudocount = 0.0)
+        aug = _loo_augment(train, X[order, :], X[4:4, :], t[4], e[4])
         subject_deletion_logratios(train, aug, draws)
     end
     @test score([1, 2, 3]) ≈ score([1, 3, 2])
     # Deleting a tied event must change both d_t and the tied risk sum.
     train = prepare_cox_data(X[[1, 3, 4], :], t[[1, 3, 4]], e[[1, 3, 4]]; transform = :none)
-    aug = _loo_augment(train, X[[1, 3, 4], :], X[2:2, :], t[2], e[2]; requested_pseudocount = 0.0)
+    aug = _loo_augment(train, X[[1, 3, 4], :], X[2:2, :], t[2], e[2])
     for b in (0.0, 0.7)
         w = exp.(vec(X) .* b)
         full = log(w[1] / sum(w)) + log(w[2]) + log(w[3]) -
@@ -53,8 +53,8 @@ end
 @testset "held-out preprocessing uses training zero replacement and scaling" begin
     X = [0.0 0.2; 0.4 0.6; 0.8 0.2]
     t, e = [1.0, 2.0, 3.0], [1, 1, 0]
-    train = prepare_cox_data(X, t, e; pseudocount = 0.0, standardize = true)
-    aug = _loo_augment(train, X, [0.0 0.001], 4.0, 0; requested_pseudocount = 0.0)
+    train = prepare_cox_data(X, t, e; standardize = true)
+    aug = _loo_augment(train, X, [0.0 0.001], 4.0, 0)
     expected = (log.([0.1, 0.001] ./ 0.101) .- train.col_mean) ./ train.col_scale
     @test aug.z[1:3, :] == train.z
     @test aug.z[4, :] ≈ expected

@@ -1,6 +1,7 @@
 #!/usr/bin/env julia
 
 using CSV
+using BayesCox4Micro: prepare_cox_data
 using DataFrames
 using Dates
 using JSON
@@ -244,23 +245,11 @@ function prepared_data(metadata::Dict{String,Any})
         vals = coalesce.(df[!, col], 0.0)
         x[:, j] .= Float64.(vals)
     end
-    pseudocount = something(maybe_float(getdict(metadata, "pseudocount", 0.0)), 0.0)
-    x .+= pseudocount
-    rowsums = vec(sum(x; dims = 2))
-    any(<=(0), rowsums) && return nothing
-    z = log.(x ./ rowsums)
     standardize = lowercase(as_string(getdict(metadata, "standardize", "false"))) == "true"
-    if standardize
-        for j in axes(z, 2)
-            mu = mean(z[:, j])
-            sd = std(z[:, j])
-            sd = sd > 0 ? sd : 1.0
-            z[:, j] .= (z[:, j] .- mu) ./ sd
-        end
-    end
     time = Float64.(df[!, time_col])
     event = Int.(df[!, status_col])
-    return z, time, event
+    data = prepare_cox_data(x, time, event; standardize)
+    return data.z, data.time, data.event
 end
 
 function concordance_index(time::Vector{Float64}, event::Vector{Int}, risk::Vector{Float64})
@@ -425,7 +414,7 @@ function write_parameter_card(path::AbstractString, row::NamedTuple, metadata::D
         println(io)
         println(io, "## Prior and model hyperparameters")
         println(io)
-        for key in ("hs_tau_scale", "hs_local_scale", "rhs_tau_scale", "rhs_local_scale", "rhs_slab_df", "rhs_slab_s2", "rhs_pseudo_sigma_df", "rhs_pseudo_sigma_scale", "lasso_lambda", "lasso_lambda2_shape", "lasso_lambda2_rate", "sslasso_spike_scale", "sslasso_slab_scale", "sslasso_theta_a", "sslasso_theta_b", "prox_l1_lambda", "alpha_prior_shape", "alpha_prior_scale", "alpha_prior_kind", "prox_sum0_lambda", "prox_root_tol", "prox_root_maxiter", "pseudocount", "standardize", "tie_method")
+        for key in ("hs_tau_scale", "hs_local_scale", "rhs_tau_scale", "rhs_local_scale", "rhs_slab_df", "rhs_slab_s2", "rhs_pseudo_sigma_df", "rhs_pseudo_sigma_scale", "lasso_lambda", "lasso_lambda2_shape", "lasso_lambda2_rate", "sslasso_spike_scale", "sslasso_slab_scale", "sslasso_theta_a", "sslasso_theta_b", "prox_l1_lambda", "alpha_prior_shape", "alpha_prior_scale", "alpha_prior_kind", "prox_sum0_lambda", "prox_root_tol", "prox_root_maxiter", "standardize", "tie_method")
             val = as_string(getdict(metadata, key, ""))
             isempty(val) || println(io, "- $key: $val")
         end

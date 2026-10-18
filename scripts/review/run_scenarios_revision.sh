@@ -29,7 +29,7 @@ for method in "${revision_priors[@]}"; do
             --prox-l1-lambda "$l1_lambda" --alpha-prior-kind invgamma --alpha-prior-shape 1 --alpha-prior-scale 50 \
             --sslasso-spike-scale 0.04 --sslasso-slab-scale 0.5 --sslasso-theta-a 1 --sslasso-theta-b 1 \
             --rhs-slab-df 4 --rhs-slab-s2 2 --rhs-tau-scale 1 --rhs-local-scale 1 \
-            --pseudocount 0 --standardize false --diagnose false --progress true --resume true \
+            --standardize false --diagnose false --progress true --resume true \
             --sample-thin 1 --first-rep-sample-thin 1 --save-wide-csv true --save-jld2 false
     done
 done

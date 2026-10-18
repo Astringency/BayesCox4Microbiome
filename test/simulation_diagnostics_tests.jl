@@ -38,7 +38,7 @@ end
         @test 0.1 <= censor_rate <= 0.8
         @test event_rate + censor_rate ≈ 1.0
 
-        data = prepare_cox_data(sim.X, sim.time, sim.event; transform = :log, pseudocount = 0.0)
+        data = prepare_cox_data(sim.X, sim.time, sim.event; transform = :log)
         ll_true = cox_logpartiallikelihood(data, sim.beta)
         ll_zero = cox_logpartiallikelihood(data, zeros(length(sim.beta)))
         @test ll_true > ll_zero
@@ -47,17 +47,14 @@ end
 
 @testset "preprocessing consistency for simulated X" begin
     sim = generate_simulation_data(200, 150, 12; baseline = :weibull, seed = 7)
-    data0 = prepare_cox_data(sim.X, sim.time, sim.event; transform = :log, pseudocount = 0.0)
-    data1 = prepare_cox_data(sim.X, sim.time, sim.event; transform = :log, pseudocount = 1e-6)
+    data0 = prepare_cox_data(sim.X, sim.time, sim.event; transform = :log)
+    data_default = prepare_cox_data(sim.X, sim.time, sim.event)
 
-    @test data0.pseudocount == 0.0
+    @test data0.zero_replacement == 0.0
     @test data0.z ≈ log.(sim.X) atol = 1e-12 rtol = 1e-12
-    @test maximum(abs.(data1.z .- data0.z)) > 1e-2
-    @test mean(abs.(data1.z .- data0.z)) < 0.01
-
-    eta0 = data0.z * sim.beta
-    eta1 = data1.z * sim.beta
-    @test maximum(abs.(eta1 .- eta0)) < 1e-2
+    @test data_default.z == data0.z
+    @test data_default.z * sim.beta ≈ sim.eta atol = 1e-10 rtol = 1e-10
+    @test_throws MethodError prepare_cox_data(sim.X, sim.time, sim.event; pseudocount = 1e-6)
 end
 
 @testset "posterior extraction and simulation summaries" begin

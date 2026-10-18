@@ -2,6 +2,26 @@ module T1DPartitionTests
 using Test
 include(joinpath(@__DIR__,"..","scripts","lib","realdata","t1d_review.jl"))
 
+@testset "T1D numerical controls survive partition setup" begin
+    input=joinpath(@__DIR__,"..","data","T1D.csv")
+    for explicit in (false,true)
+        mktempdir() do temp
+            args=Dict("input"=>input,"outdir"=>temp,"prior"=>"cox-rhs")
+            explicit && merge!(args,Dict("target-accept"=>"0.97","leapfrog"=>"350"))
+            root=t1d_prepare_specification(args)
+            prepared=t1d_partition_setup(root;input,smoke=true,create_manifest=true)
+            @test prepared.sampler[:warmup]==4000
+            @test prepared.sampler[:n_samples]==5000
+            @test prepared.sampler[:chains]==4
+            @test prepared.sampler[:target_accept]==(explicit ? 0.97 : 0.95)
+            @test prepared.sampler[:hmc_n_leapfrog]==(explicit ? 350 : 300)
+            changed=copy(prepared.spec);changed["target_accept"]=0.98
+            _write_tuning_json(joinpath(root,"analysis_specification.json"),changed)
+            @test_throws ErrorException t1d_partition_setup(root;input,smoke=true)
+        end
+    end
+end
+
 @testset "T1D partitioned folds match serial nested CV" begin
     input=joinpath(@__DIR__,"..","data","T1D.csv")
     df=CSV.read(input,DataFrame)
@@ -17,9 +37,9 @@ include(joinpath(@__DIR__,"..","scripts","lib","realdata","t1d_review.jl"))
                 "outer_folds"=>2,"inner_folds"=>2,"seed"=>1,"component_cols"=>cols)
             sampler=Dict(:sampler=>:hmc,:n_samples=>12,:warmup=>8,:chains=>2,:multichains=>true,
                 :target_accept=>0.9,:hmc_n_leapfrog=>3,:noncentered=>true,:progress=>false)
-            prior=Dict{Symbol,Any}(:alpha_prior_kind=>:invgamma,:alpha_prior_shape=>1.,:alpha_prior_scale=>size(X,2))
+            prior=Dict{Symbol,Any}(:alpha_prior_kind=>:invgamma,:alpha_prior_shape=>1.,:alpha_prior_scale=>size(X,2)+(adjusted ? size(C,2) : 0))
             car=Dict(:use_car=>false,:sample_car_strength=>false)
-            model=Dict{Symbol,Any}(:constraint=>:prox,:prox_sum0_lambda=>1e-6,:pseudocount=>1e-6,:standardize=>false,:p0=>nothing)
+            model=Dict{Symbol,Any}(:constraint=>:prox,:prox_sum0_lambda=>1e-6,:standardize=>false,:p0=>nothing)
             adjusted && merge!(model,Dict(:clinical_names=>cnames,:clinical_prior_df=>3.,:clinical_prior_scale=>2.5))
             grids=deepcopy(PRIOR_PARAM_GRIDS)
             grids[method]=[Dict{String,Any}((method=="cox-rhs" ? "rhs_local_scale" : "sslasso_spike_scale")=>0.5)]

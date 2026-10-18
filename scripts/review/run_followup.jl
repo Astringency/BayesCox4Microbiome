@@ -30,7 +30,7 @@ function followup_command(project, out, job)
         "sslasso-spike-scale" => .04, "sslasso-slab-scale" => .5,
         "sslasso-theta-a" => 1, "sslasso-theta-b" => 1,
         "rhs-slab-df" => 4, "rhs-slab-s2" => 2, "rhs-tau-scale" => 1, "rhs-local-scale" => 1,
-        "pseudocount" => 0, "standardize" => false, "weak-multiplier" => .35,
+        "standardize" => false, "weak-multiplier" => .35,
         "diagnose" => false, "progress" => false, "resume" => true,
         "sample-thin" => 1, "first-rep-sample-thin" => 1,
         "save-wide-csv" => true, "save-jld2" => false]

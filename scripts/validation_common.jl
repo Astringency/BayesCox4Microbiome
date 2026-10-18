@@ -8,8 +8,7 @@ end
 function _validation_design_matrix(
     X_train::AbstractMatrix,
     X_val::AbstractMatrix,
-    train_data::CoxPreparedData;
-    requested_pseudocount,
+    train_data::CoxPreparedData,
 )
     x = Matrix{Float64}(X_val)
     all(isfinite, x) || throw(ArgumentError("validation X must be finite."))
@@ -17,14 +16,8 @@ function _validation_design_matrix(
 
     z =
         if train_data.transform == :log
-            pc = requested_pseudocount === nothing ? train_data.pseudocount : Float64(requested_pseudocount)
-            if pc == 0.0
-                if any(iszero, x)
-                    replacement = train_data.pseudocount > 0 ? train_data.pseudocount : _training_zero_replacement(X_train)
-                    x[x .== 0.0] .= replacement
-                end
-            else
-                x .+= pc
+            if any(iszero, x)
+                x[x .== 0.0] .= _training_zero_replacement(X_train)
             end
             if train_data.closure
                 rowsums = vec(sum(x; dims = 2))

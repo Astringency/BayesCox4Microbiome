@@ -6,7 +6,7 @@ const ClinicalBC = BayesCox4Micro
     X = rand(rng, 18, 5); X ./= sum(X; dims = 2)
     time = Float64.(repeat(1:9, inner = 2)); event = repeat([1, 0, 1], 6)
     C = Float64.(rand(rng, 0:1, 18, 2))
-    data = prepare_cox_data(X, time, event; pseudocount = 0)
+    data = prepare_cox_data(X, time, event)
     for nc in (false, true), constraint in (:prox, :soft_center, :none)
         base = ClinicalBC._make_explicit_nuts_target(data, RegularizedHorseshoePrior();
             constraint, prox_sum0_lambda = 0.01, noncentered = nc)
@@ -63,7 +63,7 @@ end
         @test clinical_X[:, 2] == 200 .+ x[:, 1]
         return (ids = x[:, 1],)
     end
-    scoremock = function(fit, xt, xv, tv, ev; requested_pseudocount, clinical_X_val)
+    scoremock = function(fit, xt, xv, tv, ev; clinical_X_val)
         @test isempty(intersect(fit.ids, xv[:, 1]))
         @test clinical_X_val[:, 1] == 100 .+ xv[:, 1]
         return Dict("mean" => .7, "median" => .7, "MAP" => .7)
@@ -85,9 +85,9 @@ end
             n_samples = 12, warmup = 8, chains = 1, p0 = 2, hmc_n_leapfrog = 3,
             compute_metrics = false, seed = 25)
         scores = _validation_cindices(fit, X[1:18, :], X[19:end, :], collect(19.:24.), ones(Int, 6);
-            requested_pseudocount = 0., clinical_X_val = C[19:end, :])
+            clinical_X_val = C[19:end, :])
         @test all(v -> 0 <= v <= 1, values(scores))
         @test_throws ArgumentError _validation_cindices(fit, X[1:18, :], X[19:end, :],
-            collect(19.:24.), ones(Int, 6); requested_pseudocount = 0.)
+            collect(19.:24.), ones(Int, 6))
     end
 end

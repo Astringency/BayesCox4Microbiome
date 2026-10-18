@@ -4,8 +4,8 @@
 # Publication-quality MCMC diagnostic plots for BayesCox simulation runs.
 #
 # Generates, for each discovered scenario and method:
-#   Figure 1: ACF + R-hat convergence diagnostics for one replicate
-#   Figure 2: Trace + density plots for nonzero coefficients for one replicate
+#   Figure 1a: trace + density + ACF, one nonzero coefficient per row
+#   Figure 1b: R-hat + bulk ESS + tail ESS for all coefficients in one fit
 #   Figure 3: Coefficient-sum distribution across available replicates
 #   Figure 4: Coefficient-sum distribution across posterior samples for one replicate
 #
@@ -60,12 +60,16 @@ usage <- function() {
     "  --root ROOT              One simulation result root.\n",
     "  --roots ROOT1,ROOT2      Comma-separated simulation result roots.\n",
     "  --output-dir DIR         Override output directory for a single root.\n",
-    "  --rep N                  Replicate used for ACF/trace/sample-sum plots. Default: 1.\n",
+    "  --rep N|all              Replicate to plot (default 1), or every saved fit.\n",
+    "  --manifest CSV           Audited diagnostics_by_run.csv, including split batches.\n",
+    "  --suite NAME             Optional manifest suite filter (main/supplementary).\n",
+    "  --cells A,B              Optional exact manifest cell IDs.\n",
+    "  --shard I/N              Optional disjoint cell shard for batch rendering.\n",
     "  --sum-reps N             Maximum replicate count for Figure 3 coefficient sums. Default: 50.\n",
     "  --methods m1,m2          Optional method filter.\n",
     "  --scenarios s1,s2        Optional scenario directory/name filter.\n",
     "  --acf-max-lag N          Maximum ACF lag. Default: 50.\n",
-    "  --rhat-threshold X       R-hat threshold. Default: 1.1.\n",
+    "  R-hat reference lines are fixed at 1.01 and 1.1; ESS at 400.\n",
     "  --dry-run                Print discovered work without writing plots.\n",
     "  --help                   Show this message.\n",
     sep = ""
@@ -77,7 +81,7 @@ if (arg_flag("help")) {
   quit(status = 0)
 }
 
-needed <- c("ggplot2", "data.table", "dplyr", "viridis", "patchwork", "cowplot")
+needed <- c("ggplot2", "data.table", "patchwork")
 missing_pkgs <- needed[!vapply(needed, requireNamespace, logical(1), quietly = TRUE)]
 if (length(missing_pkgs) > 0) {
   stop("Missing R packages: ", paste(missing_pkgs, collapse = ", "), call. = FALSE)
@@ -86,10 +90,7 @@ if (length(missing_pkgs) > 0) {
 suppressPackageStartupMessages({
   library(ggplot2)
   library(data.table)
-  library(dplyr)
-  library(viridis)
   library(patchwork)
-  library(cowplot)
 })
 
 DEFAULT_ROOT <- file.path("results", "simulation")
@@ -98,10 +99,12 @@ if (length(ROOTS) == 0) {
   ROOTS <- DEFAULT_ROOT
 }
 
-FOCUS_REP <- as.integer(arg_value("rep", "1"))
+REP_ARG <- arg_value("rep", "1")
+ALL_REPS <- identical(REP_ARG,"all")
+FOCUS_REP <- if(ALL_REPS) 1L else as.integer(REP_ARG)
+MANIFEST <- arg_value("manifest", NULL)
 SUM_REPS <- as.integer(arg_value("sum-reps", "50"))
 ACF_MAX_LAG <- as.integer(arg_value("acf-max-lag", "50"))
-RHAT_THRESHOLD <- as.numeric(arg_value("rhat-threshold", "1.1"))
 METHOD_FILTER <- split_csv(arg_value("methods", ""))
 SCENARIO_FILTER <- split_csv(arg_value("scenarios", ""))
 OUTPUT_DIR_OVERRIDE <- arg_value("output-dir", NULL)
@@ -116,10 +119,7 @@ if (is.na(SUM_REPS) || SUM_REPS < 1) {
 if (is.na(ACF_MAX_LAG) || ACF_MAX_LAG < 1) {
   stop("--acf-max-lag must be a positive integer.", call. = FALSE)
 }
-if (is.na(RHAT_THRESHOLD) || RHAT_THRESHOLD <= 0) {
-  stop("--rhat-threshold must be positive.", call. = FALSE)
-}
-if (!is.null(OUTPUT_DIR_OVERRIDE) && length(ROOTS) != 1) {
+if (is.null(MANIFEST) && !is.null(OUTPUT_DIR_OVERRIDE) && length(ROOTS) != 1) {
   stop("--output-dir can only be used with one --root.", call. = FALSE)
 }
 
@@ -273,11 +273,10 @@ run_dir <- function(data_root, sc_dir, method, baseline, n, p, nz, rep_id) {
 }
 
 load_diagnostics <- function(data_root, sc_dir, method, baseline, n, p, nz, rep_id) {
-  diag_path <- file.path(
-    run_dir(data_root, sc_dir, method, baseline, n, p, nz, rep_id),
-    "diagnose",
-    "diagnostics_summary.csv"
-  )
+  run <- run_dir(data_root, sc_dir, method, baseline, n, p, nz, rep_id)
+  candidates <- file.path(run,c("rank_diagnostics.csv","diagnose/diagnostics_summary.csv"))
+  diag_path <- candidates[file.exists(candidates)][1]
+  if(is.na(diag_path)) stop("No saved coefficient diagnostics: ",run)
   if (!file.exists(diag_path)) {
     stop(sprintf("Diagnostics file not found: %s", diag_path))
   }
@@ -288,6 +287,20 @@ load_diagnostics <- function(data_root, sc_dir, method, baseline, n, p, nz, rep_
   diag
 }
 
+normalize_posterior <- function(post, run) {
+  if(!"variable" %in% names(post) && "parameters" %in% names(post))
+    setnames(post,"parameters","variable")
+  truth_file <- file.path(run,"coefficient_audit.csv")
+  if(!"true_beta" %in% names(post) && file.exists(truth_file)) {
+    truth <- fread(truth_file)
+    stopifnot(all(c("taxon","true_beta") %in% names(truth)))
+    truth[,variable:=paste0("beta[",taxon,"]")]
+    stopifnot(!anyDuplicated(truth$variable))
+    post[,true_beta:=truth$true_beta[match(variable,truth$variable)]]
+  }
+  post
+}
+
 load_posterior <- function(data_root, sc_dir, method, baseline, n, p, nz, rep_id) {
   post_path <- file.path(
     run_dir(data_root, sc_dir, method, baseline, n, p, nz, rep_id),
@@ -296,7 +309,7 @@ load_posterior <- function(data_root, sc_dir, method, baseline, n, p, nz, rep_id
   if (!file.exists(post_path)) {
     stop(sprintf("Posterior file not found: %s", post_path))
   }
-  fread(post_path)
+  normalize_posterior(fread(post_path),dirname(post_path))
 }
 
 load_samples <- function(data_root, sc_dir, method, baseline, n, p, nz, rep_id, nonzero_idx) {
@@ -309,11 +322,11 @@ load_samples <- function(data_root, sc_dir, method, baseline, n, p, nz, rep_id, 
   }
 
   beta_cols <- paste0("beta[", nonzero_idx, "]")
-  select_cols <- c("chain", "iter", "draw", beta_cols)
+  select_cols <- c("chain", "iter", intersect("draw",names(fread(samples_path,nrows=0))), beta_cols)
   samples <- fread(samples_path, select = select_cols)
   melt(
     samples,
-    id.vars = c("chain", "iter", "draw"),
+    id.vars = intersect(c("chain", "iter", "draw"),names(samples)),
     measure.vars = beta_cols,
     variable.name = "parameter",
     value.name = "value"
@@ -328,7 +341,7 @@ compute_acf <- function(samples, max_lag = ACF_MAX_LAG) {
 
   for (ch in chains) {
     for (par_name in params) {
-      vals <- samples[chain == ch & parameter == par_name]$value
+      vals <- samples[chain == ch & parameter == par_name][order(iter)]$value
       acf_obj <- acf(vals, lag.max = max_lag, plot = FALSE)
       acf_list[[idx]] <- data.frame(
         chain = ch,
@@ -526,171 +539,9 @@ publication_theme <- function(base_size = PLOT_BASE_SIZE) {
     )
 }
 
-plot_acf_rhat <- function(diag, acf_data, p_dim) {
-  n_above <- sum(diag$rhat > RHAT_THRESHOLD, na.rm = TRUE)
-
-  p_rhat <- ggplot(diag, aes(x = seq_along(rhat), y = rhat)) +
-    geom_point(aes(color = rhat > RHAT_THRESHOLD), size = 2, alpha = 0.7) +
-    geom_hline(
-      yintercept = RHAT_THRESHOLD,
-      linetype = "dashed",
-      color = "#D55E00",
-      linewidth = 0.7
-    ) +
-    scale_color_manual(
-      values = c("TRUE" = "#D55E00", "FALSE" = "#009E73"),
-      labels = c("TRUE" = sprintf("> %.1f", RHAT_THRESHOLD), "FALSE" = sprintf("<= %.1f", RHAT_THRESHOLD)),
-      name = NULL
-    ) +
-    annotate(
-      "text",
-      x = Inf,
-      y = Inf,
-      hjust = 1.1,
-      vjust = 1.5,
-      label = sprintf("p = %d | %d above %.1f", p_dim, n_above, RHAT_THRESHOLD),
-      size = 4.0,
-      fontface = "italic",
-      family = PLOT_FONT_FAMILY,
-      colour = PLOT_TEXT_COLOUR
-    ) +
-    labs(x = "Parameter index", y = expression(hat(R))) +
-    publication_theme() +
-    theme(legend.position = "bottom")
-
-  p_acf <- ggplot(acf_data, aes(x = lag, y = acf, color = factor(chain))) +
-    geom_hline(yintercept = 0, linetype = "dotted", linewidth = 0.3, color = "grey50") +
-    geom_line(linewidth = 0.4) +
-    facet_wrap(
-      ~parameter,
-      ncol = 3,
-      scales = "free_y",
-      labeller = labeller(parameter = function(x) beta_symbol_label(parameter_index(x)))
-    ) +
-    scale_color_viridis_d(name = "Chain", option = "D") +
-    labs(x = "Lag", y = "Autocorrelation") +
-    publication_theme() +
-    theme(
-      legend.position = "bottom",
-      legend.key.size = grid::unit(0.4, "cm"),
-      strip.text = element_text(
-        size = 9.5,
-        family = PLOT_FONT_FAMILY,
-        face = "italic",
-        colour = PLOT_TEXT_COLOUR
-      )
-    )
-
-  plot_grid(
-    p_rhat,
-    p_acf,
-    ncol = 2,
-    rel_widths = c(0.8, 2),
-    labels = c("(a)", "(b)"),
-    label_size = 14,
-    label_fontfamily = PLOT_FONT_FAMILY,
-    label_colour = PLOT_TEXT_COLOUR
-  )
-}
-
-plot_trace_density <- function(samples, posterior) {
-  nonzero_params <- posterior_nonzero(posterior)
-  n_nz <- nrow(nonzero_params)
-
-  if (n_nz == 0) {
-    warning("No nonzero coefficients found.", call. = FALSE)
-    return(NULL)
-  }
-
-  plot_list <- vector("list", n_nz)
-  true_values <- if ("true_beta" %in% names(nonzero_params)) {
-    numeric_vector(nonzero_params$true_beta)
-  } else {
-    rep(NA_real_, n_nz)
-  }
-  post_means <- numeric_vector(nonzero_params$mean)
-  for (i in seq_len(n_nz)) {
-    param_name <- nonzero_params$variable[[i]]
-    param_label <- beta_symbol_label(nonzero_params$beta_index[[i]])
-    true_val <- true_values[[i]]
-    post_mean <- post_means[[i]]
-    param_samples <- samples[parameter == param_name & is.finite(value)]
-    if (nrow(param_samples) == 0) {
-      warning(sprintf("Skipping %s: no finite samples.", param_name), call. = FALSE)
-      next
-    }
-
-    val_range <- range(param_samples$value, na.rm = TRUE)
-    x_pad <- diff(val_range) * 0.1
-    if (!is.finite(x_pad) || x_pad == 0) {
-      x_pad <- 0.1
-    }
-    range_values <- c(val_range, true_val, post_mean)
-    range_values <- range_values[is.finite(range_values)]
-    x_lim <- c(min(range_values) - x_pad, max(range_values) + x_pad)
-    true_hline <- if (is.finite(true_val)) {
-      geom_hline(yintercept = true_val, linetype = "dashed", color = "#D55E00", linewidth = 0.4)
-    } else {
-      NULL
-    }
-    true_vline <- if (is.finite(true_val)) {
-      geom_vline(xintercept = true_val, linetype = "dashed", color = "#D55E00", linewidth = 0.4)
-    } else {
-      NULL
-    }
-
-    p_trace <- ggplot(param_samples, aes(x = iter, y = value, color = factor(chain))) +
-      geom_line(linewidth = 0.15, alpha = 0.5) +
-      true_hline +
-      geom_hline(yintercept = post_mean, linetype = "dotted", color = "#009E73", linewidth = 0.4) +
-      annotate(
-        "label",
-        x = -Inf,
-        y = Inf,
-        hjust = -0.05,
-        vjust = 1.15,
-        label = param_label,
-        size = 3.2,
-        fontface = "italic",
-        family = PLOT_FONT_FAMILY,
-        colour = PLOT_TEXT_COLOUR,
-        label.size = 0.15,
-        fill = "white",
-        alpha = 0.9
-      ) +
-      scale_color_viridis_d(option = "D") +
-      labs(x = NULL, y = NULL) +
-      coord_cartesian(ylim = x_lim) +
-      publication_theme(PLOT_SMALL_BASE_SIZE) +
-      theme(
-        legend.position = "none",
-        axis.text.x = element_blank(),
-        axis.ticks.x = element_blank(),
-        panel.grid.minor = element_blank()
-      )
-
-    p_dens <- ggplot(param_samples, aes(x = value, color = factor(chain), fill = factor(chain))) +
-      geom_density(alpha = 0.35, linewidth = 0.4) +
-      scale_color_viridis_d(option = "D") +
-      scale_fill_viridis_d(option = "D") +
-      true_vline +
-      geom_vline(xintercept = post_mean, linetype = "dotted", color = "#009E73", linewidth = 0.4) +
-      labs(x = NULL, y = "Density") +
-      coord_cartesian(xlim = x_lim) +
-      publication_theme(PLOT_SMALL_BASE_SIZE) +
-      theme(legend.position = "none", panel.grid.minor = element_blank())
-
-    plot_list[[i]] <- p_trace / p_dens +
-      plot_layout(heights = c(1, 0.55))
-  }
-
-  plot_list <- Filter(Negate(is.null), plot_list)
-  if (length(plot_list) == 0) {
-    warning("No trace/density panels could be built.", call. = FALSE)
-    return(NULL)
-  }
-  wrap_plots(plot_list, ncol = if (n_nz <= 6) 3 else 4)
-}
+script_arg <- grep("^--file=",commandArgs(),value=TRUE)[1]
+script_dir <- dirname(normalizePath(sub("^--file=","",script_arg),mustWork=TRUE))
+source(file.path(script_dir,"lib","plotting","simulation_figures.R"))
 
 plot_coef_sum <- function(sum_values) {
   if (length(sum_values) < 2) {
@@ -771,9 +622,14 @@ plot_coef_sum <- function(sum_values) {
 }
 
 save_pdf_png <- function(plot, output_root, width, height, units = "mm", dpi = 300) {
-  pdf_device <- if (capabilities("cairo")) grDevices::cairo_pdf else "pdf"
+  if(!capabilities("cairo")) stop("Cairo is required for embedded Times New Roman text and mathematics.")
+  pdf_device <- function(...) grDevices::cairo_pdf(...,family=PLOT_FONT_FAMILY,
+    symbolfamily=grDevices::cairoSymbolFont(PLOT_FONT_FAMILY,usePUA=FALSE))
   ggsave(paste0(output_root, ".pdf"), plot, width = width, height = height, units = units, device = pdf_device)
-  ggsave(paste0(output_root, ".png"), plot, width = width, height = height, units = units, dpi = dpi)
+  # ggsave passes inches to a custom device; png otherwise interprets pixels.
+  png_device <- function(...) grDevices::png(...,units="in",res=dpi,type="cairo",family=PLOT_FONT_FAMILY,
+    symbolfamily=grDevices::cairoSymbolFont(PLOT_FONT_FAMILY,usePUA=FALSE))
+  ggsave(paste0(output_root, ".png"), plot, width = width, height = height, units = units, dpi = dpi, device=png_device)
 }
 
 process_item <- function(data_root, output_dir, item) {
@@ -798,21 +654,25 @@ process_item <- function(data_root, output_dir, item) {
   sum_vals <- load_replicate_sums(data_root, sc_dir, method, baseline, n, p, nz)
   sample_sum_vals <- load_sample_sums(data_root, sc_dir, method, baseline, n, p, nz, FOCUS_REP)
 
-  out_subdir <- file.path(output_dir, sc_label, method)
+  out_parent <- file.path(output_dir, sc_label, method)
+  out_subdir <- file.path(out_parent, sprintf("rep%04d", FOCUS_REP))
   dir.create(out_subdir, showWarnings = FALSE, recursive = TRUE)
 
-  fig1 <- plot_acf_rhat(diag, acf_data, p)
-  save_pdf_png(fig1, file.path(out_subdir, "fig01_acf_rhat"), width = 246, height = 135)
+  fwrite(diag,file.path(out_subdir,"coefficient_diagnostics.csv"))
+  fwrite(acf_data,file.path(out_subdir,"acf_values.csv"))
+  fwrite(nz_params,file.path(out_subdir,"nonzero_truth.csv"))
+  fig1 <- plot_rhat_ess(diag, p)
+  save_pdf_png(fig1, file.path(out_subdir, "fig01_rhat_ess"), width = 280, height = 105)
 
-  fig2 <- plot_trace_density(samples, post)
+  fig2 <- plot_trace_density_acf(samples, post, acf_data)
   if (!is.null(fig2)) {
-    fig2_h <- if (length(nz_idx) <= 6) 170 else if (length(nz_idx) <= 8) 230 else 270
-    save_pdf_png(fig2, file.path(out_subdir, "fig02_trace_density"), width = 180, height = fig2_h)
+    fig2_h <- 24 + length(nz_idx) * 40
+    save_pdf_png(fig2, file.path(out_subdir, "fig01_trace_density_acf"), width = 280, height = fig2_h)
   }
 
   if (length(sum_vals) >= 2) {
     fig3 <- plot_coef_sum(sum_vals)
-    save_pdf_png(fig3, file.path(out_subdir, "fig03_coef_sum"), width = 155, height = 105)
+    save_pdf_png(fig3, file.path(out_parent, "fig03_coef_sum"), width = 155, height = 105)
   } else {
     warning(
       sprintf(
@@ -909,6 +769,12 @@ process_root <- function(data_root, output_dir = NULL) {
   data.table(root = data_root, success = total_success, errors = total_error)
 }
 
+if(!is.null(MANIFEST)) {
+  source(file.path(script_dir,"lib","plotting","simulation_manifest.R"))
+  process_manifest(MANIFEST, OUTPUT_DIR_OVERRIDE)
+  quit(status=0)
+}
+if(ALL_REPS) stop("--rep all requires --manifest, so repeated fits cannot overwrite one another.")
 expanded_roots <- unique(unlist(lapply(ROOTS, expand_roots), use.names = FALSE))
 expanded_roots <- expanded_roots[nzchar(expanded_roots)]
 if (length(expanded_roots) == 0) {

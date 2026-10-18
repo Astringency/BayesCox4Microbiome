@@ -34,7 +34,7 @@ for constraint in "${constraint_vals[@]}"; do
         --prox-root-tol 1e-10 --prox-root-maxiter 100 --alpha-prior-kind invgamma --alpha-prior-shape 1 --alpha-prior-scale "$p" \
         --rhs-slab-df 4 --rhs-slab-s2 2 --rhs-tau-scale 1 --rhs-local-scale 1 --hs-tau-scale 1 --hs-local-scale 1 \
         --lasso-lambda2-shape 1 --lasso-lambda2-rate 0.1 --sslasso-spike-scale 0.04 --sslasso-slab-scale 0.5 \
-        --sslasso-theta-a 1 --sslasso-theta-b 1 --pseudocount 0 --standardize false \
+        --sslasso-theta-a 1 --sslasso-theta-b 1 --standardize false \
         --mala-step-size "${MALA_STEP_SIZE:-1e-4}" --mala-precondition false --mala-adapt-every 50 --mala-stepsize-schedule adaptive_sgld \
         --diagnose "${DIAGNOSE:-true}" --diagnose-format pdf --diagnose-top-k-beta 12 --diagnose-max-lag 36 \
         --resume true --plot-first-rep-only true --sample-thin "${SAMPLE_THIN:-10}" --first-rep-sample-thin 1 \

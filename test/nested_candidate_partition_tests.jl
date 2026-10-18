@@ -8,7 +8,7 @@ include(joinpath(@__DIR__,"..","scripts","tune_hyperparams_cindex.jl"))
         calls[]+=1
         (ids=Int.(x[:,1]),value=kwargs[:rhs_local_scale])
     end
-    score=(f,xt,xv,tv,ev;requested_pseudocount)->begin
+    score=(f,xt,xv,tv,ev)->begin
         @test isempty(intersect(f.ids,Int.(xv[:,1])))
         Dict("mean"=>f.value/3,"median"=>f.value/3,"MAP"=>f.value/3)
     end
