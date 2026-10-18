@@ -16,7 +16,6 @@ function _adaptive_mh(
     progress::Bool,
     progress_desc::AbstractString = "MH sampling",
     progress_offset::Integer = 0,
-    logpost_true::Function = logpost,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -61,12 +60,10 @@ function _adaptive_mh(
         end
         prop = u .+ global_scale .* noise
         prop_lp = logpost(prop)
-        prop_lp_true = logpost_true(prop)
-        current_lp_true = logpost_true(u)
-        accepted = isfinite(prop_lp) && isfinite(prop_lp_true) && log(rand(rng)) < prop_lp_true - current_lp_true
+        accepted = isfinite(prop_lp) && log(rand(rng)) < prop_lp - current_lp
         if accepted
             u = prop
-            current_lp = prop_lp  # approximate, for proposal tuning
+            current_lp = prop_lp
             if iter <= warmup
                 accept_warmup += 1
                 accept_window += 1
@@ -132,7 +129,6 @@ function _sample_mh(
     progress::Bool = true,
     progress_desc::AbstractString = "MH sampling",
     progress_offset::Integer = 0,
-    approx = nothing,
 )
     p = size(data.z, 2)
     n_events = count(!=(0), data.event)
@@ -194,22 +190,6 @@ function _sample_mh(
         car_strength_prior_b = car_strength_prior_b,
         car_degree_scale = car_degree_scale,
         car_kappa_init = car_kappa_init,
-        approx = approx,
-    )
-    logpost_true = u -> logposterior(
-        u,
-        data,
-        prior;
-        constraint = resolved_constraint,
-        prox_sum0_lambda = prox_sum0_lambda,
-        car_weights = car_weights,
-        use_car = use_car,
-        car_precision = car_precision,
-        sample_car_strength = sample_car_strength,
-        car_strength_prior_a = car_strength_prior_a,
-        car_strength_prior_b = car_strength_prior_b,
-        car_degree_scale = car_degree_scale,
-        car_kappa_init = car_kappa_init,
     )
     return _adaptive_mh(
         logpost,
@@ -229,6 +209,5 @@ function _sample_mh(
         progress = progress,
         progress_desc = progress_desc,
         progress_offset = progress_offset,
-        logpost_true = logpost_true,
     )
 end

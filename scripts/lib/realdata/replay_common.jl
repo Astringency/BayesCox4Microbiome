@@ -114,8 +114,6 @@ function metadata_kwargs(meta; samples::Int, warmup::Int, chains::Int, seed::Int
         :constraint => Symbol(get(meta, "constraint", "soft_center")),
         :prox_sum0_lambda => Float64(get(meta, "prox_sum0_lambda", 1e-6)),
         :progress => false,
-        :approx => false,
-        :approx_point => :zero,
         :realdata => true,
     )
     for key in PRIOR_KEYS

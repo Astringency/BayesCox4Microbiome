@@ -38,7 +38,7 @@ COMMON=(
     --car-strength-prior-b 1.0 --car-degree-scale mean_active --car-kappa-init 0.5
     --p0 auto --p0-alpha 0.05 --constraint "$constraint"
     --prox-sum0-lambda 1e-6 --standardize false
-    --tie-method efron --approx false --approx-point zero
+    --tie-method efron
     --diagnose true --diagnose-format pdf --diagnose-top-k-beta 10
     --diagnose-max-lag 50 --tune_priorsparams false --tune_algparams false
     --cv-folds 5 --tune-seed 42

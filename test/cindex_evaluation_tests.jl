@@ -11,6 +11,25 @@ if !isdefined(@__MODULE__, :evaluate_nested_cindex)
     include(joinpath(@__DIR__, "..", "scripts", "tune_hyperparams_cindex.jl"))
 end
 
+@testset "Cox approximation CLI options are rejected" begin
+    for (key, value) in (("approx", "false"), ("approx", "true"), ("approx-point", "zero"))
+        @test_throws ArgumentError require_known_args!(Dict(key => value), COMMON_ANALYSIS_CLI_KEYS)
+    end
+end
+
+@testset "Analysis forwards only sampler-specific options" begin
+    X = [0.2 0.8; 0.4 0.6; 0.7 0.3; 0.5 0.5]
+    time, event = [1., 2., 2., 4.], [1, 1, 0, 1]
+    for sampler in (:hmc, :mala, :ula, :gibbs)
+        fit = fit_and_evaluate(X, time, event;
+            prior_name = "cox-rhs", p0 = 1, sampler, n_samples = 2, warmup = 1,
+            chains = 1, multichains = false, hmc_n_leapfrog = 2,
+            seed = 42, progress = false, compute_metrics = false)
+        @test size(fit.draws) == (2, 2)
+        @test all(isfinite, posterior_logposterior_draws(fit.result))
+    end
+end
+
 @testset "zero handling is fixed in CLI and resume metadata" begin
     @test !hasproperty(cox_model_cli_options(Dict{String,String}()), :pseudocount)
     for value in ("0", "1e-6")

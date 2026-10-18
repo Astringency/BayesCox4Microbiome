@@ -31,8 +31,9 @@ end
     time=collect(1.:6.); event=[1,1,0,1,1,0]
     prior=SpikeSlabLassoPrior(spike_scale=.04, slab_scale=.5, proximal=true)
     for sampler in (:hmc, :nuts_explicit), constraint in (:prox, :exact)
+        sampler_kwargs = sampler == :hmc ? (; hmc_n_leapfrog=3) : NamedTuple()
         fit=sample_bayes_cox(X,time,event; prior, sampler, constraint, seed=4,
-            n_samples=16, warmup=8, chains=1, hmc_n_leapfrog=3, progress=false,
+            n_samples=16, warmup=8, chains=1, sampler_kwargs..., progress=false,
             prox_l1_lambda=1e-4, prox_sum0_lambda=1e-3, alpha_prior_shape=1.,alpha_prior_scale=3.)
         sample=fit.samples
         gamma=fill(true,3); theta=Ref(.5)

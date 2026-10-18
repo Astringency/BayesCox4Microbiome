@@ -360,9 +360,6 @@ function sample_bayes_cox(
     car_kappa_init::Real = 0.5,
     noncentered::Bool = false,
     init::Symbol = :zero,
-    approx::Bool = false,
-    approx_point::Symbol = :zero,
-    cox_estimate_l2_cost::Real = 0.0,
     glmnet_lambda_path = nothing,
     kwargs...,
 )
@@ -404,9 +401,6 @@ function sample_bayes_cox(
         car_kappa_init = car_kappa_init,
         noncentered = noncentered,
         init = init,
-        approx = approx,
-        approx_point = approx_point,
-        cox_estimate_l2_cost = cox_estimate_l2_cost,
         glmnet_lambda_path = glmnet_lambda_path,
         kwargs...,
     )
@@ -432,9 +426,6 @@ function sample_bayes_cox(
     car_kappa_init::Real = 0.5,
     noncentered::Bool = false,
     init::Symbol = :zero,
-    approx::Bool = false,
-    approx_point::Symbol = :zero,
-    cox_estimate_l2_cost::Real = 0.0,
     glmnet_lambda_path = nothing,
     kwargs...,
 )
@@ -484,31 +475,6 @@ function sample_bayes_cox(
             throw(ArgumentError("constraint=:exact supports HS/RHS and proximal SSLASSO"))
     end
 
-    approx_obj = nothing
-    if approx
-        p = size(data.z, 2)
-        if approx_point == :zero
-            approx_obj = CoxApproximation(data, :zero)
-            build_cox_approximation!(approx_obj, data, zeros(p), :zero)
-        elseif approx_point == :PMLE
-            try
-                event_time = Survival.EventTime.(data.time, data.event .!= 0)
-                fit = Survival.coxph(data.z, event_time; tol = 1e-4, l2_cost = cox_estimate_l2_cost)
-                beta_pmle = Survival.coef(fit)
-                approx_obj = CoxApproximation(data, :PMLE)
-                build_cox_approximation!(approx_obj, data, beta_pmle, :PMLE)
-            catch e
-                @warn "PMLE fit failed: $e. Falling back to expansion at zero."
-                approx_obj = CoxApproximation(data, :zero)
-                build_cox_approximation!(approx_obj, data, zeros(p), :zero)
-            end
-        elseif approx_point == :previous
-            approx_obj = CoxApproximation(data, :previous)
-        else
-            throw(ArgumentError("approx_point must be :zero, :PMLE, or :previous; got $approx_point"))
-        end
-        @info "Cox approximation enabled" approx_point = approx_point p = p
-    end
     chain_count = chains === nothing ? (effective_sampler == :nuts ? nothing : 1) : Int(chains)
     chain_count !== nothing && chain_count <= 0 && throw(ArgumentError("chains must be positive."))
     if effective_sampler == :nuts
@@ -529,7 +495,6 @@ function sample_bayes_cox(
                         car_degree_scale = car_degree_scale,
                         car_kappa_init = car_kappa_init,
                         noncentered = noncentered,
-                        approx = approx_obj,
                         kwargs...,
                     )
                 else
@@ -548,7 +513,6 @@ function sample_bayes_cox(
                         car_degree_scale = car_degree_scale,
                         car_kappa_init = car_kappa_init,
                         noncentered = noncentered,
-                        approx = approx_obj,
                         kwargs...,
                     )
                 end
@@ -569,7 +533,6 @@ function sample_bayes_cox(
                         car_degree_scale = car_degree_scale,
                         car_kappa_init = car_kappa_init,
                         noncentered = noncentered,
-                        approx = approx_obj,
                         kwargs...,
                     )
                 else
@@ -589,7 +552,6 @@ function sample_bayes_cox(
                         car_degree_scale = car_degree_scale,
                         car_kappa_init = car_kappa_init,
                         noncentered = noncentered,
-                        approx = approx_obj,
                         kwargs...,
                     )
                 end
@@ -613,7 +575,6 @@ function sample_bayes_cox(
             car_degree_scale = car_degree_scale,
             car_kappa_init = car_kappa_init,
             noncentered = noncentered,
-            approx = approx_obj,
             kwargs...,
         )
         samples = sampled.samples
@@ -634,7 +595,6 @@ function sample_bayes_cox(
             car_strength_prior_b = car_strength_prior_b,
             car_degree_scale = car_degree_scale,
             car_kappa_init = car_kappa_init,
-            approx = approx_obj,
             kwargs...,
         )
         samples = timed.value
@@ -665,7 +625,6 @@ function sample_bayes_cox(
             car_strength_prior_b = car_strength_prior_b,
             car_degree_scale = car_degree_scale,
             car_kappa_init = car_kappa_init,
-            approx = approx_obj,
             kwargs...,
         )
         samples = timed.value
@@ -696,7 +655,6 @@ function sample_bayes_cox(
             car_strength_prior_b = car_strength_prior_b,
             car_degree_scale = car_degree_scale,
             car_kappa_init = car_kappa_init,
-            approx = approx_obj,
             kwargs...,
         )
         samples = timed.value
@@ -724,7 +682,6 @@ function sample_bayes_cox(
                     rng = rng,
                     init = init,
                     multichains = multichains,
-                    approx = approx_obj,
                     kwargs...,
                 )
             else
@@ -743,7 +700,6 @@ function sample_bayes_cox(
                     car_strength_prior_b = car_strength_prior_b,
                     car_degree_scale = car_degree_scale,
                     car_kappa_init = car_kappa_init,
-                    approx = approx_obj,
                     kwargs...,
                 )
             end
@@ -801,10 +757,9 @@ function _sample_mh_chains(
     rng::AbstractRNG,
     multichains::Bool = false,
     progress::Bool = true,
-    approx = nothing,
     kwargs...,
 )
-    chains == 1 && return _sample_mh(data, prior; rng = rng, progress = progress, approx = approx, kwargs...)
+    chains == 1 && return _sample_mh(data, prior; rng = rng, progress = progress, kwargs...)
     samples = Vector{MHSamples}(undef, chains)
     rngs = [_independent_rng(rng) for _ in 1:chains]
     if multichains
@@ -818,14 +773,13 @@ function _sample_mh_chains(
                 progress = progress,
                 progress_desc = _chain_progress_desc("MH sampling", c, chains),
                 progress_offset = _chain_progress_offset(c, chains),
-                approx = approx,
                 kwargs...,
             )
         end
     else
         for c in 1:chains
             @info "Running MH chain $c/$chains"
-            samples[c] = _sample_mh(data, prior; rng = rngs[c], progress = progress, approx = approx, kwargs...)
+            samples[c] = _sample_mh(data, prior; rng = rngs[c], progress = progress, kwargs...)
         end
     end
     return MultiMHSamples(samples)
@@ -838,10 +792,9 @@ function _sample_mala_chains(
     rng::AbstractRNG,
     multichains::Bool = false,
     progress::Bool = true,
-    approx = nothing,
     kwargs...,
 )
-    chains == 1 && return _sample_mala(data, prior; rng = rng, progress = progress, approx = approx, kwargs...)
+    chains == 1 && return _sample_mala(data, prior; rng = rng, progress = progress, kwargs...)
     samples = Vector{MHSamples}(undef, chains)
     rngs = [_independent_rng(rng) for _ in 1:chains]
     if multichains
@@ -855,14 +808,13 @@ function _sample_mala_chains(
                 progress = progress,
                 progress_desc = _chain_progress_desc("MALA sampling", c, chains),
                 progress_offset = _chain_progress_offset(c, chains),
-                approx = approx,
                 kwargs...,
             )
         end
     else
         for c in 1:chains
             @info "Running MALA chain $c/$chains"
-            samples[c] = _sample_mala(data, prior; rng = rngs[c], progress = progress, approx = approx, kwargs...)
+            samples[c] = _sample_mala(data, prior; rng = rngs[c], progress = progress, kwargs...)
         end
     end
     return MultiMHSamples(samples)
@@ -875,10 +827,9 @@ function _sample_ula_chains(
     rng::AbstractRNG,
     multichains::Bool = false,
     progress::Bool = true,
-    approx = nothing,
     kwargs...,
 )
-    chains == 1 && return _sample_ula(data, prior; rng = rng, progress = progress, approx = approx, kwargs...)
+    chains == 1 && return _sample_ula(data, prior; rng = rng, progress = progress, kwargs...)
     samples = Vector{MHSamples}(undef, chains)
     rngs = [_independent_rng(rng) for _ in 1:chains]
     if multichains
@@ -892,14 +843,13 @@ function _sample_ula_chains(
                 progress = progress,
                 progress_desc = _chain_progress_desc("ULA sampling", c, chains),
                 progress_offset = _chain_progress_offset(c, chains),
-                approx = approx,
                 kwargs...,
             )
         end
     else
         for c in 1:chains
             @info "Running ULA chain $c/$chains"
-            samples[c] = _sample_ula(data, prior; rng = rngs[c], progress = progress, approx = approx, kwargs...)
+            samples[c] = _sample_ula(data, prior; rng = rngs[c], progress = progress, kwargs...)
         end
     end
     return MultiMHSamples(samples)
@@ -932,7 +882,6 @@ function _sample_gibbs_chains(
     prox_block_divergence_threshold::Real = 1000.0,
     prox_block_metric = :unit_diag,
     parallel_chains::Union{Nothing,Bool} = nothing,
-    approx = nothing,
     kwargs...,
 )
     resolved_constraint = _resolve_constraint(constraint)
@@ -966,7 +915,7 @@ function _sample_gibbs_chains(
             kwargs...,
         ).samples
     end
-    chains == 1 && return _sample_ssl_gibbs(data, prior; rng = rng, chains = 1, progress = progress, n_samples = n_samples, warmup = warmup, thin = thin, target_accept = target_accept, constraint = resolved_constraint, prox_sum0_lambda = prox_sum0_lambda, approx = approx, kwargs...)
+    chains == 1 && return _sample_ssl_gibbs(data, prior; rng = rng, chains = 1, progress = progress, n_samples = n_samples, warmup = warmup, thin = thin, target_accept = target_accept, constraint = resolved_constraint, prox_sum0_lambda = prox_sum0_lambda, kwargs...)
     samples = Vector{MHSamples}(undef, chains)
     rngs = [_independent_rng(rng) for _ in 1:chains]
     if multichains
@@ -987,14 +936,13 @@ function _sample_gibbs_chains(
                 target_accept = target_accept,
                 constraint = resolved_constraint,
                 prox_sum0_lambda = prox_sum0_lambda,
-                approx = approx,
                 kwargs...,
             )
         end
     else
         for c in 1:chains
             @info "Running Gibbs chain $c/$chains"
-            samples[c] = _sample_ssl_gibbs(data, prior; rng = rngs[c], chains = 1, progress = progress, n_samples = n_samples, warmup = warmup, thin = thin, target_accept = target_accept, constraint = resolved_constraint, prox_sum0_lambda = prox_sum0_lambda, approx = approx, kwargs...)
+            samples[c] = _sample_ssl_gibbs(data, prior; rng = rngs[c], chains = 1, progress = progress, n_samples = n_samples, warmup = warmup, thin = thin, target_accept = target_accept, constraint = resolved_constraint, prox_sum0_lambda = prox_sum0_lambda, kwargs...)
         end
     end
     return MultiMHSamples(samples)
@@ -1007,10 +955,9 @@ function _sample_gibbs_chains(
     rng::AbstractRNG,
     multichains::Bool = false,
     progress::Bool = true,
-    approx = nothing,
     kwargs...,
 )
-    chains == 1 && return _sample_coordinate_gibbs(data, prior; rng = rng, progress = progress, approx = approx, kwargs...)
+    chains == 1 && return _sample_coordinate_gibbs(data, prior; rng = rng, progress = progress, kwargs...)
     samples = Vector{MHSamples}(undef, chains)
     rngs = [_independent_rng(rng) for _ in 1:chains]
     if multichains
@@ -1024,14 +971,13 @@ function _sample_gibbs_chains(
                 progress = progress,
                 progress_desc = _chain_progress_desc("Coordinate Gibbs sampling", c, chains),
                 progress_offset = _chain_progress_offset(c, chains),
-                approx = approx,
                 kwargs...,
             )
         end
     else
         for c in 1:chains
             @info "Running coordinate Gibbs chain $c/$chains"
-            samples[c] = _sample_coordinate_gibbs(data, prior; rng = rngs[c], progress = progress, approx = approx, kwargs...)
+            samples[c] = _sample_coordinate_gibbs(data, prior; rng = rngs[c], progress = progress, kwargs...)
         end
     end
     return MultiMHSamples(samples)

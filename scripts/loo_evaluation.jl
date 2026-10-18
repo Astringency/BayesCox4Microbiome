@@ -177,7 +177,6 @@ function evaluate_cox_loo(X::AbstractMatrix, time::AbstractVector, event::Abstra
         return (summary = summary, pointwise = DataFrame(), full_fit = fit)
     end
     sum(event) >= 2 || throw(ArgumentError("subject_refit requires an event in every training fold"))
-    get(kwargs, :approx, false) && throw(ArgumentError("subject_refit requires approx=false"))
     selected = collect(Int, folds)
     !isempty(selected) && all(i -> 1 <= i <= n, selected) && allunique(selected) ||
         throw(ArgumentError("folds must be nonempty, unique subject indices in 1:n"))

@@ -127,7 +127,6 @@ function main()
     loo_mode = check_loo_mode(Symbol(arg(args, "loo-mode", "fixed_risk")))
     loo_parallel = arg(args, "loo-parallel", false)
     if loo_mode == :subject_refit
-        arg(args, "approx", false) && throw(ArgumentError("subject_refit requires --approx false"))
         loo_parallel && Threads.nthreads() <= 1 &&
             throw(ArgumentError("parallel LOO requires julia -t N with N>1"))
     end
@@ -193,8 +192,6 @@ function main()
     prox_root_tol = prior_kwargs.prox_root_tol
     prox_root_maxiter = prior_kwargs.prox_root_maxiter
     init = Symbol(arg(args, "init", "zero"))
-    approx = arg(args, "approx", false)
-    approx_point = Symbol(arg(args, "approx-point", "zero"))
     mala_step_size = sampler_kwargs.mala_step_size
     mala_target_accept = sampler_kwargs.mala_target_accept
     mala_adapt_every = sampler_kwargs.mala_adapt_every
@@ -416,8 +413,6 @@ function main()
             init = init,
             realdata = true,
             progress = progress,
-            approx = approx,
-            approx_point = approx_point,
         )
         fit = fit_and_evaluate(X, time, event; fit_kwargs...)
         summary = copy(fit.summary)

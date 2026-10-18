@@ -49,8 +49,6 @@ const SAMPLER_GENERAL_CLI_KEYS = (
     "init",
     "seed",
     "progress",
-    "approx",
-    "approx-point",
 )
 const NUTS_SAMPLER_CLI_KEYS = (
     "nuts-backend",
@@ -298,8 +296,6 @@ function sampler_hyperparameter_kwargs(args)
         prox_block_adapt_every = arg(args, "prox-block-adapt-every", 50),
         prox_block_divergence_threshold = arg(args, "prox-block-divergence-threshold", 1000.0),
         prox_block_metric = Symbol(arg(args, "prox-block-metric", "unit_diag")),
-        approx = arg(args, "approx", false),
-        approx_point = Symbol(arg(args, "approx-point", "zero")),
     )
 end
 
@@ -1121,8 +1117,6 @@ function fit_and_evaluate(
     alpha_prior_kind = :invgamma,
     init::Symbol = :zero,
     progress::Bool = true,
-    approx::Bool = false,
-    approx_point::Symbol = :zero,
     compute_metrics::Bool = true,
 )
     if realdata && prior_name in ("prox-lasso", "prox-sslasso") && alpha_prior_scale === nothing
@@ -1165,7 +1159,6 @@ function fit_and_evaluate(
     result =
         if clinical_X !== nothing
             sampler == :hmc || throw(ArgumentError("joint clinical fitting currently requires HMC"))
-            approx && throw(ArgumentError("joint clinical fitting requires --approx false"))
             sample_clinical_cox(X, time, event, clinical_X;
                 prior, clinical_names, clinical_prior_df, clinical_prior_scale,
                 n_samples, warmup, thin, chains, multichains, seed, target_accept,
@@ -1215,8 +1208,6 @@ function fit_and_evaluate(
                 prox_root_maxiter = prox_root_maxiter,
                 init = init,
                 progress = progress,
-                approx = approx,
-                approx_point = approx_point,
                 explicit_nuts_kwargs...,
             )
         elseif sampler == :hmc
@@ -1256,7 +1247,6 @@ function fit_and_evaluate(
                 alpha_prior_kind = alpha_prior_kind,
                 prox_root_tol = prox_root_tol,
                 prox_root_maxiter = prox_root_maxiter,
-                max_depth = max_depth,
                 prox_block_step_size = prox_block_step_size,
                 prox_block_min_step_size = prox_block_min_step_size,
                 prox_block_max_step_size = prox_block_max_step_size,
@@ -1265,11 +1255,30 @@ function fit_and_evaluate(
                 prox_block_metric = prox_block_metric,
                 init = init,
                 progress = progress,
-                approx = approx,
-                approx_point = approx_point,
             )
         elseif sampler == :mh || sampler == :mala || sampler == :ula
             if sampler == :mala || sampler == :ula
+                mala_kwargs = sampler == :mala ? (
+                    target_accept = target_accept,
+                    mala_target_accept = mala_target_accept,
+                    mala_adapt_every = mala_adapt_every,
+                    mala_min_step = mala_min_step,
+                    mala_max_step = mala_max_step,
+                    mala_precondition = mala_precondition,
+                    mala_precondition_mode = mala_precondition_mode,
+                    mala_precondition_diag = mala_precondition_diag,
+                    mala_metric_ridge = mala_metric_ridge,
+                    mala_metric_max_cholesky_tries = mala_metric_max_cholesky_tries,
+                    mala_stepsize_schedule = mala_stepsize_schedule,
+                    mala_sgld_c0 = mala_sgld_c0,
+                    mala_sgld_target_accept = mala_sgld_target_accept,
+                    mala_sgld_accept_low = mala_sgld_accept_low,
+                    mala_sgld_accept_high = mala_sgld_accept_high,
+                    mala_sgld_adapt_c0 = mala_sgld_adapt_c0,
+                    mala_sgld_adapt_every = mala_sgld_adapt_every,
+                    mala_sgld_c0_min = mala_sgld_c0_min,
+                    mala_sgld_c0_max = mala_sgld_c0_max,
+                ) : NamedTuple()
                 sample_bayes_cox(
                     X,
                     time,
@@ -1281,7 +1290,6 @@ function fit_and_evaluate(
                     thin = thin,
                     chains = chains,
                     multichains = multichains,
-                    target_accept = target_accept,
                     seed = seed,
                     use_car = use_car,
                     car_weights = car_weights,
@@ -1303,28 +1311,9 @@ function fit_and_evaluate(
                     prox_root_tol = prox_root_tol,
                     prox_root_maxiter = prox_root_maxiter,
                     mala_step_size = mala_step_size,
-                    mala_target_accept = mala_target_accept,
-                    mala_adapt_every = mala_adapt_every,
-                    mala_min_step = mala_min_step,
-                    mala_max_step = mala_max_step,
-                    mala_precondition = mala_precondition,
-                    mala_precondition_mode = mala_precondition_mode,
-                    mala_precondition_diag = mala_precondition_diag,
-                    mala_metric_ridge = mala_metric_ridge,
-                    mala_metric_max_cholesky_tries = mala_metric_max_cholesky_tries,
-                    mala_stepsize_schedule = mala_stepsize_schedule,
-                    mala_sgld_c0 = mala_sgld_c0,
-                    mala_sgld_target_accept = mala_sgld_target_accept,
-                    mala_sgld_accept_low = mala_sgld_accept_low,
-                    mala_sgld_accept_high = mala_sgld_accept_high,
-                    mala_sgld_adapt_c0 = mala_sgld_adapt_c0,
-                    mala_sgld_adapt_every = mala_sgld_adapt_every,
-                    mala_sgld_c0_min = mala_sgld_c0_min,
-                    mala_sgld_c0_max = mala_sgld_c0_max,
+                    mala_kwargs...,
                     init = init,
                     progress = progress,
-                    approx = approx,
-                    approx_point = approx_point,
                 )
             else
                 sample_bayes_cox(
@@ -1356,11 +1345,17 @@ function fit_and_evaluate(
                     prox_sum0_lambda = prox_sum0_lambda,
                     init = init,
                     progress = progress,
-                    approx = approx,
-                    approx_point = approx_point,
                 )
             end
         elseif sampler == :gibbs
+            ssl_kwargs = prior isa SpikeSlabLassoPrior ? (
+                prox_l1_lambda = prox_l1_lambda,
+                alpha_prior_shape = alpha_prior_shape,
+                alpha_prior_scale = alpha_prior_scale,
+                alpha_prior_kind = alpha_prior_kind,
+                prox_root_tol = prox_root_tol,
+                prox_root_maxiter = prox_root_maxiter,
+            ) : NamedTuple()
             sample_bayes_cox(
                 X,
                 time,
@@ -1388,16 +1383,9 @@ function fit_and_evaluate(
                 tie_method = tie_method,
                 constraint = constraint,
                 prox_sum0_lambda = prox_sum0_lambda,
-                prox_l1_lambda = prox_l1_lambda,
-                alpha_prior_shape = alpha_prior_shape,
-                alpha_prior_scale = alpha_prior_scale,
-                alpha_prior_kind = alpha_prior_kind,
-                prox_root_tol = prox_root_tol,
-                prox_root_maxiter = prox_root_maxiter,
+                ssl_kwargs...,
                 init = init,
                 progress = progress,
-                approx = approx,
-                approx_point = approx_point,
             )
         else
             throw(ArgumentError("sampler must be :nuts, :nuts_turing, :nuts_explicit, :hmc, :mh, :mala, :ula, or :gibbs."))

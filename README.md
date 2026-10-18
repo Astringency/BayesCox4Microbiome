@@ -2,6 +2,10 @@
 
 BayesCox4Micro is a Julia package for Bayesian Cox proportional hazards models with compositional microbiome, immune-cell, or other nonnegative abundance covariates. It provides compositional preprocessing, Efron tied-event handling, sparse priors, MCMC sampling, posterior diagnostics, and complete simulation and real-data workflows.
 
+All samplers evaluate the Cox partial likelihood directly. Its analytical score
+is used by the explicit gradient-based samplers; tied events use Efron by default,
+with Breslow available through `tie_method` / `--tie-method`.
+
 The [consolidated review results](results/review_20261012/RESULTS.md) include the
 completed 2,400-fit Weibull/Gompertz main experiment, 1,800 supplementary fits,
 canonical S4 graph ablation, official BCCox PH comparison, and T1D results.

@@ -27,7 +27,6 @@ function CoxClinicalTarget(base::AbstractCoxTarget, clinical::AbstractMatrix;
     names = ["clinical[$j]" for j in axes(clinical, 2)], prior_df = 3.0, prior_scale = 2.5)
     base isa Union{CoxNoncenteredPosteriorTarget,CoxPosteriorTarget,CoxProxSSLassoTarget} ||
         throw(ArgumentError("clinical adjustment supports explicit HS/RHS and Prox-SSLASSO targets"))
-    base.approx === nothing || throw(ArgumentError("clinical adjustment requires the exact Cox likelihood"))
     size(clinical, 2) == length(names) > 0 || throw(DimensionMismatch("clinical column names"))
     prior_df > 0 && prior_scale > 0 || throw(ArgumentError("clinical prior df and scale must be positive"))
     joint = joint_cox_data(base.data, clinical)

@@ -173,7 +173,6 @@ function _precond_mala_step!(
     work::PreconditionedMALAWorkspace;
     ridge::Float64 = 1e-6,
     max_cholesky_tries::Int = 8,
-    logpost_true::Function = logpost,
 )
     d = length(u)
     length(work.proposal) == d || throw(DimensionMismatch("preconditioned MALA workspace dimension mismatch."))
@@ -195,8 +194,6 @@ function _precond_mala_step!(
 
     prop_lp = logpost(work.proposal)
     isfinite(prop_lp) || return current_lp, false
-    prop_lp_true = logpost_true(work.proposal)
-    current_lp_true = logpost_true(u)
     gradient!(work.grad_prop, work.proposal)
     all(isfinite, work.grad_prop) || return current_lp, false
     metric!(work.G_prop, work.proposal)
@@ -220,7 +217,7 @@ function _precond_mala_step!(
         F_prop,
         epsilon,
     )
-    log_alpha = prop_lp_true + logq_reverse - current_lp_true - logq_forward
+    log_alpha = prop_lp + logq_reverse - current_lp - logq_forward
     accepted = isfinite(log_alpha) && log(rand(rng)) < log_alpha
     return accepted ? prop_lp : current_lp, accepted
 end

@@ -13,7 +13,6 @@ struct CoxProxLassoTarget <: AbstractCoxTarget
     prox_root_maxiter::Int
     init::Symbol
     work::ProxGradientWorkspace
-    approx::Union{Nothing,CoxApproximation}
 end
 
 function CoxProxLassoTarget(
@@ -28,7 +27,6 @@ function CoxProxLassoTarget(
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     init::Symbol = :zero,
-    approx = nothing,
 )
     return CoxProxLassoTarget(
         data,
@@ -43,7 +41,6 @@ function CoxProxLassoTarget(
         Int(prox_root_maxiter),
         init,
         ProxGradientWorkspace(data),
-        approx,
     )
 end
 
@@ -62,7 +59,6 @@ struct CoxProxSSLassoTarget{G<:AbstractVector{Bool}} <: AbstractCoxTarget
     prox_root_maxiter::Int
     init::Symbol
     work::ProxGradientWorkspace
-    approx::Union{Nothing,CoxApproximation}
 end
 
 struct CoxNoncenteredPosteriorTarget{P<:Union{HorseshoePrior,RegularizedHorseshoePrior}} <: AbstractCoxTarget
@@ -81,7 +77,6 @@ struct CoxNoncenteredPosteriorTarget{P<:Union{HorseshoePrior,RegularizedHorsesho
     names::Vector{String}
     output_names::Vector{String}
     work::CoxGradientWorkspace
-    approx::Union{Nothing,CoxApproximation}
 end
 
 function CoxNoncenteredPosteriorTarget(
@@ -97,7 +92,6 @@ function CoxNoncenteredPosteriorTarget(
     car_strength_prior_b::Real = 1.0,
     car_degree_scale::Symbol = :mean_active,
     car_kappa_init::Real = 0.5,
-    approx = nothing,
 )
     p = size(data.z, 2)
     effective_car_weights = use_car ? car_weights : nothing
@@ -125,7 +119,6 @@ function CoxNoncenteredPosteriorTarget(
         _noncentered_state_names(prior, p; sample_car_strength = sample_car_strength),
         _state_names(prior, p; sample_car_strength = sample_car_strength),
         CoxGradientWorkspace(data),
-        approx,
     )
 end
 
@@ -143,7 +136,6 @@ function CoxProxSSLassoTarget(
     prox_root_tol::Real,
     prox_root_maxiter::Integer,
     init::Symbol = :zero,
-    approx = nothing,
 )
     # Gibbs updates and continuous transitions must share the same indicators.
     # `trues(p)` is a BitVector; copying it disconnects the two conditional steps.
@@ -163,7 +155,6 @@ function CoxProxSSLassoTarget(
         Int(prox_root_maxiter),
         init,
         ProxGradientWorkspace(data),
-        approx,
     )
 end
 
@@ -275,7 +266,6 @@ function logdensity(target::CoxProxLassoTarget, u::AbstractVector)
         alpha_prior_kind = target.alpha_prior_kind,
         prox_root_tol = target.prox_root_tol,
         prox_root_maxiter = target.prox_root_maxiter,
-        approx = target.approx,
     )
 end
 
@@ -294,7 +284,6 @@ function logdensity(target::CoxProxSSLassoTarget, u::AbstractVector)
         alpha_prior_kind = target.alpha_prior_kind,
         prox_root_tol = target.prox_root_tol,
         prox_root_maxiter = target.prox_root_maxiter,
-        approx = target.approx,
     )
 end
 
@@ -313,7 +302,6 @@ function logdensity(target::CoxNoncenteredPosteriorTarget, u::AbstractVector)
         car_strength_prior_b = target.car_strength_prior_b,
         car_degree_scale = target.car_degree_scale,
         car_kappa_init = target.car_kappa_init,
-        approx = target.approx,
     )
 end
 
@@ -331,7 +319,6 @@ function gradient!(grad::AbstractVector{Float64}, target::CoxProxLassoTarget, u:
         alpha_prior_kind = target.alpha_prior_kind,
         prox_root_tol = target.prox_root_tol,
         prox_root_maxiter = target.prox_root_maxiter,
-        approx = target.approx,
     )
 end
 
@@ -351,7 +338,6 @@ function gradient!(grad::AbstractVector{Float64}, target::CoxProxSSLassoTarget, 
         alpha_prior_kind = target.alpha_prior_kind,
         prox_root_tol = target.prox_root_tol,
         prox_root_maxiter = target.prox_root_maxiter,
-        approx = target.approx,
     )
 end
 
@@ -372,7 +358,6 @@ function gradient!(grad::AbstractVector{Float64}, target::CoxNoncenteredPosterio
         car_strength_prior_b = target.car_strength_prior_b,
         car_degree_scale = target.car_degree_scale,
         car_kappa_init = target.car_kappa_init,
-        approx = target.approx,
     )
     return grad
 end
@@ -395,7 +380,6 @@ function logdensity_and_gradient!(
         alpha_prior_kind = target.alpha_prior_kind,
         prox_root_tol = target.prox_root_tol,
         prox_root_maxiter = target.prox_root_maxiter,
-        approx = target.approx,
     )
 end
 
@@ -420,7 +404,6 @@ function logdensity_and_gradient!(
         car_strength_prior_b = target.car_strength_prior_b,
         car_degree_scale = target.car_degree_scale,
         car_kappa_init = target.car_kappa_init,
-        approx = target.approx,
     )
 end
 
@@ -445,7 +428,6 @@ function logdensity_and_gradient!(
         alpha_prior_kind = target.alpha_prior_kind,
         prox_root_tol = target.prox_root_tol,
         prox_root_maxiter = target.prox_root_maxiter,
-        approx = target.approx,
     )
 end
 

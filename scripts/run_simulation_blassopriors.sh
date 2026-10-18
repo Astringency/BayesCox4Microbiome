@@ -27,7 +27,7 @@ for constraint in "${constraint_vals[@]}"; do
         --sampler "${SAMPLER:-hmc}" --nuts-backend explicit --hmc-n-leapfrog "${HMC_N_LEAPFROG:-100}" \
         --samples "${SAMPLES:-5000}" --warmup "${WARMUP:-2000}" --thin 1 --chains "${CHAINS:-4}" \
         --multichains true --init "${INIT:-$init}" --target-accept "${TARGET_ACCEPT:-0.8}" --noncentered true --seed "${SEED:-1}" \
-        --approx false --approx-point zero --use-car "${USE_CAR:-true}" --progress true \
+        --use-car "${USE_CAR:-true}" --progress true \
         --car-weight-quantile 0.99 --car-precision 1 --sample-car-strength "${SAMPLE_CAR_STRENGTH:-${USE_CAR:-true}}" \
         --car-strength-prior-a 1 --car-strength-prior-b "${CAR_STRENGTH_PRIOR_B:-1}" --car-distance bray --p0 "${P0:-truth}" \
         --prox-sum0-lambda "${PROX_SUM0_LAMBDA:-1e-3}" --prox-l1-lambda "${PROX_L1_LAMBDA:-1e-3}" \

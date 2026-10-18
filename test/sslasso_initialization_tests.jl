@@ -45,10 +45,11 @@ end
     X = [.2 .3 .5; .5 .1 .4; .1 .6 .3; .4 .4 .2; .3 .5 .2; .2 .6 .2]
     prior = SpikeSlabLassoPrior(spike_scale=.04, slab_scale=.5, proximal=true)
     for sampler in (:hmc, :nuts_explicit), constraint in (:prox, :exact), chains in (1, 2)
+        sampler_kwargs = sampler == :hmc ? (; hmc_n_leapfrog=3) : (; max_depth=3)
         function fit(init; parallel=false)
             sample_bayes_cox(X, collect(1.:6.), [1,1,0,1,1,0];
                 prior, sampler, constraint, init, chains, parallel_chains=parallel,
-                seed=41, n_samples=4, warmup=2, hmc_n_leapfrog=3, max_depth=3,
+                seed=41, n_samples=4, warmup=2, sampler_kwargs...,
                 progress=false, prox_l1_lambda=1e-6, prox_sum0_lambda=1e-3,
                 alpha_prior_shape=1., alpha_prior_scale=3.)
         end

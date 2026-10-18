@@ -105,7 +105,6 @@ end
     @test_throws ArgumentError evaluate_cox_loo(X, t, [1, 0, 0, 0]; mode = :subject_refit)
     @test_throws ArgumentError evaluate_cox_loo(X, t, e; mode = :unknown)
     @test_throws ArgumentError evaluate_cox_loo(X, t, e; mode = :subject_refit, folds = [1, 1])
-    @test_throws ArgumentError evaluate_cox_loo(X, t, e; mode = :subject_refit, fit_kwargs = (approx = true,))
     failed = with_logger(NullLogger()) do
         evaluate_cox_loo(X, t, e; mode = :subject_refit, folds = [1], diagnostics = false,
             fit_function = (args...; kwargs...) -> error("test failed refit"))

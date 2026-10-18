@@ -15,15 +15,10 @@ function _ssl_joint_logposterior(
     theta::Real;
     constraint::Symbol,
     prox_sum0_lambda::Real,
-    approx = nothing,
 )
     0 < theta < 1 || return -Inf
     p = length(beta)
-    if approx !== nothing
-        lp = cox_logpartiallikelihood_approx(data, beta, approx)
-    else
-        lp = cox_logpartiallikelihood(data, beta)
-    end
+    lp = cox_logpartiallikelihood(data, beta)
     lp += _constraint_logpenalty(
         beta;
         constraint = constraint,
@@ -45,13 +40,8 @@ function _ssl_beta_logtarget(
     tau2::AbstractVector;
     constraint::Symbol,
     prox_sum0_lambda::Real,
-    approx = nothing,
 )
-    if approx !== nothing
-        lp = cox_logpartiallikelihood_approx(data, beta, approx)
-    else
-        lp = cox_logpartiallikelihood(data, beta)
-    end
+    lp = cox_logpartiallikelihood(data, beta)
     lp += _ssl_normal_prior_logpdf(beta, tau2)
     lp += _constraint_logpenalty(
         beta;
@@ -92,7 +82,6 @@ function _sample_ssl_gibbs(
     progress::Bool = true,
     progress_desc::AbstractString = "Gibbs sampling",
     progress_offset::Integer = 0,
-    approx = nothing,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -137,7 +126,6 @@ function _sample_ssl_gibbs(
         tau2;
         constraint = resolved_constraint,
         prox_sum0_lambda = prox_sum0_lambda,
-        approx = approx,
     )
     isfinite(current_beta_lp) || throw(ArgumentError("initial beta has non-finite log posterior."))
 
@@ -166,7 +154,6 @@ function _sample_ssl_gibbs(
             tau2;
             constraint = resolved_constraint,
             prox_sum0_lambda = prox_sum0_lambda,
-            approx = approx,
         )
         accepted = isfinite(prop_lp) && log(rand(rng)) < prop_lp - current_beta_lp
         if accepted
@@ -197,7 +184,6 @@ function _sample_ssl_gibbs(
             tau2;
             constraint = resolved_constraint,
             prox_sum0_lambda = prox_sum0_lambda,
-            approx = approx,
         )
 
         if iter <= warmup
@@ -227,7 +213,6 @@ function _sample_ssl_gibbs(
                 theta;
                 constraint = resolved_constraint,
                 prox_sum0_lambda = prox_sum0_lambda,
-                approx = approx,
             )
         end
         # phase = iter <= warmup ? "warmup $(iter)/$(warmup)" : "sample $(saved)/$(n_samples)"
@@ -270,8 +255,6 @@ function _sample_coordinate_gibbs(
     progress::Bool = true,
     progress_desc::AbstractString = "Coordinate Gibbs sampling",
     progress_offset::Integer = 0,
-    approx = nothing,
-    kwargs...,
 )
     n_samples > 0 || throw(ArgumentError("n_samples must be positive."))
     warmup >= 0 || throw(ArgumentError("warmup must be nonnegative."))
@@ -335,22 +318,6 @@ function _sample_coordinate_gibbs(
 
     resolved_constraint = _resolve_constraint(constraint)
     logpost = uu -> logposterior(
-        uu,
-        data,
-        prior;
-        constraint = resolved_constraint,
-        prox_sum0_lambda = prox_sum0_lambda,
-        car_weights = car_weights,
-        use_car = use_car,
-        car_precision = car_precision,
-        sample_car_strength = sample_car_strength,
-        car_strength_prior_a = car_strength_prior_a,
-        car_strength_prior_b = car_strength_prior_b,
-        car_degree_scale = car_degree_scale,
-        car_kappa_init = car_kappa_init,
-        approx = approx,
-    )
-    logpost_true = uu -> logposterior(
         uu,
         data,
         prior;

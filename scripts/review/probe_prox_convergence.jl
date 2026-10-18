@@ -30,10 +30,12 @@ function run_probes(source, out, cases)
             prox_sum0_lambda=1e-6, prox_l1_lambda=1e-6, sampler=:hmc,
             hmc_n_leapfrog=100), configs[name])
         println("START ",name); flush(stdout)
+        sampler_kwargs = cfg.sampler == :hmc ?
+            (; hmc_n_leapfrog=cfg.hmc_n_leapfrog) : (; max_depth=10)
         timed = @timed sample_bayes_cox(X, df.time, df.event;
             prior=SpikeSlabLassoPrior(spike_scale=cfg.spike_scale, slab_scale=cfg.slab_scale,
                                      theta_a=1.,theta_b=1.,proximal=true),
-            sampler=cfg.sampler, hmc_n_leapfrog=cfg.hmc_n_leapfrog, max_depth=10,
+            sampler=cfg.sampler, sampler_kwargs...,
             n_samples=2000, warmup=1000, chains=4, multichains=true, seed=Int(meta["replicate_id"]),
             target_accept=0.8, constraint=:prox, prox_sum0_lambda=cfg.prox_sum0_lambda,
             prox_l1_lambda=cfg.prox_l1_lambda, alpha_prior_shape=1., alpha_prior_scale=cfg.alpha_prior_scale,

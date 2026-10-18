@@ -451,8 +451,6 @@ function _sample_hmc_explicit(
     multichains::Bool = false,
     parallel_chains::Union{Nothing,Bool} = nothing,
     noncentered::Bool = false,
-    approx = nothing,
-    kwargs...,
 )
     thin > 0 || throw(ArgumentError("thin must be positive."))
     chains > 0 || throw(ArgumentError("chains must be positive."))
@@ -557,7 +555,6 @@ function _sample_hmc_explicit(
                 car_degree_scale = car_degree_scale,
                 car_kappa_init = car_kappa_init,
                 noncentered = noncentered,
-                approx = approx,
             )
             _sample_explicit_hmc_one(
                 target;
@@ -600,7 +597,6 @@ function _sample_hmc_explicit(
                         car_degree_scale = car_degree_scale,
                         car_kappa_init = car_kappa_init,
                         noncentered = noncentered,
-                        approx = approx,
                     )
                     samples[c] = _sample_explicit_hmc_one(
                         target;
@@ -640,7 +636,6 @@ function _sample_hmc_explicit(
                         car_degree_scale = car_degree_scale,
                         car_kappa_init = car_kappa_init,
                         noncentered = noncentered,
-                        approx = approx,
                     )
                     samples[c] = _sample_explicit_hmc_one(
                         target;
