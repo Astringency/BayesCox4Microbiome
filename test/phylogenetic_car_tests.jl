@@ -1,4 +1,4 @@
-using Test, Random, LinearAlgebra, BayesCox4Micro
+using Test, Random, LinearAlgebra, Statistics, BayesCox4Micro
 if !isdefined(Main, :generate_simulation_data)
     include(joinpath(@__DIR__, "..", "scripts", "lib", "analysis_common.jl"))
 end
@@ -138,4 +138,27 @@ end
         @test fits[2].draws != fits[3].draws
         @test fits[3].draws != fits[4].draws
     end
+end
+
+@testset "CAR threshold uses off-diagonal similarities" begin
+    # One pair of columns is closer than all others, so the top off-diagonal
+    # similarity survives the 99% threshold. Diagonal self-similarities are
+    # large enough that including them would remove every edge.
+    X = [1.0 1 0 0 0;
+         0 1 0 0 0;
+         0 0 1 0 0;
+         0 0 0 1 0;
+         0 0 0 0 1]
+    K = car_similarity_matrix(car_distance_matrix(X))
+    p = size(K, 1)
+    offdiag = [abs(K[i, j]) for j in 2:p for i in 1:(j - 1)]
+    cutoff = quantile(offdiag, 0.99)
+    @test cutoff < maximum(offdiag)
+    @test quantile(abs.(vec(K)), 0.99) > maximum(offdiag)
+
+    W = car_weight_matrix(X)
+    @test W == W'
+    @test all(iszero, diag(W))
+    @test count(x -> x != 0, W) == 2
+    @test maximum(W) == maximum(offdiag)
 end

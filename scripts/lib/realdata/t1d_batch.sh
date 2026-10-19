@@ -6,7 +6,7 @@ t1d_args=("$@")
 # An explicit source selects one existing arm and preserves its specification.
 for value in "${t1d_args[@]}"; do
     if [[ "$value" == --source-arm || "$value" == --source-arm=* ]]; then
-        run_logged t1d-source "${LOG_ROOT:-results/realdata/T1D/logs}" run_julia scripts/lib/realdata/analyze.jl --workflow t1d "${t1d_args[@]}"
+        run_logged t1d-source "${LOG_ROOT:-results/realdata/T1D/logs}" run_julia scripts/lib/realdata/t1d.jl "${t1d_args[@]}"
         exit
     fi
 done
@@ -30,7 +30,7 @@ IFS=',' read -ra t1d_adjustments <<< "${ADJUSTMENTS:-unadjusted,adjusted}"
 t1d_arm() {
     local constraint="$1" prior="$2" adjustment="$3" adjusted=false
     [[ "$adjustment" != adjusted ]] || adjusted=true
-    run_logged "${constraint}_${prior}_${adjustment}" "${LOG_ROOT:-$OUT_ROOT/logs}" run_julia scripts/lib/realdata/analyze.jl --workflow t1d \
+    run_logged "${constraint}_${prior}_${adjustment}" "${LOG_ROOT:-$OUT_ROOT/logs}" run_julia scripts/lib/realdata/t1d.jl \
         --input data/T1D.csv --outdir "$OUT_ROOT" --constraint "$constraint" \
         --prior "$prior" --adjusted "$adjusted" --stage all "${t1d_args[@]}" || return
 

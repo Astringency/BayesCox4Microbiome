@@ -1,6 +1,10 @@
+using Pkg
+const PARTITION_CODE_ROOT = normpath(joinpath(@__DIR__, "..", "..", ".."))
+Base.active_project() == joinpath(PARTITION_CODE_ROOT, "Project.toml") ||
+    Pkg.activate(PARTITION_CODE_ROOT)
+
 using BayesCox4Micro: _cindex_candidate_configs, _cindex_fit_kwargs, _dict_rows_dataframe, _finite_number, _fit_diagnostics, _json_ready, _kfold_indices, _loo_atomic_json, _loo_checkpoint_manifest, _nested_cindex_summary, _select_inner_cindex, _tuning_dict, _validation_cindices, _write_nested_table, _write_tuning_json
 # T1D: clinical design, nested CV, candidate partitions and final posterior.
-const PARTITION_CODE_ROOT = normpath(joinpath(@__DIR__, "..", "..", ".."))
 isdefined(@__MODULE__, :parse_cli_args) || include(joinpath(PARTITION_CODE_ROOT,"scripts","lib","analysis_common.jl"))
 
 function t1d_main(args=parse_cli_args())
@@ -408,4 +412,8 @@ function t1d_ph_diagnostics(source,args)
     end
     cmd=`$(Base.julia_cmd()) --startup-file=no --project=$PARTITION_CODE_ROOT $script $options`
     run(cmd)
+end
+
+if abspath(PROGRAM_FILE) == abspath(@__FILE__)
+    t1d_main()
 end

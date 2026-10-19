@@ -6,10 +6,6 @@ using BayesCox4Micro
 using Statistics
 
 
-module SavedSummary
-include(joinpath(@__DIR__, "..", "scripts", "lib", "realdata", "summarize_convergence.jl"))
-end
-
 @testset "zero-only abundance preprocessing" begin
     X = [0.0 0.2; 0.4 0.6; 0.0 0.0]
     original = copy(X)
@@ -67,23 +63,6 @@ end
         end
     end
     @test validation == original
-end
-
-@testset "saved real-data summaries use the same zero handling" begin
-    mktempdir() do dir
-        input = joinpath(dir, "cohort.csv")
-        write(input, "time,status,a,b\n1,1,0,0.2\n2,0,0.4,0.6\n3,1,0.8,0.2\n")
-        metadata = Dict{String,Any}("input" => input, "time_col" => "time",
-            "status_col" => "status", "component_cols" => "a,b")
-        X, time, event = [0.0 0.2; 0.4 0.6; 0.8 0.2], [1.0, 2.0, 3.0], [1, 0, 1]
-        for standardize in (false, true)
-            metadata["standardize"] = standardize
-            z, t, e = SavedSummary.prepared_data(metadata)
-            @test z == prepare_cox_data(X, time, event; standardize).z
-            @test (t, e) == (time, event)
-            @test all(isfinite, z)
-        end
-    end
 end
 
 end

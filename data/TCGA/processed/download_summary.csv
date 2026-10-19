@@ -1,9 +1,0 @@
-dataset,n_rows,os_events,pfi_events,dfi_events,dss_events,output_file
-TCGA-BRCA,1093,151,145,84,83,data/processed/TCGA_BRCA_TIMER2_survival.csv
-TCGA-BLCA,408,179,174,31,122,data/processed/TCGA_BLCA_TIMER2_survival.csv
-TCGA-COAD,455,102,122,23,64,data/processed/TCGA_COAD_TIMER2_survival.csv
-TCGA-HNSC,520,220,197,28,130,data/processed/TCGA_HNSC_TIMER2_survival.csv
-TCGA-LIHC,371,130,180,143,79,data/processed/TCGA_LIHC_TIMER2_survival.csv
-TCGA-LUAD,515,187,209,89,115,data/processed/TCGA_LUAD_TIMER2_survival.csv
-TCGA-OV,303,183,209,98,155,data/processed/TCGA_OV_TIMER2_survival.csv
-TCGA-STAD,415,160,135,44,97,data/processed/TCGA_STAD_TIMER2_survival.csv

@@ -10,7 +10,7 @@ Shell 入口支持 `DRY_RUN=true` 预览命令。`WORKERS` 控制并行任务数
 | --- | --- |
 | `plotting/` | Julia 和 R 的系数、模拟结果、方法比较和诊断图 |
 | `simulation/` | 主实验与 S1–S4 数据生成、场景设置、删失校准、统一拟合、信息量校准、汇总和监控 |
-| `realdata/` | T1D 完整分析、通用数据入口、LOO、CV 重放及结果汇总 |
+| `realdata/` | T1D 完整分析：8 组嵌套 CV、全数据拟合、PH 诊断和批处理 |
 | `diagnostics/` | 数值诊断、Schoenfeld 检查、时间效应模型和贝叶斯因子 |
 | `analysis_common.jl`、`*.sh` | 共用参数、文件和执行函数 |
 
@@ -94,16 +94,9 @@ bash scripts/analyze_real_data.sh --retry-from OLD_ARM --source-arm NEW_ARM --st
 `--smoke true` 只保留一个候选，用于检查流程，不代表完整调参。
 `RUN_PH=false` 或 `--run-ph false` 可显式跳过 PH。
 
-其他实际数据和保存结果的工作流：
-
-```bash
-RUN_DATASETS=HCT_bcorsis bash scripts/analyze_real_data.sh standard
-bash scripts/analyze_real_data.sh loo --help
-bash scripts/analyze_real_data.sh cv-replay --help
-```
-
-通用 CSV 的 Julia 入口必须显式给出 `--workflow standard`，并指定 `--input`、
-`--time-col`、`--status-col`、`--comp-cols` / `--exclude-cols`。
+当前只保留 T1D 数据 `data/T1D.csv` 及分类注释 `data/T1D_metadata.csv`；
+不再提供其他数据集、LOO 或 CV 补算入口。默认采样与
+`results/review/T1D` 一致，调参候选仍由 `mainfuncs/tuning_grids.jl` 决定。
 
 ## PH 诊断
 

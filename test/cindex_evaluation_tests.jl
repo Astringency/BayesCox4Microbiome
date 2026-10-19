@@ -218,44 +218,11 @@ end
     end
 end
 
-module CindexSummaryReaders
-include(joinpath(@__DIR__, "..", "scripts", "lib", "realdata", "summarize_convergence.jl"))
-end
-
-module CindexMethodReaders
-include(joinpath(@__DIR__, "..", "scripts", "lib", "realdata", "summarize_methods.jl"))
-end
-
 module CindexSimulationReaders
 include(joinpath(@__DIR__, "..", "scripts", "lib", "simulation", "summarize.jl"))
 end
 
-@testset "summaries reject historical tuning scores as nested tests" begin
-    old = DataFrame(dataset_id = ["T1D"], constraint = ["prox"], prior = ["cox-rhs"],
-        CV_Cindex_mean = [0.99])
-    @test CindexSummaryReaders.fallback_cv_row(old, "T1D", "prox", "cox-rhs") === nothing
-    old.evaluation = ["nested_cv"]
-    old.status = ["incomplete"]
-    @test CindexSummaryReaders.fallback_cv_row(old, "T1D", "prox", "cox-rhs") === nothing
-    old.status .= "success"
-    @test CindexSummaryReaders.fallback_cv_row(old, "T1D", "prox", "cox-rhs").CV_Cindex_mean == 0.99
-    mktempdir() do dir
-        table = DataFrame(dataset_id = ["T1D"], prior = ["cox-rhs"], cv_cindex = [0.99])
-        CSV.write(joinpath(dir, "bayes_all_methods.csv"), table)
-        @test ismissing(only(CindexMethodReaders.bayes_rows(dir)).cindex)
-        table.cv_evaluation = ["nested_cv"]
-        CSV.write(joinpath(dir, "bayes_all_methods.csv"), table)
-        row = only(CindexMethodReaders.bayes_rows(dir))
-        @test row.cindex == 0.99
-        @test row.cindex_metric == "Nested-CV-Cindex"
-        path = joinpath(dir, "nested_cv_summary.csv")
-        _write_nested_table(path, DataFrame(prior = ["rhs"], CV_Cindex_mean = [0.6]), ["rhs"])
-        _write_nested_table(path, DataFrame(prior = ["cox-rhs"], CV_Cindex_mean = [0.7]), ["cox-rhs"])
-        _write_nested_table(path, DataFrame(prior = ["cox-rhs"], CV_Cindex_mean = [0.8]), ["cox-rhs"])
-        saved = CSV.read(path, DataFrame)
-        @test saved.prior == ["rhs", "cox-rhs"]
-        @test saved.CV_Cindex_mean == [0.6, 0.8]
-    end
+@testset "simulation summaries aggregate saved metrics" begin
     sim = DataFrame(run_dir = ["a", "b"], prior = ["cox-rhs", "cox-rhs"],
         Cindex = [0.9, 0.8], Cindex_train = [0.9, 0.8], Cindex_test = [0.6, 0.5])
     agg = CindexSimulationReaders.summarize_model_metrics(sim)

@@ -190,8 +190,8 @@ static/time-model Bayes factors are saved. See [the experiment guide](scripts/RE
 for output paths, budgets, evidence assumptions and Bridge sampling diagnostics.
 Tuning candidate values are maintained in `mainfuncs/tuning_grids.jl`.
 
-For another CSV, use `scripts/lib/realdata/analyze.jl --workflow standard` with
-`--input`, `--time-col`, `--status-col`, `--comp-cols` / `--exclude-cols`.
+The bundled real-data workflow is T1D only: `data/T1D.csv` with taxonomic
+annotations in `data/T1D_metadata.csv`.
 
 Prox-SSLASSO's explicit HMC/NUTS samplers honor `--init zero` and `--init rand`
 for single, serial, and parallel chains. The default `zero` starts at beta=0,
@@ -231,48 +231,15 @@ only completed nested evaluations; old tuning scores are kept separately as
 `tuning_cv_cindex`. An old result without nested evaluation has a missing test
 score. Baseline packages' existing CV scores retain their original definitions.
 
-To backfill nested CV for saved Bayesian runs, use:
-
-```bash
-julia +1.11.7 --startup-file=no --project=. scripts/lib/realdata/analyze.jl --workflow cv-replay --priors cox-rhs,prox-sslasso --outer-cv-folds 5 --cv-folds 5
-```
-
-This command now retunes inside each outer fold; historical fixed-configuration
-CV is not reused. It uses the current candidate grids, so it need not reproduce
-an older grid's selected parameters. Saved automatically screened `p0` is reset
-to automatic training-only screening. Full-data `--prior-configs` files are used
-only for the final full-data model, not to bypass inner tuning. Input feature
-columns and fixed settings must be specified independently of held-out outcomes;
-previous outcome-based feature screening outside these scripts is not repeated
-automatically. `--nested-cv false` explicitly skips the new evaluation, and
-`--tune_priorsparams false` disables the prior search; neither option turns a
-training or old tuning score into an independent test score.
+The T1D workflow always retunes inside each outer training fold; historical
+fixed-configuration CV is not reused as a test score. Input feature columns and
+fixed settings must be specified independently of held-out outcomes.
 
 Run the focused regression tests with:
 
 ```bash
 julia +1.11.7 --startup-file=no --project=. test/cindex_evaluation_tests.jl
 ```
-
-## Leave-one-out evaluation
-
-All LOO entry points default to `fixed_risk`: event-factor PSIS uses the full-data
-risk sets without rebuilding them or refitting the model for each deleted subject.
-The T1D runner fits the full data once per method to obtain these diagnostics.
-
-To rerun T1D for Cox-RHS (`soft_center`) and Prox-SSLASSO (`prox`) using the saved
-configurations and fixed risk sets:
-
-```bash
-julia +1.11.7 --startup-file=no -t 4 --project=. scripts/lib/realdata/analyze.jl --workflow loo
-```
-
-The unified `bash scripts/analyze_real_data.sh loo` entry uses the same `fixed_risk` default.
-Explicit `--loo-mode subject_refit` (or `both` in the T1D runner) enables subject
-deletion, training risk-set reconstruction and checkpointed refits. That alternative
-scores partial-likelihood ratios, including censored subjects' effects on other
-event denominators, rather than full survival-time densities. Its scores and
-fixed-risk PSIS scores have different evaluation targets.
 
 ## Experiment entry points
 
@@ -284,10 +251,10 @@ Each simulation shell launcher keeps its own settings and loops. The terminal
 shows group and overall fit counts; sampler output is saved under the run's
 `logs/` directory. Shared shell helpers live in `scripts/lib/`.
 
-All real-data workflows enter through `analyze_real_data.sh` or
-`scripts/lib/realdata/analyze.jl`: ordinary datasets, the eight T1D combinations,
-partitioned nested CV, candidate workers, final posterior retries and LOO.
-The T1D implementation lives in `scripts/lib/realdata/`.
+All real-data workflows enter through `scripts/analyze_real_data.sh` or
+`scripts/lib/realdata/t1d.jl`: the eight T1D combinations, partitioned nested CV,
+candidate workers and final posterior retries. The T1D implementation and batch
+driver live in `scripts/lib/realdata/`.
 
 BcCox PH and BCCox PH baselines remain in their corresponding R projects;
 the Julia supplementary suite does not duplicate those implementations.

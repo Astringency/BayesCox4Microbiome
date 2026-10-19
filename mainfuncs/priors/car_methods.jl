@@ -64,7 +64,8 @@ end
 Build the symmetric CAR weight matrix from an abundance matrix by following
 the BayesCox IAR construction: compute taxa distances, double-center squared
 distances into a similarity matrix, then keep edges whose `abs(similarity)` is
-above `threshold_quantile`.
+above the `threshold_quantile` of the off-diagonal similarities. Diagonal
+self-similarities are not candidate edges and are excluded from the threshold.
 """
 function car_weight_matrix(
     X::AbstractMatrix{<:Real};
@@ -75,8 +76,11 @@ function car_weight_matrix(
         throw(ArgumentError("threshold_quantile must be in [0, 1]."))
     D = car_distance_matrix(X; distance = distance)
     K = car_similarity_matrix(D)
-    cutoff = quantile(abs.(vec(K)), Float64(threshold_quantile))
     p = size(K, 1)
+    cutoff = quantile(
+        [abs(K[i, j]) for j in 2:p for i in 1:(j - 1)],
+        Float64(threshold_quantile),
+    )
     W = zeros(Float64, p, p)
     @inbounds for j in 2:p
         for i in 1:(j - 1)
