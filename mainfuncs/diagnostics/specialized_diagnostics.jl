@@ -65,10 +65,15 @@ end
 function selection_mixing_diagnostics(wide::AbstractDataFrame)
     cols = [c for c in propertynames(wide) if occursin(r"^gamma\[\d+\]$", String(c))]
     rows = NamedTuple[]
-    for g in groupby(wide, :chain), col in cols
+    isempty(cols) && return DataFrame()
+    for g in groupby(wide, :chain)
         order = sortperm(g.iter)
-        raw = Float64.(g[order, col])
-        all(x -> x == 0 || x == 1, raw) || throw(ArgumentError("gamma draws must be binary"))
+        length(unique(g.iter)) == nrow(g) || throw(ArgumentError("duplicate iterations within a chain"))
+        draws = Matrix{Float64}(g[order, cols])
+        all(x -> x == 0 || x == 1, draws) || throw(ArgumentError("gamma draws must be binary"))
+        mcse = _indicator_chain_mcse(draws, cols)
+        for (j, col) in enumerate(cols)
+        raw = view(draws, :, j)
         x = raw .== 1
         d = diff(Int.(x))
         switches = count(!=(0), d)
@@ -76,11 +81,12 @@ function selection_mixing_diagnostics(wide::AbstractDataFrame)
         lag1 = length(x) > 2 && std(raw[1:end-1]) > 0 && std(raw[2:end]) > 0 ?
             cor(raw[1:end-1], raw[2:end]) : missing
         push!(rows, (chain = string(first(g.chain)), parameter = String(col), n_draws = length(x),
-            inclusion_probability = mean(x), n_switches = switches,
+            inclusion_probability = mean(x), pip_mcse = mcse[j], n_switches = switches,
             switch_rate = length(x) > 1 ? switches / (length(x)-1) : missing,
             n_zero_to_one = count(==(1), d), n_one_to_zero = count(==(-1), d),
             longest_dwell_draws = maximum(diff(ends)), lag1_autocorrelation = lag1,
             constant_chain = switches == 0))
+        end
     end
     return DataFrame(rows)
 end
@@ -96,6 +102,20 @@ function _result_transitions(result::CoxSamplerResult)
         end
     end
     return DataFrame(rows)
+end
+
+"""Screen continuous parameters without treating undefined constant-indicator
+R-hat as evidence for or against convergence. Indicator diagnostics stay separate.
+"""
+function continuous_convergence_summary(table::AbstractDataFrame)
+    rows=:category in propertynames(table) ? table[table.category .== "convergence",:] : table
+    rows=rows[.!startswith.(string.(rows.parameters),"gamma["),:]
+    valid=!isempty(rows) && all(x -> !ismissing(x) && isfinite(x),Matrix(rows[:,[:rhat,:ess_bulk,:ess_tail]]))
+    return (continuous_rhat_max=valid ? maximum(rows.rhat) : missing,
+        continuous_ess_bulk_min=valid ? minimum(rows.ess_bulk) : missing,
+        continuous_ess_tail_min=valid ? minimum(rows.ess_tail) : missing,
+        continuous_screen_pass=valid && all(rows.rhat .<= rows.rhat_threshold) &&
+            all(rows.ess_bulk .>= rows.ess_threshold) && all(rows.ess_tail .>= rows.ess_threshold))
 end
 
 function transition_diagnostics_summary(transitions::AbstractDataFrame)

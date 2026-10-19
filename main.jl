@@ -40,6 +40,8 @@ export DIAG_DEBUG,
     cox_logpartiallikelihood,
     cox_score_gradient,
     cox_score_gradient!,
+    time_cox_loglikelihood,
+    ph_time_design,
     CoxGradientWorkspace,
     cox_loglik_events,
     project_sum0,
@@ -78,6 +80,9 @@ export DIAG_DEBUG,
     save_diagnostic_outputs,
     diagnose_run,
     convergence_diagnostics,
+    pip_consistency_diagnostics,
+    bridge_sampling,
+    bridge_evidence,
     diagnostic_table,
     read_diagnostics,
     fit_and_evaluate,
@@ -129,6 +134,7 @@ include("mainfuncs/priors/constraint_methods.jl")
 include("mainfuncs/priors/prox_methods.jl")
 include("mainfuncs/data/data.jl")
 include("mainfuncs/likelihood/cox_likelihood.jl")
+include("mainfuncs/likelihood/time_cox_likelihood.jl")
 include("mainfuncs/priors/horseshoe_methods.jl")
 include("mainfuncs/priors/regularized_horseshoe_methods.jl")
 include("mainfuncs/priors/noncentered_hs_rhs_methods.jl")
@@ -145,12 +151,21 @@ include("mainfuncs/samplers/nuts_turing_sampler.jl")
 include("mainfuncs/samplers/nuts_explicit_sampler.jl")
 include("mainfuncs/targets/exact_zero_target.jl")
 include("mainfuncs/targets/clinical_target.jl")
+include("mainfuncs/targets/time_varying_target.jl")
+include("mainfuncs/targets/radius_prior_target.jl")
 include("mainfuncs/samplers/sampling_timing.jl")
 include("mainfuncs/samplers/hmc_sampler.jl")
 include("mainfuncs/samplers/clinical_sampler.jl")
+include("mainfuncs/samplers/ph_prior_sampler.jl")
+include("mainfuncs/samplers/ph_slice_sampler.jl")
+include("mainfuncs/samplers/ph_sampler.jl")
 include("mainfuncs/api.jl")
 include("mainfuncs/diagnostics/diagnostics.jl")
 include("mainfuncs/diagnostics/specialized_diagnostics.jl")
+include("mainfuncs/diagnostics/pip_diagnostics.jl")
+include("mainfuncs/evidence/bridge_sampling.jl")
+include("mainfuncs/evidence/ph_model.jl")
+include("mainfuncs/evidence/ph_bridge.jl")
 include("mainfuncs/diagnostics/visualization_diagnostics.jl")
 include("mainfuncs/metrics/bayesian_metrics.jl")
 include("mainfuncs/tuning_grids.jl")

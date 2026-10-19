@@ -29,7 +29,7 @@ end
         transition = merge((chain = 1,), B._transition_record(
             (numerical_error = true, hamiltonian_energy_error = Inf, acceptance_rate = 0.0), 1, 0))
         table = diagnostic_table(wide; transitions = DataFrame([transition]), runtime = Dict("total_seconds" => 2.5))
-        @test Set(table.category) == Set(["convergence", "zero_sum", "selection_mixing", "transition", "runtime"])
+        @test Set(table.category) == Set(["convergence", "zero_sum", "selection_mixing", "pip_consistency", "transition", "runtime"])
         conv = table[table.category .== "convergence", :]
         @test all(==(100n_chains), conv.ess_threshold)
         constrow = conv[conv.parameters .== "gamma[1]", :]

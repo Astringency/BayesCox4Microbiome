@@ -108,6 +108,34 @@ const PRIOR_PARAM_GRID_VALUES = Dict{String,Vector{Pair{String,Any}}}(
 
 const PRIOR_PARAM_GRIDS = _expand_named_grid_values(PRIOR_PARAM_GRID_VALUES)
 
+# Frozen mouse-data search: the five relaxed pairs used in the earlier T1D
+# experiment, followed by the two additional pairs. This is deliberately
+# separate from the general-purpose Cartesian grid above.
+const T1D_SSLASSO_SCALE_PAIRS = [(2.0, 10.0), (2.0, 20.0), (5.0, 20.0),
+    (5.0, 50.0), (10.0, 50.0), (0.04, 0.5), (1.0, 10.0)]
+const T1D_SSLASSO_GRID_VERSION = "relaxed_five_plus_two_v1"
+const T1D_SSLASSO_EXTENDED_GRID_VERSION = "relaxed_five_plus_two_lambda1e6_v2"
+const T1D_SSLASSO_PARAM_GRID = [Dict{String,Any}(
+    "sslasso_spike_scale" => spike, "sslasso_slab_scale" => slab,
+    "prox_l1_lambda" => lambda, "alpha_prior_shape" => 1.0)
+    for (spike, slab) in T1D_SSLASSO_SCALE_PAIRS for lambda in (1e-5, 1e-4, 1e-3)]
+
+"""Return independent copies of the T1D grids without changing the default grids."""
+function t1d_prior_param_grids(; version=T1D_SSLASSO_GRID_VERSION)
+    grids = deepcopy(PRIOR_PARAM_GRIDS)
+    grids["prox-sslasso"] = deepcopy(T1D_SSLASSO_PARAM_GRID)
+    if version == T1D_SSLASSO_EXTENDED_GRID_VERSION
+        # Append, preserving the original candidate IDs, tie order and fit seeds.
+        append!(grids["prox-sslasso"], [Dict{String,Any}(
+            "sslasso_spike_scale" => spike, "sslasso_slab_scale" => slab,
+            "prox_l1_lambda" => 1e-6, "alpha_prior_shape" => 1.0)
+            for (spike, slab) in T1D_SSLASSO_SCALE_PAIRS])
+    elseif version != T1D_SSLASSO_GRID_VERSION
+        error("Unknown T1D prior grid version: $version")
+    end
+    return grids
+end
+
 const ALGORITHM_PARAM_GRID_VALUES = Dict{Symbol,Vector{Pair{Symbol,Any}}}(
     :nuts => Pair{Symbol,Any}[
         :sampler => [:nuts],

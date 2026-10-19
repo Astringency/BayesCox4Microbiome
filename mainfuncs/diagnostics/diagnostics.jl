@@ -296,7 +296,9 @@ function diagnostic_table(wide::AbstractDataFrame; transitions = DataFrame(),
     end
     add!(convergence_diagnostics(wide; rhat_threshold), "convergence")
     add!(zero_sum_diagnostics(wide), "zero_sum"; parameter = "sum(beta)")
-    add!(selection_mixing_diagnostics(wide), "selection_mixing")
+    mixing = selection_mixing_diagnostics(wide)
+    add!(mixing, "selection_mixing")
+    add!(pip_consistency_diagnostics(wide; mixing), "pip_consistency")
     add!(transition_diagnostics_summary(transitions), "transition")
     costs = runtime isa SamplingDiagnostics ? sampling_diagnostics_dict(runtime) : runtime
     isempty(costs) || add!(DataFrame([Symbol(k) => [_csv_value(v)] for (k,v) in pairs(costs)]), "runtime"; phase = "all")

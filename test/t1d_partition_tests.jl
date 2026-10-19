@@ -8,7 +8,7 @@ include(joinpath(@__DIR__,"..","scripts","lib","realdata","t1d.jl"))
     for explicit in (false,true)
         mktempdir() do temp
             args=Dict("input"=>input,"outdir"=>temp,"prior"=>"cox-rhs")
-            explicit && merge!(args,Dict("target-accept"=>"0.97","leapfrog"=>"350"))
+            explicit && merge!(args,Dict("target-accept"=>"0.97","leapfrog"=>"350","prox-sum0-lambda"=>"1e-3"))
             root=t1d_prepare_specification(args)
             prepared=t1d_partition_setup(root;input,smoke=true,create_manifest=true)
             @test prepared.sampler[:warmup]==4000
@@ -16,9 +16,31 @@ include(joinpath(@__DIR__,"..","scripts","lib","realdata","t1d.jl"))
             @test prepared.sampler[:chains]==4
             @test prepared.sampler[:target_accept]==(explicit ? 0.97 : 0.95)
             @test prepared.sampler[:hmc_n_leapfrog]==(explicit ? 350 : 300)
+            @test prepared.model[:prox_sum0_lambda]==(explicit ? 1e-3 : 1e-6)
             changed=copy(prepared.spec);changed["target_accept"]=0.98
             _write_tuning_json(joinpath(root,"analysis_specification.json"),changed)
             @test_throws ErrorException t1d_partition_setup(root;input,smoke=true)
+        end
+    end
+end
+
+@testset "T1D sensitivity specifications freeze the extended grid and penalty" begin
+    input=joinpath(@__DIR__,"..","data","T1D.csv")
+    mktempdir() do temp
+        args=Dict("input"=>input,"outdir"=>temp,"prior"=>"prox-sslasso",
+            "prox-sum0-lambda"=>"1e-3",
+            "prior-grid-version"=>BayesCox4Micro.T1D_SSLASSO_EXTENDED_GRID_VERSION)
+        arm=t1d_prepare_specification(args)
+        setup=t1d_partition_setup(arm;input,create_manifest=true)
+        @test length(setup.configs)==28
+        @test setup.model[:prox_sum0_lambda]==1e-3
+        @test setup.spec["prior_grid"]==BayesCox4Micro.t1d_prior_param_grids(
+            ;version=BayesCox4Micro.T1D_SSLASSO_EXTENDED_GRID_VERSION)["prox-sslasso"]
+        changed=copy(args);changed["prox-sum0-lambda"]="1e-6"
+        @test_throws ErrorException t1d_prepare_specification(changed)
+        for invalid in ("0","-1","NaN","Inf")
+            bad=copy(args);bad["prox-sum0-lambda"]=invalid
+            @test_throws ErrorException t1d_prepare_specification(bad)
         end
     end
 end
@@ -36,6 +58,10 @@ end
             spec=Dict("method_name"=>method,"adjustment"=>adjusted ? "adjusted" : "unadjusted",
                 "n_samples"=>12,"warmup"=>8,"chains"=>2,"hmc_n_leapfrog"=>3,
                 "outer_folds"=>2,"inner_folds"=>2,"seed"=>1,"component_cols"=>cols)
+            if method == "prox-sslasso"
+                spec["prior_grid_version"] = BayesCox4Micro.T1D_SSLASSO_GRID_VERSION
+                spec["prior_grid"] = BayesCox4Micro.t1d_prior_param_grids()[method]
+            end
             sampler=Dict(:sampler=>:hmc,:n_samples=>12,:warmup=>8,:chains=>2,:multichains=>true,
                 :target_accept=>0.9,:hmc_n_leapfrog=>3,:noncentered=>true,:progress=>false)
             prior=Dict{Symbol,Any}(:alpha_prior_kind=>:invgamma,:alpha_prior_shape=>1.,:alpha_prior_scale=>size(X,2)+(adjusted ? size(C,2) : 0))

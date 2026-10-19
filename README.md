@@ -187,7 +187,7 @@ It compares Cox-RHS and Prox-SSLASSO under soft-center/prox constraints, with an
 without joint clinical adjustment. Time-effect models are fitted on all data with
 fixed hyperparameters. Individual/global Schoenfeld plots and all ordered
 static/time-model Bayes factors are saved. See [the experiment guide](scripts/README.md)
-for output paths, budgets, evidence assumptions and independent SMC diagnostics.
+for output paths, budgets, evidence assumptions and Bridge sampling diagnostics.
 Tuning candidate values are maintained in `mainfuncs/tuning_grids.jl`.
 
 For another CSV, use `scripts/lib/realdata/analyze.jl --workflow standard` with

@@ -6,8 +6,9 @@ isdefined(@__MODULE__, :parse_cli_args) || include(joinpath(PARTITION_CODE_ROOT,
 function t1d_main(args=parse_cli_args())
     require_known_args!(args,("stage","source-arm","retry-from","input","outdir","prior","adjusted",
         "constraint","samples","warmup","chains","seed","target-accept","leapfrog","alpha-prior-scale",
+        "prox-sum0-lambda","prior-grid-version",
         "outer-folds","inner-folds","smoke","config-ids","prepare-only","final-samples","final-warmup",
-        "run-ph","ph-particles","ph-repetitions","ph-moves","ph-ess-fraction","ph-max-stages","ph-time-prior-scale"))
+        "run-ph","ph-samples","ph-prior-samples","ph-warmup","ph-chains","ph-leapfrog","ph-target-accept","ph-repetitions","ph-time-prior-scale"))
     stage=arg(args,"stage","all")
     (stage in ("all","prepare","full_tuning","final") || tryparse(Int,stage)!==nothing) || error("Unknown T1D stage")
     source=arg(args,"source-arm","")
@@ -95,7 +96,9 @@ function t1d_prepare_specification(args = parse_cli_args())
         :noncentered => true, :progress => false)
     0 < sampler[:target_accept] < 1 || error("target-accept must lie strictly between 0 and 1")
     sampler[:hmc_n_leapfrog] > 0 || error("leapfrog must be positive")
-    model = Dict{Symbol,Any}(:constraint => constraint, :prox_sum0_lambda => 1e-6,
+    sum0_lambda = arg(args, "prox-sum0-lambda", 1e-6)
+    isfinite(sum0_lambda) && sum0_lambda > 0 || error("prox-sum0-lambda must be finite and positive")
+    model = Dict{Symbol,Any}(:constraint => constraint, :prox_sum0_lambda => sum0_lambda,
         :standardize => false, :p0 => nothing)
     adjusted && merge!(model, Dict(:clinical_names => cnames,
         :clinical_prior_df => 3.0, :clinical_prior_scale => 2.5))
@@ -110,7 +113,7 @@ function t1d_prepare_specification(args = parse_cli_args())
         "clinical_prior" => "independent Student-t(df=3, location=0, scale=2.5); Cox adaptation",
         "clinical_prior_reference" => "https://doi.org/10.1214/08-AOAS191",
         "n" => length(time), "p" => size(X, 2), "n_samples" => samples, "warmup" => warmup,
-        "chains" => chains, "constraint" => string(constraint), "prox_sum0_lambda" => 1e-6,
+        "chains" => chains, "constraint" => string(constraint), "prox_sum0_lambda" => sum0_lambda,
         "zero_handling" => "half_minimum_positive", "standardize" => false, "component_cols" => cols,
         "alpha_prior_scale" => alpha_scale,
         "alpha_scale_definition" => "fixed total coefficient count by default; clinical coefficients retain independent priors",
@@ -120,6 +123,11 @@ function t1d_prepare_specification(args = parse_cli_args())
         "target_accept" => sampler[:target_accept],
         "note" => "Full-data tuning scores are not test performance. Clinical covariates are outside the taxon constraint.")
     specification_path = joinpath(outdir, "analysis_specification.json")
+    if method == "prox-sslasso"
+        version = arg(args, "prior-grid-version", BayesCox4Micro.T1D_SSLASSO_GRID_VERSION)
+        metadata["prior_grid_version"] = version
+        metadata["prior_grid"] = BayesCox4Micro.t1d_prior_param_grids(;version)[method]
+    end
     if isfile(specification_path)
         JSON.parsefile(specification_path) == metadata || error("Existing T1D specification differs; use a new output root")
     else
@@ -154,6 +162,11 @@ function t1d_partition_setup(source; input=nothing, smoke=false, create_manifest
     prior = Dict{Symbol,Any}(:alpha_prior_kind => :invgamma, :alpha_prior_shape => 1.0, :alpha_prior_scale => alpha_scale)
     car = Dict(:use_car => false, :sample_car_strength => false)
     grids = deepcopy(PRIOR_PARAM_GRIDS)
+    if method == "prox-sslasso"
+        version = get(spec, "prior_grid_version", "legacy_default")
+        grids = BayesCox4Micro.t1d_prior_param_grids(;version)
+        get(spec, "prior_grid", nothing) == grids[method] || error("T1D candidate grid differs from the frozen specification")
+    end
     (smoke || get(spec,"smoke",false)) && (grids[method] = [Dict{String,Any}((method == "cox-rhs" ? "rhs_local_scale" : "sslasso_spike_scale") => 0.5)])
     configs = _cindex_candidate_configs(method, sampler; tune_priorparams=true, tune_algparams=false, prior_grids=grids)
     settings = Dict(:sampler => _tuning_dict(sampler), :prior => _tuning_dict(prior),
@@ -390,7 +403,7 @@ function t1d_ph_diagnostics(source,args)
     arg(args,"run-ph",get(ENV,"RUN_PH","true")=="true") || return
     script=joinpath(@__DIR__,"..","diagnostics","ph.jl")
     options=String["--source-arm",source]
-    for key in ("particles","repetitions","moves","ess-fraction","max-stages","time-prior-scale")
+    for key in ("samples","prior-samples","warmup","chains","leapfrog","target-accept","repetitions","time-prior-scale")
         haskey(args,"ph-"*key) && append!(options,["--"*key,args["ph-"*key]])
     end
     cmd=`$(Base.julia_cmd()) --startup-file=no --project=$PARTITION_CODE_ROOT $script $options`

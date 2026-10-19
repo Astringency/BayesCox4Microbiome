@@ -74,7 +74,7 @@ T1D 只有一个工作流 `t1d`（默认），包含 `cox-rhs,prox-sslasso` ×
 | `nested_cv/` | 内层候选结果、外层折拟合和外层测试评估 |
 | `full_data_tuning/` | 全数据内层调参及选定参数 |
 | `runs/`、`posterior_features.csv` | 最终静态后验和系数汇总 |
-| `ph_diagnostics/` | Schoenfeld 图、时间效应后验、证据重复及 SMC 诊断 |
+| `ph_diagnostics/` | Schoenfeld 图、时间效应后验、证据重复及 Bridge sampling 诊断 |
 | `ph_comparison/` | 组内模型证据及所有有向贝叶斯因子比较 |
 
 输出根目录还有 `ph_comparison/`，汇总所有组，包括跨方法、约束和临床调整设定的比较。
@@ -118,11 +118,17 @@ Schoenfeld 残差在静态联合后验均值处计算，保留 Efron 结点和�
 成分时间系数采用正交零和对比，临床时间系数独立，固定 Normal(0,0.5) 先验尺度。
 所有时间效应模型仅在全数据拟合，沿用对应静态模型所选参数，不再交叉验证。
 
-证据通过两阶段退火 SMC 计算：先归一化含约束的实际先验，再引入 Cox 部分似然。
-这一步保留 soft-center/prox/Moreau 先验的归一化因子，避免跨模型比较中误丢常数。
-默认 2048 粒子、4 次独立重复、每个温度 12 次变异，保留后验粒子、ESS、接受率、
-证据重复差异和 Monte Carlo 标准误。可用 `--ph-particles`、`--ph-repetitions`、
-`--ph-moves`、`--ph-ess-fraction`、`--ph-max-stages`、`--ph-time-prior-scale` 调整。
+证据使用 Bridge sampling：分别估计后验核和含约束先验的归一化常数，再取对数差。
+后验使用 HMC；RHS 先验使用独立拒绝抽样及条件高斯抽样，SSLASSO 先验使用
+半径坐标下的椭圆切片、log 半径切片及指示变量 Gibbs 更新，保留完整 Jacobian。
+SSLASSO 的坐标尺度同时包含半径宽度和 Moreau 平滑宽度，窄 spike/slab 下也保留精确 Jacobian。
+这些先验抽样方法均保持原先验；Gaussian 只用于辅助抽样及 Bridge proposal。
+同一静态模型的独立时间斜率先验积分为 1，因此各时间效应组合共用该静态先验的归一化常数。
+每条链前半段拟合条件高斯坐标中的 proposal，后半段估计 bridge；MCSE 用 batch means 保留链内相关性。
+重复 proposal 共用抽样结果，不能把重复间 SD 除以重复次数平方根当成总 MCSE。
+检查 `bridge_diagnostics.csv` 的 overlap、MCSE、`numerical_screen`，以及 HMC 的 R-hat/ESS。
+可用 `--ph-samples`、`--ph-prior-samples`、`--ph-warmup`、`--ph-chains`、`--ph-leapfrog`、
+`--ph-target-accept`、`--ph-repetitions`、`--ph-time-prior-scale` 调整。
 须检查混合与重复间稳定性；这些是固定已选超参数下的 Cox 部分似然贝叶斯因子，
 不包含完整基线生存分布的证据，也不积分超参数选择的不确定性。
 
@@ -131,9 +137,33 @@ julia +1.11.7 --project=. scripts/lib/diagnostics/ph.jl --source-arm ARM
 julia +1.11.7 --project=. scripts/lib/diagnostics/ph.jl --root ROOT --aggregate-only true
 ```
 
+SSLASSO 的先验与后验可使用不同抽样长度。例如，在已经完成静态拟合的独立输出目录中：
+
+```bash
+julia +1.11.7 --project=. scripts/lib/diagnostics/ph.jl --source-arm ARM \
+  --samples 10000 --prior-samples 60000 --warmup 6000 \
+  --chains 4 --leapfrog 300 --target-accept 0.95 --repetitions 4
+```
+
+`diagnostic_table` 对保存的 `gamma[j]` 二元序列输出 `selection_mixing` 和
+`pip_consistency`。后者包含各 taxon 的链间 PIP 极差，以及六个链对中最大的
+`abs(PIP_c-PIP_d)/hypot(MCSE_c,MCSE_d)`（四链时）。链内 MCSE 考虑自相关；
+常数链的 MCSE 记为缺失，主标准化指标要求所有链对可估计。
+同时保留可估计链对数、常数链数及常数链是否互相冲突，不把未切换解释为零 Monte Carlo 误差。
+
 ## 补充实验和归档
 
 当前补充实验仅保留 [review/README.md](review/README.md) 中的五类。
 论文图表、服务器专用调度器、探查脚本、历史补丁及过时计划保存在本地
 `audit/script_refactor_20261018/`，不再作为公开入口。
 `audit/` 已由 `.gitignore` 排除。历史结果及其冻结代码不随本次重构改写。
+
+T1D 的 Prox-SSLASSO 使用独立的 21 组网格：spike/slab 配对为
+`(2,10), (2,20), (5,20), (5,50), (10,50), (0.04,0.5), (1,10)`，
+每对配合 `prox_l1_lambda = 1e-5, 1e-4, 1e-3`；默认通用 57 组网格不变。
+新输出的 `analysis_specification.json` 冻结完整网格，旧规格不能静默切换。
+
+T1D 零和约束敏感性分析可在新输出目录指定 `--prox-sum0-lambda 1e-3`，
+并用 `--prior-grid-version relaxed_five_plus_two_lambda1e6_v2` 将 `1e-6`
+加入上述每一组 spike/slab 配对（共 28 组）。新增 7 组追加在原 21 组之后，
+保留既有候选编号及其采样种子；默认 21 组网格和已有分析规格不变。
