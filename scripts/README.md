@@ -158,12 +158,20 @@ julia +1.11.7 --project=. scripts/lib/diagnostics/ph.jl --source-arm ARM \
 `audit/script_refactor_20261018/`，不再作为公开入口。
 `audit/` 已由 `.gitignore` 排除。历史结果及其冻结代码不随本次重构改写。
 
-T1D 的 Prox-SSLASSO 使用独立的 21 组网格：spike/slab 配对为
-`(2,10), (2,20), (5,20), (5,50), (10,50), (0.04,0.5), (1,10)`，
-每对配合 `prox_l1_lambda = 1e-5, 1e-4, 1e-3`；默认通用 57 组网格不变。
+T1D 的 Prox-SSLASSO 使用独立的 24 组网格：spike/slab 配对为
+`(1,10), (2,10), (2,20), (5,20), (5,50), (10,50)`，
+每对配合 `prox_l1_lambda = 1e-5, 1e-4, 1e-3, 1e-6`；默认通用 57 组网格不变。
 新输出的 `analysis_specification.json` 冻结完整网格，旧规格不能静默切换。
+已归档的 T1D 敏感性结果使用旧的 7 对/28 组网格，不随本次代码简化重跑。
 
-T1D 零和约束敏感性分析可在新输出目录指定 `--prox-sum0-lambda 1e-3`，
-并用 `--prior-grid-version relaxed_five_plus_two_lambda1e6_v2` 将 `1e-6`
-加入上述每一组 spike/slab 配对（共 28 组）。新增 7 组追加在原 21 组之后，
-保留既有候选编号及其采样种子；默认 21 组网格和已有分析规格不变。
+T1D 分析统一通过 `scripts/analyze_real_data.sh` 启动；`scripts/lib/realdata/t1d_batch.sh`
+是内部批处理驱动。Prox 零和约束敏感性示例：
+
+```bash
+scripts/analyze_real_data.sh t1d \
+  --outdir results/review/T1D_prox_sum0_1e3_lambdaell_1e6 \
+  --constraint prox --prior prox-sslasso --prox-sum0-lambda 1e-3
+```
+
+`audit/` 下的 `run_queue.py`、`candidate.jl`、`assemble_fit.jl` 是已归档的自定义
+队列工具，不是公开入口；新实验统一使用上面的入口。

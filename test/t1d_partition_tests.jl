@@ -24,18 +24,18 @@ include(joinpath(@__DIR__,"..","scripts","lib","realdata","t1d.jl"))
     end
 end
 
-@testset "T1D sensitivity specifications freeze the extended grid and penalty" begin
+@testset "T1D sensitivity specifications freeze the six-pair grid and penalty" begin
     input=joinpath(@__DIR__,"..","data","T1D.csv")
     mktempdir() do temp
         args=Dict("input"=>input,"outdir"=>temp,"prior"=>"prox-sslasso",
             "prox-sum0-lambda"=>"1e-3",
-            "prior-grid-version"=>BayesCox4Micro.T1D_SSLASSO_EXTENDED_GRID_VERSION)
+            "prior-grid-version"=>BayesCox4Micro.T1D_SSLASSO_GRID_VERSION)
         arm=t1d_prepare_specification(args)
         setup=t1d_partition_setup(arm;input,create_manifest=true)
-        @test length(setup.configs)==28
+        @test length(setup.configs)==24
         @test setup.model[:prox_sum0_lambda]==1e-3
         @test setup.spec["prior_grid"]==BayesCox4Micro.t1d_prior_param_grids(
-            ;version=BayesCox4Micro.T1D_SSLASSO_EXTENDED_GRID_VERSION)["prox-sslasso"]
+            ;version=BayesCox4Micro.T1D_SSLASSO_GRID_VERSION)["prox-sslasso"]
         changed=copy(args);changed["prox-sum0-lambda"]="1e-6"
         @test_throws ErrorException t1d_prepare_specification(changed)
         for invalid in ("0","-1","NaN","Inf")
