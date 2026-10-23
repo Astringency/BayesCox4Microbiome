@@ -68,8 +68,9 @@ run_posterior_ph <- function(design_file, coefficient_file, output_dir) {
   titles <- labels
   if (file.exists(feature_table)) {
     ft <- read.csv(feature_table,check.names=FALSE)
-    genus <- ft$genus[match(labels,ft$feature_id)]
-    titles <- ifelse(is.na(genus)|genus=='',labels,paste0(labels,' / ',genus))
+    feature_id <- if ('feature_id' %in% names(ft)) ft$feature_id else ft$variable
+    genus <- ft$genus[match(labels,feature_id)]
+    titles <- ifelse(is.na(genus)|genus=='',labels,paste0(genus,' (',labels,')'))
   }
   pdf(file.path(output_dir,'posterior_mean_schoenfeld.pdf'),width=12,height=9,onefile=TRUE)
   par(mfrow=c(3,3),mar=c(4,4,3,1),oma=c(1,1,2,1))
