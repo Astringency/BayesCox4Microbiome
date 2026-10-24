@@ -62,12 +62,28 @@ end
                 if scope=="static"
                     expected=cox_logpartiallikelihood(BayesCox4Micro.joint_cox_data(fit.data,C),model.coefficients(u))
                     @test model.loglikelihood(u,g)≈expected
+                end
+                # Finite-difference check covers hyperparameter, clinical and time blocks,
+                # both posterior/prior proposals, and spike/slab indicator patterns.
+                q=size(ph_time_design(model.p,model.c,scope),2)
+                d=length(model.names_internal)-q-model.c
+                ufd=copy(u);ufd[1:model.p].+=.01randn(rng,model.p)
+                model.c>0 && (ufd[d+1:d+model.c].+=.01randn(rng,model.c))
+                q>0 && (ufd[end-q+1:end].=.1randn(rng,q))
+                gammas=model.nbits==0 ? (falses(0),) :
+                    (falses(model.nbits),Bool[isodd(j) for j in 1:model.nbits])
+                for gfd in gammas, posterior in (true,false)
+                    m=BayesCox4Micro._ph_bridge_transform(model,training;posterior)
+                    vfd=m.forward(ufd,gfd)
+                    backfd,jacfd=m.inverse(vfd,gfd)
+                    @test backfd≈ufd
+                    @test isfinite(jacfd)
                     h=1e-5
-                    J=hcat([begin
-                        plus=copy(v);minus=copy(v);plus[j]+=h;minus[j]-=h
-                        (first(transform.inverse(plus,g)).-first(transform.inverse(minus,g)))./(2h)
-                    end for j in eachindex(v)]...)
-                    @test first(logabsdet(J))≈jacobian atol=1e-5
+                    Jfd=hcat([begin
+                        plus=copy(vfd);minus=copy(vfd);plus[j]+=h;minus[j]-=h
+                        (first(m.inverse(plus,gfd)).-first(m.inverse(minus,gfd)))./(2h)
+                    end for j in eachindex(vfd)]...)
+                    @test first(logabsdet(Jfd))≈jacfd atol=1e-5
                 end
             end
             # Exercise the complete evidence/posterior/aggregation pipeline at a

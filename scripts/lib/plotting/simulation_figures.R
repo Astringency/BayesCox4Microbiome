@@ -53,7 +53,7 @@ plot_trace_density_acf <- function(samples,posterior,acf_data) {
     par <- nz$variable[i]; truth <- as.numeric(nz$true_beta[i])
     z <- samples[parameter==par]; setorder(z,chain,iter)
     a <- acf_data[parameter==par]
-    coef_label <- bquote(italic("\u03b2")[.(nz$beta_index[i])])
+    coef_label <- bquote((italic("\u03b2")^"*")[.(nz$beta_index[i])])
     base <- publication_theme(16)+theme(panel.grid.minor=element_blank(),
       legend.position='none',plot.margin=margin(4,5,4,5),
       axis.title=element_text(size=16),axis.text=element_text(size=13),
